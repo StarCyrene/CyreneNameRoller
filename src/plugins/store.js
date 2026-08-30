@@ -25,6 +25,7 @@ import { getComponentTarget } from './ui/componentRegistry'
 import { styleVarsForTarget } from './ui/stylePolicy'
 import { PluginFontRegistry } from './ui/fontRegistry'
 import { overrideStateForTarget } from './ui/overridePolicy'
+import { createTauriRunner } from './rpc/desktopHost.js'
 
 const STATE_KEY = 'pluginState'
 const PLUGIN_DATA_KEY = 'pluginData'
@@ -114,7 +115,14 @@ export const usePluginsStore = defineStore('plugins', () => {
     selectFile,
     playAudio,
     platformBridge,
-    onFault: handleRuntimeFault
+    onFault: handleRuntimeFault,
+    runnerFactory: (plugin, instanceId) => platformBridge.info().runtime === 'tauri'
+      ? createTauriRunner({ pluginId: plugin.manifest.id, instanceId, files: plugin.files })
+      : null,
+    onApi15Message: (pluginId, message) => {
+      if (message.type === 'event') emitPluginEvent(message.event, { pluginId, payload: clone(message.payload) })
+      else if (message.type === 'fault') handleRuntimeFault(pluginId, new Error(message.error || 'Plugin runner fault'))
+    }
   })
 
   const enabledPlugins = computed(() => safeModeStatus.value.enabled ? [] : Object.values(installed.value).filter(plugin => plugin.enabled))
@@ -887,6 +895,7 @@ export const usePluginsStore = defineStore('plugins', () => {
   }
 
   function markCleanShutdown() {
+    if (platformBridge.info().runtime === 'tauri') tauriAPI.pluginRunnerStopAll().catch(() => {})
     clearActivationMarker()
   }
 

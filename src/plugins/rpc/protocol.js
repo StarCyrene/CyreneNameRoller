@@ -1,4 +1,5 @@
 export const CNRP_JSONRPC_PROTOCOL = 'cnrp-jsonrpc/1'
+export const CNRP_PLUGIN_API = '1.5'
 export const MAX_RPC_FRAME_BYTES = 1024 * 1024
 export const MAX_RPC_CHUNK_BYTES = 256 * 1024
 export const MAX_RPC_BINARY_BYTES = 32 * 1024 * 1024
@@ -10,7 +11,7 @@ export function createRpcRequest(method, params = {}, id = '', identity = {}) {
   const requestId = id || globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
   if (!REQUEST_ID.test(String(requestId))) throw new Error('invalid request id')
   if (typeof method !== 'string' || !(/^[a-z][a-z0-9.-]{0,127}$/.test(method) || /^\$\/[A-Za-z][A-Za-z0-9.-]{0,127}$/.test(method))) throw new Error('invalid RPC method')
-  const envelope = { jsonrpc: '2.0', protocol: CNRP_JSONRPC_PROTOCOL, id: String(requestId), idempotencyKey: String(identity.idempotencyKey || requestId), method, params }
+  const envelope = { jsonrpc: '2.0', protocol: CNRP_JSONRPC_PROTOCOL, api: CNRP_PLUGIN_API, id: String(requestId), idempotencyKey: String(identity.idempotencyKey || requestId), method, params }
   for (const field of ['pluginId', 'instanceId']) if (identity[field] !== undefined) envelope[field] = String(identity[field])
   return Object.freeze(envelope)
 }
@@ -59,14 +60,20 @@ export function encodeRpcFrame(message) {
   return frame
 }
 
+export function validateApi15Message(message) {
+  if (!message || message.protocol !== CNRP_JSONRPC_PROTOCOL) throw new Error('RPC message protocol is invalid')
+  if (message.api !== CNRP_PLUGIN_API) throw new Error('RPC message API version is invalid')
+  if (message.jsonrpc !== '2.0' && typeof message.type !== 'string') throw new Error('RPC message envelope is invalid')
+  return message
+}
+
 export function parseRpcFrame(frame) {
   const bytes = frame instanceof Uint8Array ? frame : new Uint8Array(frame)
   if (bytes.byteLength < 4) throw new Error('RPC frame is truncated')
   const length = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true)
   if (length > MAX_RPC_FRAME_BYTES || bytes.byteLength !== length + 4) throw new Error('RPC frame length is invalid')
   const message = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(4)))
-  if (!message || message.jsonrpc !== '2.0' || message.protocol !== CNRP_JSONRPC_PROTOCOL) throw new Error('RPC message protocol is invalid')
-  return message
+  return validateApi15Message(message)
 }
 
 export function createRpcError(code, message, data) {
@@ -118,6 +125,25 @@ export class RpcHandshake {
     }
     if (this.state !== 'ready') throw new Error('handshake is closed')
     return message
+  }
+}
+
+export class HostRpcHandshake {
+  constructor(identity, credentialProof = '') { this.identity = identity; this.credentialProof = credentialProof; this.state = 'starting' }
+  next(message) {
+    if (this.state === 'ready') throw new Error(`invalid handshake state: ${this.state}`)
+    const valid = message?.pluginId === this.identity.pluginId && message?.instanceId === this.identity.instanceId && message?.role === 'plugin' && message?.api === '1.5' && message?.protocol === CNRP_JSONRPC_PROTOCOL
+    if (!valid) throw new Error('handshake identity, role, protocol, or API invalid')
+    if (this.state === 'starting' && this.credentialProof && message.credentialProof !== this.credentialProof) throw new Error('handshake credential proof invalid')
+    if (this.state === 'starting' && message.type === 'hello.accepted') {
+      this.state = 'initializing'
+      return { type: 'initialize', role: 'host', pluginId: this.identity.pluginId, instanceId: this.identity.instanceId, api: '1.5', protocol: CNRP_JSONRPC_PROTOCOL }
+    }
+    if (this.state === 'initializing' && message.type === 'ready') {
+      this.state = 'ready'
+      return { type: 'ready', role: 'plugin', pluginId: this.identity.pluginId, instanceId: this.identity.instanceId, api: '1.5', protocol: CNRP_JSONRPC_PROTOCOL }
+    }
+    throw new Error(`invalid handshake state: ${this.state}`)
   }
 }
 

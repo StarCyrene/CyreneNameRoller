@@ -1,0 +1,13 @@
+{
+  "name": "cnrp-runner",
+  "source": "bundled sidecar supplied by the application distribution",
+  "executablePath": "resources/plugin-runner/cnrp-runner(.exe)",
+  "platforms": {
+    "win32": "plugin-runner/cnrp-runner.exe",
+    "linux": "plugin-runner/cnrp-runner",
+    "darwin": "plugin-runner/cnrp-runner"
+  },
+  "arguments": ["<validated-package>", "<validated-entry>", "<manifest-args>"],
+  "credential": "private-inherited-channel",
+  "forbiddenCredentialLocations": ["argv", "broad-environment"]
+}

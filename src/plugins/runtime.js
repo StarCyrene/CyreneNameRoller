@@ -11,6 +11,9 @@ import {
 } from './ui/principal.js'
 import { listComponentTargets } from './ui/componentRegistry.js'
 import { NATIVE_VIEW_SLOTS } from './ui/nativeViewPolicy.js'
+import { DesktopPluginHost } from './rpc/desktopHost.js'
+import { WebPluginRuntime } from './rpc/webRuntime.js'
+import { resolveApi15Capabilities } from './package.js'
 
 const RESERVED_NATIVE_VIEW_SLOTS = Object.freeze([
   'slot:app.command-palette',
@@ -87,7 +90,7 @@ function wait(milliseconds) {
 }
 
 export class PluginRuntime {
-  constructor({ getPlugin, savePluginData, loadPluginData, showBanner, getCoreSnapshot, executeCoreDraw, selectFile, playAudio, platformBridge, onFault }) {
+  constructor({ getPlugin, savePluginData, loadPluginData, showBanner, getCoreSnapshot, executeCoreDraw, selectFile, playAudio, platformBridge, onFault, workerFactory, runnerFactory, onApi15Message }) {
     this.getPlugin = getPlugin
     this.savePluginData = savePluginData
     this.loadPluginData = loadPluginData
@@ -98,6 +101,9 @@ export class PluginRuntime {
     this.playAudio = playAudio
     this.platformBridge = platformBridge
     this.onFault = onFault
+    this.workerFactory = workerFactory
+    this.runnerFactory = runnerFactory
+    this.onApi15Message = onApi15Message
     this.workers = new Map()
     this.frames = new Map()
     this.pages = new Map()
@@ -120,6 +126,19 @@ export class PluginRuntime {
       platform: this.platformBridge.info()?.runtime
     })
     this.principals.set(principal.instanceId, principal)
+    return principal
+  }
+
+  createApi15Principal(plugin, instanceId, capabilities) {
+    const principal = createPluginPrincipal({
+      pluginId: plugin.manifest.id,
+      instanceId,
+      kind: 'worker',
+      contributionId: 'api15',
+      grants: Object.entries(capabilities).filter(([, status]) => status?.available).map(([id]) => id),
+      platform: this.platformBridge.info()?.runtime
+    })
+    this.principals.set(instanceId, principal)
     return principal
   }
 
@@ -299,6 +318,7 @@ export class PluginRuntime {
   }
 
   async activate(plugin) {
+    if (plugin.manifest?.api === '1.5') return this.activateApi15(plugin)
     const compatibility = this.platformBridge.compatibility(plugin.manifest)
     if (!compatibility.compatible) throw new Error(compatibility.reason)
     const existingRuntime = this.workers.get(plugin.manifest.id)
@@ -449,25 +469,109 @@ export class PluginRuntime {
     }
   }
 
+  async activateApi15(plugin) {
+    const pluginId = plugin.manifest.id
+    const existing = this.workers.get(pluginId)
+    if (existing) return existing.activated
+    const platform = this.platformBridge.info()
+    const declarations = Array.isArray(plugin.manifest.permissions) ? plugin.manifest.permissions : []
+    const capabilities = resolveApi15Capabilities(plugin.manifest, platform)
+    const required = declarations.filter(item => typeof item === 'object' && item.required).map(item => item.id)
+    const missingRequired = required.filter(id => !capabilities[id]?.available)
+    if (missingRequired.length) throw Object.assign(new Error(`required capability unavailable: ${missingRequired.join(', ')}`), { code: 'UNSUPPORTED_PLATFORM' })
+    const instanceId = globalThis.crypto?.randomUUID?.() || `plugin-${Date.now()}-${Math.random()}`
+    const principal = this.createApi15Principal(plugin, instanceId, capabilities)
+    const runtime = platform.runtime === 'tauri'
+      ? new DesktopPluginHost({ pluginId, instanceId, packagePath: plugin.packagePath || pluginId, entry: plugin.manifest.entry.script, args: plugin.manifest.entry.args || [], runner: this.runnerFactory?.(plugin, instanceId) || {}, initialize: capabilities, onMessage: message => this.onApi15Message?.(pluginId, message), onRequest: message => this.handleRpc(principal, message.method, message.params) })
+      : new WebPluginRuntime({ pluginId, instanceId, worker: this.workerFactory?.(plugin) || this.createApi15Worker(plugin), requiredCapabilities: required, availableCapabilities: Object.fromEntries(Object.entries(capabilities).map(([name, value]) => [name, value.available])), onRequest: message => this.handleRpc(principal, message.method, message.params) })
+    const activated = runtime.start().then(() => runtime.ready)
+    this.workers.set(pluginId, { api15: true, runtime, activated, commandRequests: new Map() })
+    try {
+      await activated
+      return true
+    } catch (error) {
+      revokePrincipal(principal)
+      this.principals.delete(instanceId)
+      this.workers.delete(pluginId)
+      await runtime.shutdown().catch(() => {})
+      throw error
+    }
+  }
+
+  receiveApi15(pluginId, message) {
+    const record = this.workers.get(pluginId)
+    if (!record?.api15) return false
+    record.runtime.receive(message)
+    return true
+  }
+
+  sendApi15Event(pluginId, event, payload) {
+    const record = this.workers.get(pluginId)
+    if (!record?.api15) return false
+    if (record.runtime.send) record.runtime.send({ type: 'event', role: 'host', pluginId, instanceId: record.runtime.instanceId, event, payload: transferableValue(payload) })
+    return true
+  }
+
+  createApi15Worker(plugin) {
+    if (typeof Worker !== 'function' || typeof globalThis.URL?.createObjectURL !== 'function' || typeof Blob !== 'function') throw new Error('当前环境不支持 API 1.5 Web Worker')
+    const source = decodePluginFile(plugin, plugin.manifest.entry.script)
+    const bootstrap = `
+      'use strict';
+      for (const key of ['fetch', 'WebSocket', 'EventSource', 'XMLHttpRequest', 'importScripts', 'Worker', 'SharedWorker']) {
+        try { Object.defineProperty(self, key, { value: undefined, writable: false, configurable: false }); } catch {}
+      }
+      ${source}
+      const module = self.CyrenePluginModule || self.cyrenePlugin || self.plugin;
+      let identity = null;
+      self.onmessage = async event => {
+        const message = event.data || {};
+        if (message.api !== '1.5' || message.protocol !== 'cnrp-jsonrpc/1') throw new Error('RPC message API or protocol is invalid');
+        if (message.type === 'hello') {
+          identity = Object.freeze({ pluginId: message.pluginId, instanceId: message.instanceId });
+          return self.postMessage({ type: 'hello.accepted', role: 'plugin', ...identity, api: '1.5', protocol: 'cnrp-jsonrpc/1' });
+        }
+        if (!identity || message.pluginId !== identity.pluginId || message.instanceId !== identity.instanceId) throw new Error('stale or invalid plugin instance identity');
+        if (message.type === 'initialize') {
+          await module?.activate?.(Object.freeze({ plugin: { id: message.pluginId }, capabilities: message.capabilities || {}, request: (method, params) => new Promise((resolve, reject) => {
+            const id = crypto.randomUUID(); self.postMessage({ jsonrpc: '2.0', protocol: 'cnrp-jsonrpc/1', api: '1.5', ...identity, id, method, params });
+            self.addEventListener('message', function receive(response) { const data = response.data || {}; if (data.id !== id) return; self.removeEventListener('message', receive); if (data.api !== '1.5' || data.protocol !== 'cnrp-jsonrpc/1' || data.pluginId !== identity.pluginId || data.instanceId !== identity.instanceId) return reject(new Error('RPC response identity or API is invalid')); data.error ? reject(data.error) : resolve(data.result); });
+          }) }));
+          return self.postMessage({ type: 'ready', role: 'plugin', pluginId: message.pluginId, instanceId: message.instanceId, api: '1.5', protocol: 'cnrp-jsonrpc/1' });
+        }
+        if (message.type === 'shutdown') await module?.deactivate?.();
+      };
+    `
+    const workerUrl = globalThis.URL.createObjectURL(new Blob([bootstrap], { type: 'text/javascript' }))
+    const worker = new Worker(workerUrl)
+    const terminate = worker.terminate.bind(worker)
+    worker.terminate = () => { globalThis.URL.revokeObjectURL(workerUrl); terminate() }
+    return worker
+  }
+
   async deactivate(pluginId) {
     this.deactivatingPlugins.add(pluginId)
     try {
       const runtime = this.workers.get(pluginId)
       if (runtime) {
-        for (const task of runtime.commandRequests?.values() || []) {
-          clearTimeout(task.timeout)
-          revokePrincipal(task.principal)
-          this.principals.delete(task.principal?.instanceId)
-          task.reject(new Error('插件已停止，命令已取消'))
+        if (runtime.api15) {
+          await runtime.runtime.shutdown()
+          this.workers.delete(pluginId)
+        } else {
+          for (const task of runtime.commandRequests?.values() || []) {
+            clearTimeout(task.timeout)
+            revokePrincipal(task.principal)
+            this.principals.delete(task.principal?.instanceId)
+            task.reject(new Error('插件已停止，命令已取消'))
+          }
+          runtime.commandRequests?.clear()
+          try { runtime.worker.postMessage({ type: 'deactivate' }) } catch {}
+          await Promise.race([runtime.deactivated, wait(RUNTIME_DEACTIVATE_GRACE_MS)])
+          runtime.worker.terminate()
+          revokePrincipal(runtime.principal)
+          this.principals.delete(runtime.principal?.instanceId)
+          if (runtime.workerUrl) URL.revokeObjectURL(runtime.workerUrl)
+          this.workers.delete(pluginId)
         }
-        runtime.commandRequests?.clear()
-        try { runtime.worker.postMessage({ type: 'deactivate' }) } catch {}
-        await Promise.race([runtime.deactivated, wait(RUNTIME_DEACTIVATE_GRACE_MS)])
-        runtime.worker.terminate()
-        revokePrincipal(runtime.principal)
-        this.principals.delete(runtime.principal?.instanceId)
-        if (runtime.workerUrl) URL.revokeObjectURL(runtime.workerUrl)
-        this.workers.delete(pluginId)
       }
       this.unregisterPages(pluginId)
       this.unregisterCommands(pluginId)
@@ -488,7 +592,10 @@ export class PluginRuntime {
     for (const [pluginId, runtime] of this.workers) {
       const plugin = this.getPlugin(pluginId)
       if (!canReceiveEvent(plugin, event)) continue
-      try { runtime.worker.postMessage({ type: 'event', event, payload: transferredPayload }) } catch {}
+      try {
+        if (runtime.api15) this.sendApi15Event(pluginId, event, transferredPayload)
+        else runtime.worker.postMessage({ type: 'event', event, payload: transferredPayload })
+      } catch {}
     }
     for (const [key, frame] of this.frames) {
       const pluginId = key.split(':')[0]
@@ -790,6 +897,8 @@ export class PluginRuntime {
     const pluginId = principal.pluginId
     const plugin = this.getPlugin(pluginId)
     if (!plugin) throw new Error('插件不存在')
+    const activeRuntime = this.workers.get(pluginId)
+    if (!principal.legacyPrincipal && activeRuntime?.api15 && activeRuntime.runtime.instanceId !== principal.instanceId) throw runtimeError('PLUGIN_INSTANCE_REVOKED', '插件实例身份已失效')
     if (plugin.enabled === false || this.deactivatingPlugins.has(pluginId)) throw runtimeError('PLUGIN_INSTANCE_REVOKED', '插件已禁用')
     const resource = method === 'resources.query' ? HOST_RESOURCES[String(args.resource || '')] : null
     const transaction = method === 'transactions.execute' ? HOST_TRANSACTIONS[String(args.transaction || args.id || '')] : null
@@ -797,6 +906,7 @@ export class PluginRuntime {
     if (method === 'transactions.execute' && !transaction) throw new Error(`未知宿主事务：${String(args.transaction || args.id || '')}`)
     const permissionFor = method => ({
       'storage.read': 'storage:read', 'storage.write': 'storage:write',
+      'core.names.read': 'core:names:read', 'core.records.read': 'core:records:read', 'core.statistics.read': 'core:statistics:read',
       'names.read': 'names:read', 'records.read': 'records:read', 'statistics.read': 'statistics:read', 'balance.read': 'balance:read',
       'draw.execute': 'draw:execute',
       'notifications.show': 'notifications:show',
@@ -813,6 +923,9 @@ export class PluginRuntime {
       case 'runtime.capabilities': return this.platformBridge.capabilities()
       case 'host.describe': return this.describeHost(plugin)
       case 'storage.read': return this.loadPluginData(pluginId, storageKey(args.key))
+      case 'core.names.read': return this.getCoreSnapshot('names')
+      case 'core.records.read': return this.getCoreSnapshot('records')
+      case 'core.statistics.read': return this.getCoreSnapshot('statistics')
       case 'storage.write': {
         const key = storageKey(args.key)
         const result = await this.savePluginData(pluginId, key, args.value)
