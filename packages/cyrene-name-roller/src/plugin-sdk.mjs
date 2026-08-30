@@ -2,7 +2,7 @@
  * Public SDK for CyreneNameRoller plugins.
  * The host injects the request function into activate(context).
  */
-export const PLUGIN_API_VERSION = '1.4.0'
+export const PLUGIN_API_VERSION = '1.5.0'
 
 export const PluginEvents = Object.freeze({
   APP_READY: 'app:ready',

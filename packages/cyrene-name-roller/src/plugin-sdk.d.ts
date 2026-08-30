@@ -1,4 +1,4 @@
-export declare const PLUGIN_API_VERSION: '1.4.0'
+export declare const PLUGIN_API_VERSION: '1.5.0'
 export declare const PluginEvents: {
   readonly APP_READY: 'app:ready'
   readonly APP_ROUTE_CHANGED: 'app:route-changed'

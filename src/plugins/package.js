@@ -3,6 +3,7 @@ import {
   PLUGIN_ANIMATION_TARGETS,
   PLUGIN_API_VERSION,
   PLUGIN_COMMAND_LOCATIONS,
+  PLUGIN_API15_PERMISSIONS,
   PLUGIN_LIFECYCLE_EVENTS,
   PLUGIN_PERMISSIONS,
   PLUGIN_PLATFORM_CAPABILITIES,
@@ -52,6 +53,124 @@ const VISUAL_SURFACE_EVENTS = new Set([
   'card:item-result', 'card:result',
   'lottery:item-result', 'lottery:result', 'lottery:assign-result'
 ])
+const API15_ID = /^[a-z0-9]+(?:[._-][a-z0-9]+)+$/
+const API15_DECLARATION_ID = /^[a-z][a-z0-9._-]{0,63}$/
+const API15_OPERATIONS = new Set(['name-draw', 'card-flip', 'lottery-draw', 'prize-assignment'])
+const API15_WINDOWS = new Set(['create', 'main:control', 'floating:control', 'always-on-top'])
+const API15_PAGE_LOCATIONS = new Set(['main', 'settings'])
+const API15_MANIFEST_FIELDS = new Set(['api', 'schemaVersion', 'id', 'name', 'version', 'author', 'description', 'engine', 'entry', 'platforms', 'permissions', 'files', 'network', 'windows', 'pages', 'hooks', 'signature', 'integrity'])
+const API15_FILE_SCOPES = new Set(['read', 'write', 'execute'])
+const API15_WINDOW_FIELDS = new Set(['create', 'main', 'floating'])
+
+function boundedString(value, label, max, required = false) {
+  if (typeof value !== 'string' || value.length > max || (required && !value.trim())) throw new Error(`${label} is invalid`)
+  return value
+}
+
+export function normalizeProcessEntry(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['runtime', 'script', 'args'].includes(key)) || value.runtime !== 'cnrp-runner') throw new Error('entry is invalid')
+  const script = validatePath(boundedString(value.script, 'entry.script', 256, true))
+  const args = value.args === undefined ? [] : value.args
+  if (!Array.isArray(args) || args.length > 32 || args.some(arg => typeof arg !== 'string' || arg.length > 2048 || arg.includes('\0'))) throw new Error('entry.args is invalid')
+  return { runtime: 'cnrp-runner', script, args: [...args] }
+}
+
+export function normalizeFileScopes(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('files is invalid')
+  if (Object.keys(value).some(key => !['app', 'external'].includes(key))) throw new Error('files contains unknown field')
+  const normalizeScope = (scope, label, external = false) => {
+    if (!scope || typeof scope !== 'object' || Array.isArray(scope)) throw new Error(`${label} is invalid`)
+    const allowed = ['scopes', ...(external ? ['path'] : [])]
+    if (Object.keys(scope).some(key => !allowed.includes(key))) throw new Error(`${label} contains unknown field`)
+    if (!Array.isArray(scope.scopes) || scope.scopes.length > 3 || scope.scopes.some(item => typeof item !== 'string' || !API15_FILE_SCOPES.has(item)) || new Set(scope.scopes).size !== scope.scopes.length) throw new Error(`${label}.scopes is invalid`)
+    if (external) validatePath(boundedString(scope.path, `${label}.path`, 256, true))
+    return { ...(external ? { path: scope.path.replace(/\\/g, '/') } : {}), scopes: [...scope.scopes] }
+  }
+  const result = {}
+  if (value.app !== undefined) result.app = normalizeScope(value.app, 'files.app')
+  if (value.external !== undefined) {
+    if (!Array.isArray(value.external) || value.external.length > 16) throw new Error('files.external is invalid')
+    result.external = value.external.map((scope, index) => normalizeScope(scope, `files.external[${index}]`, true))
+  }
+  return result
+}
+
+export function normalizeHookDeclaration(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['operation', 'timeoutMs'].includes(key))) throw new Error('hook is invalid')
+  if (!API15_OPERATIONS.has(value.operation)) throw new Error('hook operation is invalid')
+  const timeoutMs = value.timeoutMs
+  if (typeof timeoutMs !== 'number' || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 1000) throw new Error('hook timeout is invalid')
+  return { operation: value.operation, timeoutMs }
+}
+
+function normalizeApi15Page(value, index, parent = '') {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['id', 'title', 'titleEn', 'description', 'location', 'entry', 'children'].includes(key))) throw new Error(`pages[${index}] is invalid`)
+  const id = boundedString(value.id, `pages[${index}].id`, 64, true)
+  if (!API15_DECLARATION_ID.test(id) || (parent === '' && !API15_PAGE_LOCATIONS.has(value.location)) || (parent !== '' && value.location !== undefined)) throw new Error(`pages[${index}] is invalid`)
+  const children = value.children === undefined ? [] : value.children
+  if (!Array.isArray(children) || children.length > 32) throw new Error(`pages[${index}].children is invalid`)
+  const childIds = new Set()
+  const normalizedChildren = children.map((child, childIndex) => { const normalized = normalizeApi15Page(child, childIndex, id); if (childIds.has(normalized.id)) throw new Error('duplicate child page id'); childIds.add(normalized.id); return normalized })
+  return { id, title: boundedString(value.title, `pages[${index}].title`, 120, true), titleEn: boundedString(value.titleEn || '', `pages[${index}].titleEn`, 120), description: boundedString(value.description || '', `pages[${index}].description`, 300), ...(parent === '' ? { location: value.location } : {}), entry: validatePath(boundedString(value.entry, `pages[${index}].entry`, 256, true)), children: normalizedChildren }
+}
+
+function normalizeApi15Manifest(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('manifest is invalid')
+  if (Object.keys(raw).some(key => !API15_MANIFEST_FIELDS.has(key))) throw new Error('manifest contains unknown field')
+  if (raw.api !== '1.5') throw new Error('API 1.5 manifest required')
+  if (raw.schemaVersion !== undefined && raw.schemaVersion !== 1 || !API15_ID.test(raw.id || '')) throw new Error('manifest identity is invalid')
+  const permissions = raw.permissions
+  if (!Array.isArray(permissions) || permissions.length > 64) throw new Error('permission declaration is invalid')
+  const permissionIds = new Set()
+  const uniquePermissions = permissions.map((permission, index) => {
+    if (!permission || typeof permission !== 'object' || Array.isArray(permission) || Object.keys(permission).some(key => !['id', 'required', 'platforms'].includes(key)) || typeof permission.id !== 'string' || !PLUGIN_API15_PERMISSIONS.has(permission.id) || permissionIds.has(permission.id) || typeof permission.required !== 'boolean') throw new Error(`permissions[${index}] is invalid`)
+    permissionIds.add(permission.id)
+    const platforms = normalizePlatforms(permission.platforms, `permissions[${index}].platforms`)
+    return { id: permission.id, required: permission.required, platforms }
+  })
+  const pages = raw.pages === undefined ? [] : raw.pages
+  if (!Array.isArray(pages) || pages.length > 32) throw new Error('pages is invalid')
+  const ids = new Set()
+  const normalizedPages = pages.map((page, index) => { const normalized = normalizeApi15Page(page, index); if (ids.has(normalized.id)) throw new Error('duplicate page id'); ids.add(normalized.id); return normalized })
+  const hooks = raw.hooks === undefined ? [] : raw.hooks
+  if (!Array.isArray(hooks) || hooks.length > 16) throw new Error('hooks is invalid')
+  const hookOperations = new Set()
+  const normalizedHooks = hooks.map(hook => { const normalized = normalizeHookDeclaration(hook); if (hookOperations.has(normalized.operation)) throw new Error('duplicate hook operation'); hookOperations.add(normalized.operation); return normalized })
+  const windows = raw.windows === undefined ? {} : raw.windows
+  if (!windows || typeof windows !== 'object' || Array.isArray(windows) || Object.keys(windows).some(key => !API15_WINDOW_FIELDS.has(key))) throw new Error('windows is invalid')
+  if (windows.create !== undefined && typeof windows.create !== 'boolean') throw new Error('windows.create is invalid')
+  if (windows.main !== undefined && (!windows.main || typeof windows.main !== 'object' || Object.keys(windows.main).some(key => key !== 'control') || typeof windows.main.control !== 'boolean')) throw new Error('windows.main is invalid')
+  if (windows.floating !== undefined && (!windows.floating || typeof windows.floating !== 'object' || Object.keys(windows.floating).some(key => !['control', 'alwaysOnTop'].includes(key)) || (windows.floating.control !== undefined && typeof windows.floating.control !== 'boolean') || (windows.floating.alwaysOnTop !== undefined && typeof windows.floating.alwaysOnTop !== 'boolean'))) throw new Error('windows.floating is invalid')
+  const normalizedWindows = { create: windows.create === true, main: { control: windows.main?.control === true }, floating: { control: windows.floating?.control === true, alwaysOnTop: windows.floating?.alwaysOnTop === true } }
+  if (raw.network !== undefined && (!raw.network || typeof raw.network !== 'object' || Array.isArray(raw.network) || Object.keys(raw.network).some(key => key !== 'internet') || typeof raw.network.internet !== 'boolean')) throw new Error('network is invalid')
+  if (raw.signature !== undefined && raw.signature !== null && (!raw.signature || typeof raw.signature !== 'object' || Array.isArray(raw.signature) || Object.keys(raw.signature).some(key => !['algorithm', 'publisher', 'value'].includes(key)) || raw.signature.algorithm !== 'Ed25519' || typeof raw.signature.publisher !== 'string' || raw.signature.publisher.length > 512)) throw new Error('signature is invalid')
+  return {
+    api: '1.5', ...(raw.schemaVersion === undefined ? {} : { schemaVersion: 1 }), id: raw.id,
+    name: boundedString(raw.name, 'name', 120, true), version: boundedString(raw.version, 'version', 64, true), author: boundedString(raw.author, 'author', 120, true), description: boundedString(raw.description || '', 'description', 500),
+    engine: raw.engine === undefined ? null : raw.engine,
+    entry: normalizeProcessEntry(raw.entry), platforms: normalizePlatforms(raw.platforms, 'platforms'), permissions: uniquePermissions, files: normalizeFileScopes(raw.files || {}),
+    network: raw.network === undefined ? { internet: false } : raw.network,
+    windows: normalizedWindows, pages: normalizedPages, hooks: normalizedHooks, signature: raw.signature || null, ...(raw.integrity === undefined ? {} : { integrity: raw.integrity })
+  }
+}
+
+export function manifestMigrationMetadata(raw) {
+  if (!raw || typeof raw !== 'object' || (raw.api !== undefined && raw.api !== null)) return null
+  return { ...JSON.parse(JSON.stringify(raw)), activatable: false, displayOnly: true, migrationRequired: true, api: null, id: typeof raw.id === 'string' ? raw.id : '', version: typeof raw.version === 'string' ? raw.version : '', name: typeof raw.name === 'string' ? raw.name : '' }
+}
+
+export function resolveApi15Capabilities(manifest, platform) {
+  const runtime = typeof platform === 'string' ? platform : platform?.runtime
+  const availableOn = id => {
+    if (id.startsWith('window:') || id.startsWith('files:external:') || id === 'files:app:execute') return runtime === 'tauri'
+    if (id === 'files:app:read' || id === 'files:app:write') return runtime === 'tauri'
+    return runtime === 'web' || runtime === 'tauri'
+  }
+  return Object.fromEntries((manifest?.permissions || []).map(permission => {
+    const applies = !permission.platforms?.length || permission.platforms.includes(runtime) || (runtime === 'tauri' && permission.platforms.includes(platform?.os))
+    return [permission.id, { ...permission, applies, available: applies && availableOn(permission.id) }]
+  }))
+}
 export const CNRP_MAGIC = 'CNRP1\n'
 
 export function comparePluginVersions(left, right) {
@@ -558,6 +677,8 @@ function normalizeCommands(value) {
 
 export function normalizePluginManifest(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('manifest.json 无效')
+  if (raw.api === undefined && (!raw.name || !raw.version || !raw.author || !raw.schemaVersion || !raw.engine)) return manifestMigrationMetadata(raw)
+  if (raw.api === '1.5' || (raw.api !== undefined && raw.api !== null)) return normalizeApi15Manifest(raw)
   const manifest = JSON.parse(JSON.stringify(raw))
   if (manifest.schemaVersion !== 1) throw new Error('不支持的插件清单版本')
   if (!ID_PATTERN.test(manifest.id || '')) throw new Error('插件 ID 无效，建议使用反向域名格式')
@@ -593,7 +714,9 @@ export function normalizePluginManifest(raw) {
   }
   if (manifest.icon) manifest.icon = validatePath(manifest.icon)
   if (manifest.readme) manifest.readme = validatePath(manifest.readme)
-  return manifest
+  return raw.api === null
+    ? { ...manifest, activatable: false, displayOnly: true, migrationRequired: true, api: null }
+    : manifest
 }
 
 export async function sha256Hex(bytes) {
@@ -682,6 +805,7 @@ export async function parsePluginPackage(input, { expectedPublisherKey = '' } = 
   const manifestEntry = archive.file('manifest.json')
   if (!manifestEntry) throw new Error('插件包缺少 manifest.json')
   const manifest = normalizePluginManifest(JSON.parse(await manifestEntry.async('string')))
+  if (manifest.displayOnly) return { manifest, files: {}, animationPacks: [], nativeViews: [], packageHash: await sha256Hex(packageBytes), packageSignature: envelope.signature || '', publisherKey: publisher.publisherKey, publisherVerified: publisher.verified, signatureAlgorithm: envelope.signatureAlgorithm || '', readme: '' }
   if (manifest.id !== envelope.id || manifest.version !== envelope.version) {
     throw new Error('插件清单与 CNRP 封装身份不一致')
   }
@@ -697,18 +821,19 @@ export async function parsePluginPackage(input, { expectedPublisherKey = '' } = 
   }
 
   const requiredFiles = [
-    manifest.entry,
-    ...Object.values(manifest.platformEntries || {}),
-    manifest.icon,
-    manifest.readme,
-    ...(manifest.contributes.pages || []).flatMap(page => [page.entry, ...Object.values(page.platformEntries || {})]),
-    ...(manifest.contributes.animationPacks || []).map(pack => pack.source),
-    ...(manifest.contributes.fonts || []).map(font => font.source),
-    ...(manifest.contributes.nativeViews || []).map(view => view.source),
-    ...(manifest.contributes.visualSurfaces || []).flatMap(surface => [surface.entry, ...Object.values(surface.platformEntries || {})])
+    manifest.api === '1.5' ? manifest.entry.script : manifest.entry,
+    ...(manifest.api === '1.5' ? [] : Object.values(manifest.platformEntries || {})),
+    ...(manifest.api === '1.5' ? [] : [manifest.icon, manifest.readme]),
+    ...(manifest.api === '1.5'
+      ? (manifest.pages || []).flatMap(page => [page.entry, ...(page.children || []).map(child => child.entry)])
+      : (manifest.contributes.pages || []).flatMap(page => [page.entry, ...Object.values(page.platformEntries || {})])),
+    ...(manifest.api === '1.5' ? [] : (manifest.contributes.animationPacks || []).map(pack => pack.source)),
+    ...(manifest.api === '1.5' ? [] : (manifest.contributes.fonts || []).map(font => font.source)),
+    ...(manifest.api === '1.5' ? [] : (manifest.contributes.nativeViews || []).map(view => view.source)),
+    ...(manifest.api === '1.5' ? [] : (manifest.contributes.visualSurfaces || []).flatMap(surface => [surface.entry, ...Object.values(surface.platformEntries || {})]))
   ].filter(Boolean)
   for (const name of requiredFiles) if (!files[name]) throw new Error(`插件清单引用的文件不存在：${name}`)
-  validateFontFiles(manifest.contributes.fonts || [], files)
+  validateFontFiles(manifest.api === '1.5' ? [] : (manifest.contributes.fonts || []), files)
   const integrity = manifest.integrity || {}
   for (const name of fileNames) {
     if (name !== 'manifest.json' && !Object.hasOwn(integrity, name)) throw new Error(`完整性清单未覆盖文件：${name}`)
