@@ -235,6 +235,27 @@ test('rejects duplicate Worker responses and supports explicit cancellation', as
   assert.throws(() => runtime.receive({ jsonrpc: '2.0', protocol: CNRP_JSONRPC_PROTOCOL, api: '1.5', pluginId: runtime.pluginId, instanceId: runtime.instanceId, id: requestId, result: true }), /unknown|duplicate/i)
 })
 
+test('routes RPC cancellation to the broker AbortSignal', async () => {
+  const messages = []
+  const worker = { postMessage: message => messages.push(message), terminate() {} }
+  let signal
+  const runtime = new WebPluginRuntime({
+    pluginId: 'cn.example.broker-cancel', worker,
+    onRequest: message => new Promise((resolve, reject) => {
+      signal = message.signal
+      signal.addEventListener('abort', () => reject(Object.assign(new Error('cancelled'), { code: 'CANCELLED' })), { once: true })
+    })
+  })
+  runtime.receive({ type: 'hello.accepted', role: 'plugin', pluginId: runtime.pluginId, instanceId: runtime.instanceId, api: '1.5', protocol: CNRP_JSONRPC_PROTOCOL })
+  runtime.receive({ type: 'ready', role: 'plugin', pluginId: runtime.pluginId, instanceId: runtime.instanceId, api: '1.5', protocol: CNRP_JSONRPC_PROTOCOL })
+  const request = runtime.receive({ jsonrpc: '2.0', protocol: CNRP_JSONRPC_PROTOCOL, api: '1.5', pluginId: runtime.pluginId, instanceId: runtime.instanceId, id: 'broker-request', method: 'net.request', params: {} })
+  assert.equal(request.id, 'broker-request')
+  runtime.cancelBrokerRequest('broker-request')
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(signal.aborted, true)
+  assert.equal(messages.at(-1).error.code, 'CANCELLED')
+})
+
 test('Worker timeout sends cancellation and host cleanup releases opaque resources', async () => {
   const messages = []
   const worker = { postMessage: message => messages.push(message), terminate() {} }

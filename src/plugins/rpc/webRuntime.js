@@ -11,6 +11,7 @@ export class WebPluginRuntime {
     this.requiredCapabilities = requiredCapabilities
     this.capabilities = Object.fromEntries(Object.entries(availableCapabilities).map(([name, available]) => [name, { id: name, available: available === true, code: available === true ? 'AVAILABLE' : 'UNSUPPORTED_PLATFORM' }]))
     this.pending = new Map()
+    this.brokerRequests = new Map()
     this.responses = new Map()
     this.seenResponses = new Set()
     this.maxConcurrentRequests = maxConcurrentRequests
@@ -59,7 +60,10 @@ export class WebPluginRuntime {
     }
     if (message?.jsonrpc === '2.0' && (message.pluginId !== this.pluginId || message.instanceId !== this.instanceId)) throw new Error('stale or invalid plugin instance identity')
     if (message?.method) {
-      Promise.resolve(this.onRequest?.(message)).then(result => this.send({ jsonrpc: '2.0', pluginId: this.pluginId, instanceId: this.instanceId, id: message.id, result })).catch(error => this.send({ jsonrpc: '2.0', pluginId: this.pluginId, instanceId: this.instanceId, id: message.id, error: { code: error.code || 'INTERNAL_ERROR', message: error.message || String(error) } }))
+      if (message.method === '$/cancelRequest') { this.cancelBrokerRequest(message.params?.requestId); return message }
+      const controller = new AbortController()
+      this.brokerRequests.set(String(message.id), controller)
+      Promise.resolve(this.onRequest?.({ ...message, signal: controller.signal })).then(result => this.send({ jsonrpc: '2.0', pluginId: this.pluginId, instanceId: this.instanceId, id: message.id, result })).catch(error => this.send({ jsonrpc: '2.0', pluginId: this.pluginId, instanceId: this.instanceId, id: message.id, error: { code: error.code || 'INTERNAL_ERROR', message: error.message || String(error) } })).finally(() => this.brokerRequests.delete(String(message.id)))
       return message
     }
     const task = this.pending.get(String(message?.id))
@@ -103,6 +107,13 @@ export class WebPluginRuntime {
     return true
   }
 
+  cancelBrokerRequest(requestId) {
+    const controller = this.brokerRequests.get(String(requestId))
+    if (!controller) return false
+    controller.abort()
+    return true
+  }
+
   async shutdown() {
     try { this.send({ type: 'shutdown', role: 'host', pluginId: this.pluginId, instanceId: this.instanceId }) } finally {
       clearTimeout(this.heartbeatTimer)
@@ -110,6 +121,8 @@ export class WebPluginRuntime {
       for (const task of this.pending.values()) { clearTimeout(task.timer); task.reject(new Error('RPC closed')) }
       this.rejectReady?.(new Error('RPC closed'))
       this.pending.clear()
+      for (const controller of this.brokerRequests.values()) controller.abort()
+      this.brokerRequests.clear()
       this.worker?.terminate?.()
       this.state = 'closed'
     }

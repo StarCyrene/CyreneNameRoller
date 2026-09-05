@@ -14,9 +14,15 @@ export const tauriAPI = {
       return null
     }
   },
-  async invokeStrict(cmd, args) {
+  async invokeStrict(cmd, args, signal) {
     if (!isTauri()) throw new Error('Tauri API 不可用')
-    return window.__TAURI_INTERNALS__.invoke(cmd, args)
+    const request = window.__TAURI_INTERNALS__.invoke(cmd, args)
+    if (!signal) return request
+    if (signal.aborted) throw Object.assign(new Error('操作已取消'), { code: 'CANCELLED', name: 'AbortError' })
+    return Promise.race([
+      request,
+      new Promise((_, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('操作已取消'), { code: 'CANCELLED', name: 'AbortError' })), { once: true }))
+    ])
   },
   async storageGet(key) { return this.invoke('storage_get', { key }) },
   async storageSet(key, value) { return this.invoke('storage_set', { key, value }) },

@@ -191,6 +191,7 @@ export class DesktopPluginHost {
     this.state = 'new'
     this.handshake = null
     this.pending = new PendingRequests({ maxConcurrent: maxConcurrentRequests, timeoutMs: requestTimeoutMs, onTimeout: requestId => { onTimeout?.(requestId); this.fail(new Error('RPC request timeout')) } })
+    this.brokerRequests = new Map()
     this.decoder = new RpcFrameDecoder()
     this.seenResponses = new Set()
     this.resources = new Map()
@@ -271,7 +272,10 @@ export class DesktopPluginHost {
     if (message?.jsonrpc !== '2.0' || message.protocol !== CNRP_JSONRPC_PROTOCOL || !message.id) throw new Error('RPC message protocol is invalid')
     if (message.pluginId !== this.pluginId || message.instanceId !== this.instanceId) throw new Error('stale or invalid plugin instance identity')
     if (message.method) {
-      Promise.resolve(this.onRequest?.(message)).then(result => this.send({ jsonrpc: '2.0', pluginId: this.pluginId, instanceId: this.instanceId, id: message.id, result })).catch(error => this.send({ jsonrpc: '2.0', pluginId: this.pluginId, instanceId: this.instanceId, id: message.id, error: { code: error.code || 'INTERNAL_ERROR', message: error.message || String(error) } }))
+      if (message.method === '$/cancelRequest') { this.cancelBrokerRequest(message.params?.requestId); return message }
+      const controller = new AbortController()
+      this.brokerRequests.set(String(message.id), controller)
+      Promise.resolve(this.onRequest?.({ ...message, signal: controller.signal })).then(result => this.send({ jsonrpc: '2.0', pluginId: this.pluginId, instanceId: this.instanceId, id: message.id, result })).catch(error => this.send({ jsonrpc: '2.0', pluginId: this.pluginId, instanceId: this.instanceId, id: message.id, error: { code: error.code || 'INTERNAL_ERROR', message: error.message || String(error) } })).finally(() => this.brokerRequests.delete(String(message.id)))
       return message
     }
     if (this.seenResponses.has(String(message.id))) throw new Error('unknown or duplicate request ID')
@@ -301,8 +305,17 @@ export class DesktopPluginHost {
     clearTimeout(this.activationTimer)
     this.rejectReady?.(error)
     this.pending.cancelAll(error)
+    for (const controller of this.brokerRequests.values()) controller.abort()
+    this.brokerRequests.clear()
     this.resources.clear()
     await this.runner.killTree?.(error.message || String(error), this.process)
+  }
+
+  cancelBrokerRequest(requestId) {
+    const controller = this.brokerRequests.get(String(requestId))
+    if (!controller) return false
+    controller.abort()
+    return true
   }
 
   async shutdown() {
@@ -311,6 +324,8 @@ export class DesktopPluginHost {
       clearInterval(this.heartbeatTimer)
       clearTimeout(this.activationTimer)
       this.pending.cancelAll(new Error('RPC closed'))
+      for (const controller of this.brokerRequests.values()) controller.abort()
+      this.brokerRequests.clear()
       this.resources.clear()
       this.rejectReady?.(new Error('RPC closed'))
       this.state = 'closed'
