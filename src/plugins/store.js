@@ -19,6 +19,8 @@ import {
 import { PluginRuntime } from './runtime'
 import { PluginAnimationRegistry } from './animationRegistry'
 import { PluginPlatformBridge } from './platform'
+import { AuditLog } from './api15/permissions.js'
+import { isTauri, tauriAPI } from '../utils/tauriAPI.js'
 import { repositorySlug, resolveCatalogRelease, fetchRepositoryOwner } from './catalog'
 import { validateCoreDrawArgs } from './coreDraw'
 import { getComponentTarget } from './ui/componentRegistry'
@@ -83,7 +85,35 @@ export const usePluginsStore = defineStore('plugins', () => {
   const safeModeStatus = ref(Object.freeze({ enabled: false, source: 'default', stale: false, errorCode: '', diagnostic: '', path: '' }))
   const fontRegistry = new PluginFontRegistry()
   const animationRegistry = new PluginAnimationRegistry()
-  const platformBridge = new PluginPlatformBridge()
+  const auditLog = new AuditLog({ onRecord: record => {
+    if (isTauri()) tauriAPI.invoke('plugin_audit_append', { record }).catch(() => {})
+  } })
+  const platformBridge = new PluginPlatformBridge({ auditLog, handlers: {
+    filesRead: async (args, plugin) => {
+      if (plugin.manifest.files?.app?.scopes?.includes('read') !== true) throw Object.assign(new Error('插件未声明应用文件读取范围'), { code: 'FILE_SCOPE_DENIED' })
+      if (isTauri()) return tauriAPI.invokeStrict('plugin_files_read', { pluginId: plugin.manifest.id, sessionId: args.sessionId, path: args.path })
+      throw Object.assign(new Error('Web 环境不支持访问应用文件'), { code: 'UNSUPPORTED_PLATFORM' })
+    },
+    filesWrite: async (args, plugin) => {
+      if (plugin.manifest.files?.app?.scopes?.includes('write') !== true) throw Object.assign(new Error('插件未声明应用文件写入范围'), { code: 'FILE_SCOPE_DENIED' })
+      if (isTauri()) return tauriAPI.invokeStrict('plugin_files_write', { pluginId: plugin.manifest.id, sessionId: args.sessionId, path: args.path, data: args.data })
+      throw Object.assign(new Error('Web 环境不支持插件写入应用文件'), { code: 'UNSUPPORTED_PLATFORM' })
+    },
+    resolveHost: async hostname => {
+      const responses = await Promise.all(['A', 'AAAA'].map(type => fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=${type}`, { headers: { accept: 'application/dns-json' } })))
+      if (responses.some(response => !response.ok)) throw new Error('DNS resolution failed')
+      const records = await Promise.all(responses.map(response => response.json()))
+      return records.flatMap(data => (data.Answer || []).map(answer => answer.data).filter(Boolean))
+    },
+    netRequest: async (args, plugin, signal) => {
+      if (isTauri()) return tauriAPI.invokeStrict('plugin_net_request', { pluginId: plugin.manifest.id, sessionId: args.sessionId, url: args.url, method: args.method, headers: args.headers, body: args.body }, signal)
+      const response = await fetch(args.url, { method: args.method || 'GET', headers: args.headers, body: args.body, signal, redirect: 'manual' })
+      if (response.status >= 300 && response.status < 400) throw Object.assign(new Error('Web 环境不支持网络重定向'), { code: 'NETWORK_REDIRECT_DENIED' })
+      const body = await response.arrayBuffer()
+      return { status: response.status, headers: Object.fromEntries(response.headers), body: new Uint8Array(body), bodyBytes: body.byteLength }
+    },
+    addressBinding: false
+  }})
   const coreClient = getCoreClient()
 
   const runtime = new PluginRuntime({

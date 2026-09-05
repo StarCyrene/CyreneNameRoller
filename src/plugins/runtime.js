@@ -13,7 +13,7 @@ import { listComponentTargets } from './ui/componentRegistry.js'
 import { NATIVE_VIEW_SLOTS } from './ui/nativeViewPolicy.js'
 import { DesktopPluginHost } from './rpc/desktopHost.js'
 import { WebPluginRuntime } from './rpc/webRuntime.js'
-import { resolveApi15Capabilities } from './package.js'
+import { resolveApi15Capabilities } from './api15/permissions.js'
 
 const RESERVED_NATIVE_VIEW_SLOTS = Object.freeze([
   'slot:app.command-palette',
@@ -477,13 +477,13 @@ export class PluginRuntime {
     const declarations = Array.isArray(plugin.manifest.permissions) ? plugin.manifest.permissions : []
     const capabilities = resolveApi15Capabilities(plugin.manifest, platform)
     const required = declarations.filter(item => typeof item === 'object' && item.required).map(item => item.id)
-    const missingRequired = required.filter(id => !capabilities[id]?.available)
+    const missingRequired = required.filter(id => capabilities[id]?.applies !== false && !capabilities[id]?.available)
     if (missingRequired.length) throw Object.assign(new Error(`required capability unavailable: ${missingRequired.join(', ')}`), { code: 'UNSUPPORTED_PLATFORM' })
     const instanceId = globalThis.crypto?.randomUUID?.() || `plugin-${Date.now()}-${Math.random()}`
     const principal = this.createApi15Principal(plugin, instanceId, capabilities)
     const runtime = platform.runtime === 'tauri'
-      ? new DesktopPluginHost({ pluginId, instanceId, packagePath: plugin.packagePath || pluginId, entry: plugin.manifest.entry.script, args: plugin.manifest.entry.args || [], runner: this.runnerFactory?.(plugin, instanceId) || {}, initialize: capabilities, onMessage: message => this.onApi15Message?.(pluginId, message), onRequest: message => this.handleRpc(principal, message.method, message.params) })
-      : new WebPluginRuntime({ pluginId, instanceId, worker: this.workerFactory?.(plugin) || this.createApi15Worker(plugin), requiredCapabilities: required, availableCapabilities: Object.fromEntries(Object.entries(capabilities).map(([name, value]) => [name, value.available])), onRequest: message => this.handleRpc(principal, message.method, message.params) })
+       ? new DesktopPluginHost({ pluginId, instanceId, packagePath: plugin.packagePath || pluginId, entry: plugin.manifest.entry.script, args: plugin.manifest.entry.args || [], runner: this.runnerFactory?.(plugin, instanceId) || {}, initialize: capabilities, onMessage: message => this.onApi15Message?.(pluginId, message), onRequest: message => this.handleRpc(principal, message.method, message.params, message.signal) })
+       : new WebPluginRuntime({ pluginId, instanceId, worker: this.workerFactory?.(plugin) || this.createApi15Worker(plugin), requiredCapabilities: required.filter(id => capabilities[id]?.applies !== false), availableCapabilities: Object.fromEntries(Object.entries(capabilities).map(([name, value]) => [name, value.available])), onRequest: message => this.handleRpc(principal, message.method, message.params, message.signal) })
     const activated = runtime.start().then(() => runtime.ready)
     this.workers.set(pluginId, { api15: true, runtime, activated, commandRequests: new Map() })
     try {
@@ -885,14 +885,14 @@ export class PluginRuntime {
     }
   }
 
-  async handleRpc(pluginId, method, args = {}) {
-    if (pluginId && typeof pluginId === 'object') return this.handleRpcPrincipal(pluginId, method, args)
+  async handleRpc(pluginId, method, args = {}, signal) {
+    if (pluginId && typeof pluginId === 'object') return this.handleRpcPrincipal(pluginId, method, args, signal)
     const plugin = this.getPlugin(pluginId)
     if (!plugin) throw new Error('插件不存在')
-    return this.handleRpcPrincipal(this.getLegacyPrincipal(plugin), method, args)
+    return this.handleRpcPrincipal(this.getLegacyPrincipal(plugin), method, args, signal)
   }
 
-  async handleRpcPrincipal(principal, method, args = {}) {
+  async handleRpcPrincipal(principal, method, args = {}, signal) {
     assertActivePrincipal(principal)
     const pluginId = principal.pluginId
     const plugin = this.getPlugin(pluginId)
@@ -915,9 +915,14 @@ export class PluginRuntime {
       'system.select-directory': 'system:select-directory',
       'system.clipboard-read': 'system:clipboard-read', 'system.clipboard-write': 'system:clipboard-write',
       'system.reveal-file': 'system:reveal-file', 'system.execute': 'system:execute'
+      , 'files.read': 'files:app:read', 'files.write': 'files:app:write', 'net.request': 'net:internet'
     }[method] || resource?.permission || transaction?.permission)
     const permission = permissionFor(method)
-    if (permission && !hasPrincipalPermission(principal, permission)) throw runtimeError('PLUGIN_PERMISSION_DENIED', `插件未获授权：${permission}`, { permission })
+    if (permission && !hasPrincipalPermission(principal, permission)) {
+      const result = { ok: false, capability: permission, code: 'PLUGIN_PERMISSION_DENIED', message: `插件未获授权：${permission}` }
+      this.platformBridge.auditDecision?.(plugin, method, args, principal.instanceId, result, Date.now(), 'deny')
+      throw runtimeError('PLUGIN_PERMISSION_DENIED', `插件未获授权：${permission}`, { permission })
+    }
     switch (method) {
       case 'runtime.platform': return this.platformBridge.info()
       case 'runtime.capabilities': return this.platformBridge.capabilities()
@@ -958,7 +963,10 @@ export class PluginRuntime {
       case 'system.clipboard-write':
       case 'system.reveal-file':
       case 'system.execute':
-        return this.platformBridge.request(plugin, method, args)
+      case 'files.read':
+      case 'files.write':
+      case 'net.request':
+        return this.platformBridge.request(plugin, method, args, principal.instanceId, signal)
       case 'dependency.storage.read': {
         const dependency = plugin.manifest.dependencies.find(item => item.id === args.pluginId && item.dataAccess)
         if (!dependency) throw new Error('未声明此前置插件的数据访问权限')

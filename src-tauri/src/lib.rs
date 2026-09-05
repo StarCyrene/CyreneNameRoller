@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, SocketAddrV4, TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -60,6 +60,28 @@ struct PluginRunnerProcess {
 
 struct PluginRunnerState {
     processes: Arc<Mutex<HashMap<String, PluginRunnerProcess>>>,
+}
+
+struct PluginAuditState {
+    records: Mutex<Vec<Value>>,
+}
+
+#[tauri::command]
+fn plugin_audit_append(audit: State<'_, PluginAuditState>, record: Value) -> Result<(), String> {
+    if !record.is_object() || serde_json::to_vec(&record).map_err(|_| "审计记录无效")?.len() > 4096 {
+        return Err("审计记录无效".into());
+    }
+    audit.append(record);
+    Ok(())
+}
+
+impl PluginAuditState {
+    fn append(&self, record: Value) {
+        if let Ok(mut records) = self.records.lock() {
+            records.push(record);
+            if records.len() > 1000 { records.remove(0); }
+        }
+    }
 }
 
 impl PluginRunnerState {
@@ -2489,6 +2511,139 @@ async fn plugin_select_directory(app: tauri::AppHandle) -> Result<serde_json::Va
     }))
 }
 
+fn reject_reparse_components(root: &Path, target: &Path) -> Result<(), String> {
+    let relative = target.strip_prefix(root).map_err(|_| "插件文件路径越界")?;
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        current.push(component);
+        let metadata = fs::symlink_metadata(&current).map_err(|_| "插件文件不存在")?;
+        if metadata.file_type().is_symlink() {
+            return Err("插件文件路径包含符号链接或重解析点".into());
+        }
+    }
+    Ok(())
+}
+
+fn open_plugin_file(path: &Path, write: bool) -> Result<fs::File, String> {
+    let mut options = OpenOptions::new();
+    options.read(!write).write(write).truncate(write);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(0x20000);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(0x00200000);
+    }
+    let file = options.open(path).map_err(|error| error.to_string())?;
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    let is_reparse = metadata.file_type().is_symlink()
+        || {
+            #[cfg(target_os = "windows")]
+            { use std::os::windows::fs::MetadataExt; metadata.file_attributes() & 0x400 != 0 }
+            #[cfg(not(target_os = "windows"))]
+            { false }
+        };
+    if !metadata.is_file() || is_reparse { return Err("插件文件不是普通文件".into()); }
+    Ok(file)
+}
+
+fn plugin_package_path(package_root: &Path, relative: &str) -> Result<PathBuf, String> {
+    if relative.is_empty() {
+        return Err("插件文件路径无效".into());
+    }
+    let root = package_root.canonicalize().map_err(|_| "插件包不存在")?;
+    let relative = Path::new(relative);
+    if relative.is_absolute() || relative.components().any(|part| !matches!(part, std::path::Component::Normal(_))) {
+        return Err("插件文件路径无效".into());
+    }
+    let lexical = root.join(relative);
+    reject_reparse_components(&root, &lexical)?;
+    let target = lexical.canonicalize().map_err(|_| "插件文件不存在")?;
+    if !target.starts_with(&root) { return Err("插件文件路径越界".into()); }
+    Ok(target)
+}
+
+fn plugin_session_root<'a>(state: &'a PluginRunnerState, session_id: &str, plugin_id: &str) -> Result<PathBuf, String> {
+    if !valid_runner_value(session_id, 128) || !valid_plugin_runner_id(plugin_id) { return Err("插件会话身份无效".into()); }
+    let processes = state.processes.lock().map_err(|_| "plugin runner state poisoned")?;
+    let process = processes.get(session_id).ok_or("plugin runner session not found")?;
+    if process.plugin_id != plugin_id { return Err("plugin runner session identity mismatch".into()); }
+    Ok(process.package_root.clone())
+}
+
+#[tauri::command]
+fn plugin_files_read(state: State<'_, PluginRunnerState>, audit: State<'_, PluginAuditState>, plugin_id: String, session_id: String, path: String) -> Result<serde_json::Value, String> {
+    let root = plugin_session_root(&state, &session_id, &plugin_id)?;
+    let target = plugin_package_path(&root, &path)?;
+    let file = open_plugin_file(&target, false)?;
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    if !metadata.is_file() || metadata.len() > 32 * 1024 * 1024 { return Err("插件文件大小或类型无效".into()); }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take(32 * 1024 * 1024 + 1).read_to_end(&mut bytes).map_err(|error| error.to_string())?;
+    if bytes.len() > 32 * 1024 * 1024 { return Err("插件文件大小或类型无效".into()); }
+    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+    audit.append(json!({ "pluginId": plugin_id, "sessionId": session_id, "method": "files.read", "resource": path, "decision": "allow", "bytes": metadata.len() }));
+    Ok(json!({ "path": path, "data": data, "size": metadata.len() }))
+}
+
+#[tauri::command]
+fn plugin_files_write(state: State<'_, PluginRunnerState>, audit: State<'_, PluginAuditState>, plugin_id: String, session_id: String, path: String, data: String) -> Result<serde_json::Value, String> {
+    let root = plugin_session_root(&state, &session_id, &plugin_id)?;
+    if data.len() > 32 * 1024 * 1024 { return Err("插件写入请求无效".into()); }
+    let target = plugin_package_path(&root, &path)?;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|_| "插件文件数据无效")?;
+    if bytes.len() > 32 * 1024 * 1024 { return Err("插件文件大小超限".into()); }
+    reject_reparse_components(&root, &target)?;
+    let mut file = open_plugin_file(&target, true)?;
+    file.write_all(&bytes).map_err(|error| error.to_string())?;
+    let size = fs::metadata(&target).map_err(|error| error.to_string())?.len();
+    audit.append(json!({ "pluginId": plugin_id, "sessionId": session_id, "method": "files.write", "resource": path, "decision": "allow", "bytes": size }));
+    Ok(json!({ "path": path, "size": size }))
+}
+
+fn public_socket(host: &str, port: u16) -> Result<std::net::SocketAddr, String> {
+    let mut addresses = (host, port).to_socket_addrs().map_err(|_| "网络地址解析失败")?;
+    addresses.find(|address| match address.ip() { IpAddr::V4(ip) => !(ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified()), IpAddr::V6(ip) => !(ip.is_loopback() || ip.is_unique_local() || ip.is_unicast_link_local() || ip.is_unspecified()) }).ok_or_else(|| "网络地址被拒绝".into())
+}
+
+#[tauri::command]
+async fn plugin_net_request(state: State<'_, PluginRunnerState>, audit: State<'_, PluginAuditState>, plugin_id: String, session_id: String, url: String, method: Option<String>, headers: Option<HashMap<String, String>>, body: Option<String>) -> Result<serde_json::Value, String> {
+    let _ = plugin_session_root(&state, &session_id, &plugin_id)?;
+    if body.as_ref().is_some_and(|value| value.len() > 1024 * 1024) || headers.as_ref().is_some_and(|values| values.len() > 64 || values.iter().any(|(key, value)| key.len() > 256 || value.len() > 8192)) {
+        return Err("网络请求大小超限".into());
+    }
+    let parsed = reqwest::Url::parse(&url).map_err(|_| "网络地址无效")?;
+    let audit_host = parsed.host_str().unwrap_or_default().to_string();
+    if !matches!(parsed.scheme(), "http" | "https") { return Err("网络协议被拒绝".into()); }
+    let host = parsed.host_str().ok_or("网络主机无效")?;
+    let address = public_socket(host, parsed.port_or_known_default().ok_or("网络端口无效")?)?;
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(15)).redirect(reqwest::redirect::Policy::none()).resolve(host, address).build().map_err(|error| error.to_string())?;
+    let request = client.request(method.as_deref().unwrap_or("GET").parse().map_err(|_| "网络方法无效")?, parsed).headers(headers.unwrap_or_default().into_iter().filter_map(|(key, value)| Some((key.parse().ok()?, value.parse().ok()?))).collect()).body(body.unwrap_or_default());
+    let result = tokio::time::timeout(Duration::from_secs(15), async {
+        let response = request.send().await.map_err(|error| error.to_string())?;
+        let status = response.status().as_u16();
+        let response_headers = response.headers().iter().filter_map(|(key, value)| {
+            let value = value.to_str().ok()?;
+            (value.len() <= 8192).then(|| (key.to_string(), value.to_string()))
+        }).take(64).collect::<HashMap<_, _>>();
+        let mut bytes = Vec::new();
+        let mut response = response;
+        while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+            if bytes.len().saturating_add(chunk.len()) > 1024 * 1024 { return Err("网络响应大小超限".to_string()); }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(json!({ "status": status, "headers": response_headers, "body": bytes, "bodyBytes": bytes.len() }))
+    }).await.map_err(|_| "网络请求超时")??;
+    if result["status"].as_u64().is_some_and(|status| (300..400).contains(&status)) {
+        return Err("网络重定向被拒绝".into());
+    }
+    audit.append(json!({ "pluginId": plugin_id, "sessionId": session_id, "method": "net.request", "resource": audit_host, "decision": "allow", "bytes": result["bodyBytes"] }));
+    Ok(result)
+}
+
 #[tauri::command]
 async fn plugin_execute_operation(
     program: String,
@@ -3597,6 +3752,7 @@ pub fn run() {
             app.manage(MainWindowRevealState::new());
             app.manage(UriRequestState::new());
             app.manage(PluginRunnerState::new());
+            app.manage(PluginAuditState { records: Mutex::new(Vec::new()) });
             let handle = app.handle().clone();
             start_instance_listener(instance_listener, handle.clone());
             if let Some(uri) = launch_uri.clone() {
@@ -3662,6 +3818,10 @@ pub fn run() {
             open_text_file,
             plugin_select_file,
             plugin_select_directory,
+            plugin_audit_append,
+            plugin_files_read,
+            plugin_files_write,
+            plugin_net_request,
             plugin_execute_operation,
             plugin_runner_stage,
             plugin_runner_start,
@@ -3709,6 +3869,7 @@ mod tests {
         configured_data_path, core_data_key_for, data_key, data_path_for_mode, is_core_storage_key,
         portable_marker_path, valid_core_principal,
         plugin_runner_command, validate_staged_runner_path, valid_plugin_runner_id, valid_runner_value,
+        plugin_package_path,
         validate_core_card_caller, validate_core_caller, validate_core_maintenance_request,
         CoreMaintenanceRequest, EncryptedStore, RustCardCommitRequest, RustCardInput,
         RustDrawInput, RustDrawRequest,
@@ -3747,6 +3908,24 @@ mod tests {
         assert_eq!(validate_staged_runner_path(&root, "cn.example.plugin", staged.to_str().unwrap(), "plugin.js").unwrap(), staged.canonicalize().unwrap());
         assert!(validate_staged_runner_path(&root, "cn.example.plugin", other.to_str().unwrap(), "plugin.js").is_err());
         assert!(validate_staged_runner_path(&root, "cn.example.plugin", staged.to_str().unwrap(), "../other/plugin.js").is_err());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn plugin_package_path_rejects_symlinked_components() {
+        let root = std::env::temp_dir().join(format!("cyrene-package-path-{}", std::process::id()));
+        let outside = root.join("outside");
+        let package = root.join("package");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), b"secret").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, package.join("link")).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&outside, package.join("link")).unwrap();
+        #[cfg(any(unix, windows))]
+        assert!(plugin_package_path(&package, "link/secret.txt").is_err());
         let _ = std::fs::remove_dir_all(root);
     }
 
