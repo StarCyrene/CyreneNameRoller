@@ -1,5 +1,5 @@
 <template>
-  <main class="settings-layout-view">
+    <main class="settings-layout-view" data-plugin-style-surface="settings">
     <router-view />
   </main>
 </template>

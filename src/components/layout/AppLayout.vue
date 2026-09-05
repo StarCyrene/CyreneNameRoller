@@ -1,5 +1,5 @@
 <template>
-  <div class="app-layout" :class="[themeClass, { dark: settingsStore.darkMode, 'perf-no-blur': !settingsStore.settings.perfBlur, 'perf-no-shadow': !settingsStore.settings.perfShadows, 'perf-no-anim': !settingsStore.settings.perfAnimations }]" :style="themeStyle" @contextmenu.prevent>
+  <div class="app-layout" data-plugin-style-surface="main" :class="[themeClass, { dark: settingsStore.darkMode, 'perf-no-blur': !settingsStore.settings.perfBlur, 'perf-no-shadow': !settingsStore.settings.perfShadows, 'perf-no-anim': !settingsStore.settings.perfAnimations }]" :style="themeStyle" @contextmenu.prevent>
     <PluginVisualLayers />
     <div ref="globalAnimationSurfaceRef" class="plugin-global-animation-surface" aria-hidden="true" />
     <TitleBar class="app-foreground-layer" />

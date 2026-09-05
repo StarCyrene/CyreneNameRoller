@@ -100,7 +100,8 @@ export function getManifestCompatibility(manifest, platform = getCurrentPlatform
     }
   }
   const hasWorker = !!resolvePlatformEntry(manifest, platform)
-  const hasPage = (manifest?.contributes?.pages || []).some(page => !!page.native || !!resolvePlatformEntry(page, platform))
+  const declaredPages = manifest?.api === '1.5' ? manifest.pages || [] : manifest?.contributes?.pages || []
+  const hasPage = declaredPages.some(page => !!page.native || !!resolvePlatformEntry(page, platform))
   const hasVisualSurface = (manifest?.contributes?.visualSurfaces || []).some(surface => !!resolvePlatformEntry(surface, platform))
   if (!hasWorker && !hasPage && !hasVisualSurface) {
     return {
