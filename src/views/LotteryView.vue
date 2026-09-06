@@ -158,6 +158,7 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePrizesStore } from '../stores/prizes'
+import { getCoreClient } from '../core/client'
 import { useNamesStore } from '../stores/names'
 import { useSettingsStore } from '../stores/settings'
 import { usePluginsStore } from '../plugins/store'
@@ -168,6 +169,7 @@ const WHEEL_COLORS = ['#e255aa', '#5d8fe5', '#39a783', '#eba13c', '#9670d5', '#d
 const props = defineProps({ section: { type: String, default: 'draw' } })
 const router = useRouter()
 const prizes = usePrizesStore()
+const coreClient = getCoreClient()
 const names = useNamesStore()
 const settingsStore = useSettingsStore()
 const pluginsStore = usePluginsStore()
@@ -268,11 +270,10 @@ function beginDraw() {
   }
   if (settingsStore.settings.autoStop) autoStopTimer = setTimeout(stopDraw, AUTO_STOP_DELAY)
 }
-async function revealResult(prize) {
+async function revealResult(prize, operationId) {
   resultPrize.value = prize
   resultNonce.value += 1
   prizes.recordDraw({ prizeId: prize.id, mode: 'draw' })
-  const operationId = crypto.randomUUID?.() || `lottery-${Date.now()}`
   const result = { id: prize.id, name: prize.name, quality: prize.quality || '', remaining: currentPrizeStock.value }
   pluginsStore.dispatchEvent('lottery:item-result', {
     operationId,
@@ -292,18 +293,21 @@ async function revealResult(prize) {
   pluginsStore.startAnimation('lottery.finish', resultElement)
   pluginsStore.startAnimation('global.transition', null, { variant: 'lottery' })
 }
-function stopDraw() {
+async function stopDraw() {
   if (!rolling.value || settling.value) return
   clearDrawTimers()
   rolling.value = false
-  const result = prizes.draw(1)
+  const result = await coreClient.executeHookedOperation('lottery-draw', { listId: prizes.currentId, count: 1, gender: 'all', allowDuplicates: false }, filter => {
+    const drawn = prizes.draw(filter.count)
+    return drawn.success ? { success: true, operationId: crypto.randomUUID?.() || `lottery-${Date.now()}`, result: drawn } : drawn
+  })
   if (!result.success) {
     wheelSnapshot.value = []
     return notifyError(result.error)
   }
-  const selected = result.prizes[0]
+  const selected = result.result.prizes[0]
   if (drawStyle.value !== 'wheel') {
-    revealResult(selected)
+    revealResult(selected, result.operationId)
     wheelSnapshot.value = []
     return
   }
@@ -317,7 +321,7 @@ function stopDraw() {
   wheelRotation.value += 5 * 360 + alignment
   settleTimer = setTimeout(() => {
     settling.value = false
-    revealResult(selected)
+    revealResult(selected, result.operationId)
     wheelSnapshot.value = []
   }, WHEEL_SETTLE_DELAY)
 }
@@ -344,11 +348,14 @@ async function assignPrizes() {
   assigning.value = true
   allocations.value = []
   await new Promise(resolve => setTimeout(resolve, 700))
-  const people = [...eligiblePeople.value].sort(() => Math.random() - 0.5).slice(0, normalizedAssignmentCount.value)
-  const result = prizes.draw(people.length)
+  const result = await coreClient.executeHookedOperation('prize-assignment', { listId: prizes.currentId, count: normalizedAssignmentCount.value, gender: 'all', allowDuplicates: false }, filter => {
+    const people = [...eligiblePeople.value].sort(() => Math.random() - 0.5).slice(0, filter.count)
+    const drawn = prizes.draw(people.length)
+    return drawn.success ? { success: true, operationId: crypto.randomUUID?.() || `lottery-assign-${Date.now()}`, people, result: drawn } : drawn
+  })
   if (!result.success) { assigning.value = false; return notifyError(result.error) }
-  const operationId = crypto.randomUUID?.() || `lottery-assign-${Date.now()}`
-  allocations.value = people.map((person, index) => ({ person, prize: result.prizes[index] }))
+  const operationId = result.operationId
+  allocations.value = result.people.map((person, index) => ({ person, prize: result.result.prizes[index] }))
   allocations.value.forEach((allocation, index) => {
     prizes.recordDraw({ prizeId: allocation.prize.id, personId: allocation.person.id, peopleListId: names.currentListId, mode: 'assign' })
     pluginsStore.dispatchEvent('lottery:item-result', {

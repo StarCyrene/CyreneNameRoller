@@ -96,11 +96,12 @@ export function normalizeFileScopes(value) {
 }
 
 export function normalizeHookDeclaration(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['operation', 'timeoutMs'].includes(key))) throw new Error('hook is invalid')
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['operation', 'timeoutMs', 'phase'].includes(key))) throw new Error('hook is invalid')
   if (!API15_OPERATIONS.has(value.operation)) throw new Error('hook operation is invalid')
   const timeoutMs = value.timeoutMs
   if (typeof timeoutMs !== 'number' || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 1000) throw new Error('hook timeout is invalid')
-  return { operation: value.operation, timeoutMs }
+  if (value.phase !== undefined && value.phase !== 'before' && value.phase !== 'after') throw new Error('hook phase is invalid')
+  return { operation: value.operation, timeoutMs, phase: value.phase || 'before' }
 }
 
 function normalizeApi15Page(value, index, parent = '') {
@@ -135,7 +136,13 @@ function normalizeApi15Manifest(raw) {
   const hooks = raw.hooks === undefined ? [] : raw.hooks
   if (!Array.isArray(hooks) || hooks.length > 16) throw new Error('hooks is invalid')
   const hookOperations = new Set()
-  const normalizedHooks = hooks.map(hook => { const normalized = normalizeHookDeclaration(hook); if (hookOperations.has(normalized.operation)) throw new Error('duplicate hook operation'); hookOperations.add(normalized.operation); return normalized })
+  const normalizedHooks = hooks.map(hook => {
+    const normalized = normalizeHookDeclaration(hook)
+    const key = `${normalized.operation}:${normalized.phase}`
+    if (hookOperations.has(key)) throw new Error('duplicate hook operation phase')
+    hookOperations.add(key)
+    return normalized
+  })
   const windows = raw.windows === undefined ? {} : raw.windows
   if (!windows || typeof windows !== 'object' || Array.isArray(windows) || Object.keys(windows).some(key => !API15_WINDOW_FIELDS.has(key))) throw new Error('windows is invalid')
   if (windows.create !== undefined && typeof windows.create !== 'boolean') throw new Error('windows.create is invalid')

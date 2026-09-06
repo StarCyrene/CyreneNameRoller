@@ -105,6 +105,15 @@ test('Core Worker 在未同步状态时拒绝抽签', async () => {
   assert.equal(replies[0].code, 'CORE_TRANSACTION_REJECTED')
 })
 
+test('Core Worker rejects plugin-supplied algorithm state and commits nothing', async () => {
+  const replies = []
+  const handler = createCoreWorkerHandler(message => replies.push(message))
+  await handler({ data: { type: 'state.sync', requestId: 'sync-forged', state: { names: {}, records: [], statistics: {}, balance: {}, random: 0.2, results: [] } } })
+  assert.equal(replies[0].type, 'error')
+  assert.equal(replies[0].code, 'CORE_INTEGRITY_CHECK_FAILED')
+  assert.equal(replies.some(reply => reply.type === 'commit.request'), false)
+})
+
 test('Core Worker 重新同步同一名单 ID 时清除候选池缓存', async () => {
   const replies = []
   let handler

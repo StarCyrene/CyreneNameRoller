@@ -147,6 +147,18 @@ test('authorizes API 1.5 object permissions with the active instance principal',
   await assert.rejects(runtime.handleRpc(principal, 'core.names.read'), error => error.code === 'PLUGIN_INSTANCE_REVOKED')
 })
 
+test('routes API 1.5 page RPC through the page principal and rejects dom.execute', async () => {
+  const output = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'cnrp-page-runtime-')), 'runtime.mjs')
+  await build({ entryPoints: [path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/plugins/runtime.js')], bundle: true, platform: 'browser', format: 'esm', outfile: output })
+  const { PluginRuntime } = await import(pathToFileURL(output).href)
+  const plugin = { enabled: true, manifest: { api: '1.5', id: 'cn.example.page', name: 'Page', permissions: [{ id: 'page:read', required: false }, { id: 'dom:main', required: false }], pages: [{ id: 'main', title: 'Main', location: 'main', entry: 'main.html' }] } }
+  const runtime = new PluginRuntime({ getPlugin: id => id === plugin.manifest.id ? plugin : null, platformBridge: { info: () => ({ runtime: 'web' }), capabilities: () => ({}) } })
+  const principal = runtime.createPrincipal(plugin, 'page', 'main', 'page:cn.example.page:main')
+  runtime.frames.set('cn.example.page:main', { principal, surface: { tagName: 'MAIN', children: [] } })
+  assert.equal(await runtime.handleRpc(principal, 'page.read', { field: 'language' }), undefined)
+  await assert.rejects(() => runtime.handleRpc(principal, 'dom.execute'), /unsupported|execute/i)
+})
+
 test('rejects malformed and duplicate frames and terminates on timeout or crash', async () => {
   const killed = []
   const host = new DesktopPluginHost({
