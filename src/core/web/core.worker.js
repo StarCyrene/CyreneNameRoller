@@ -1,10 +1,19 @@
 import { executeCoreCardRequest, executeCoreDrawRequest, executeCoreMaintenanceRequest } from './coreService.js'
+import { normalizeCoreCommitState } from '../protocol.js'
 
 export function createCoreWorkerHandler(postMessage) {
   let queue = Promise.resolve()
   let coreState = null
   const peopleCache = new Map()
   const pendingCommits = new Map()
+
+  function validateHostState(state) {
+    const allowed = new Set(['names', 'records', 'statistics', 'balance'])
+    if (!state || typeof state !== 'object' || Array.isArray(state) || Object.keys(state).some(key => !allowed.has(key))) {
+      throw Object.assign(new Error('Core 状态包含非宿主字段'), { code: 'CORE_INTEGRITY_CHECK_FAILED' })
+    }
+    return state
+  }
 
   function requestCommit(requestId, value) {
     return new Promise((resolve, reject) => {
@@ -31,8 +40,7 @@ export function createCoreWorkerHandler(postMessage) {
     queue = queue.catch(() => {}).then(async () => {
       try {
         if (message.type === 'state.sync') {
-          if (!message.state || typeof message.state !== 'object' || Array.isArray(message.state)) throw Object.assign(new Error('Core 状态无效'), { code: 'CORE_TRANSACTION_REJECTED' })
-          coreState = structuredClone(message.state)
+           coreState = structuredClone(validateHostState(message.state))
           peopleCache.clear()
           postMessage({ type: 'success', requestId: message.requestId, value: true })
           return
@@ -43,7 +51,8 @@ export function createCoreWorkerHandler(postMessage) {
           : message.type === 'maintenance.execute'
             ? executeCoreMaintenanceRequest({ ...message, state: coreState })
             : executeCoreDrawRequest({ ...message, state: coreState, peopleCache })
-        await requestCommit(message.requestId, value)
+        const commit = normalizeCoreCommitState({ nextStatistics: value.nextStatistics, nextRecords: value.nextRecords })
+        await requestCommit(message.requestId, commit)
         coreState = { ...coreState, statistics: value.nextStatistics, records: value.nextRecords }
         postMessage({ type: 'success', requestId: message.requestId, value: value.receipt })
       } catch (error) {

@@ -112,6 +112,16 @@ pub fn parse(values: &Value, key: &[u8; 32]) -> Result<CoreStateEnvelope, String
     Ok(envelope)
 }
 
+pub fn verify_bound_values(values: &Value, envelope: &CoreStateEnvelope) -> Result<(), String> {
+    let object = values.as_object().ok_or_else(|| "CORE_INTEGRITY_CHECK_FAILED".to_string())?;
+    for (key, expected) in [("lists", envelope.state.names.get("lists")), ("currentListId", envelope.state.names.get("currentListId")), ("balance", Some(&envelope.state.balance)), ("statistics", Some(&envelope.state.statistics)), ("records", Some(&envelope.state.records))] {
+        if let Some(expected) = expected {
+            if object.get(key) != Some(expected) { return Err("CORE_INTEGRITY_CHECK_FAILED".into()); }
+        }
+    }
+    Ok(())
+}
+
 pub fn normalize_values(values: &Value, key: &[u8; 32]) -> Result<Value, String> {
     let envelope = parse(values, key)?;
     let mut normalized = values.clone();

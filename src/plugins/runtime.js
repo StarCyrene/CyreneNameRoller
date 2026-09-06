@@ -95,7 +95,7 @@ function wait(milliseconds) {
 }
 
 export class PluginRuntime {
-  constructor({ getPlugin, savePluginData, loadPluginData, showBanner, getCoreSnapshot, executeCoreDraw, selectFile, playAudio, platformBridge, onFault, workerFactory, runnerFactory, onApi15Message }) {
+  constructor({ getPlugin, savePluginData, loadPluginData, showBanner, getCoreSnapshot, executeCoreDraw, selectFile, playAudio, platformBridge, onFault, workerFactory, runnerFactory, onApi15Message, coreHooks }) {
     this.getPlugin = getPlugin
     this.savePluginData = savePluginData
     this.loadPluginData = loadPluginData
@@ -109,6 +109,7 @@ export class PluginRuntime {
     this.workerFactory = workerFactory
     this.runnerFactory = runnerFactory
     this.onApi15Message = onApi15Message
+    this.coreHooks = coreHooks
     this.workers = new Map()
     this.frames = new Map()
     this.pages = new Map()
@@ -546,6 +547,14 @@ export class PluginRuntime {
     this.workers.set(pluginId, { api15: true, runtime, activated, commandRequests: new Map() })
     try {
       await activated
+      for (const declaration of plugin.manifest.hooks || []) this.coreHooks?.register({
+         pluginId,
+         operation: declaration.operation,
+          timeoutMs: declaration.timeoutMs,
+          phase: declaration.phase,
+          loadOrder: this.pageLoadOrder++,
+          invoke: context => this.invokeCoreHook(pluginId, declaration.operation, declaration.phase, context, declaration.timeoutMs)
+      })
       this.registerPages(plugin)
       return true
     } catch (error) {
@@ -634,6 +643,7 @@ export class PluginRuntime {
         }
       }
       this.unregisterPages(pluginId)
+      this.coreHooks?.unregister(pluginId)
       this.unregisterCommands(pluginId)
       this.unregisterFrames(pluginId)
       await Promise.all([...this.visualRuntimes.keys()]
@@ -952,6 +962,12 @@ export class PluginRuntime {
     return this.handleRpcPrincipal(this.getLegacyPrincipal(plugin), method, args, signal)
   }
 
+  async invokeCoreHook(pluginId, operation, phase, context, timeoutMs) {
+    const record = this.workers.get(pluginId)
+    if (!record?.api15) throw runtimeError('PLUGIN_HOOK_DISCONNECTED', 'Plugin hook runtime is unavailable')
+    return record.runtime.call(`core.hook.${phase || 'before'}`, { operation, context, timeoutMs })
+  }
+
   async handleRpcPrincipal(principal, method, args = {}, signal) {
     assertActivePrincipal(principal)
     const pluginId = principal.pluginId
@@ -968,7 +984,7 @@ export class PluginRuntime {
       'storage.read': 'storage:read', 'storage.write': 'storage:write',
       'core.names.read': 'core:names:read', 'core.records.read': 'core:records:read', 'core.statistics.read': 'core:statistics:read',
       'names.read': 'names:read', 'records.read': 'records:read', 'statistics.read': 'statistics:read', 'balance.read': 'balance:read',
-      'draw.execute': 'draw:execute',
+       'draw.execute': 'draw:execute', 'core.hook.before': 'core:before-operation', 'core.hook.after': 'core:before-operation',
       'notifications.show': 'notifications:show',
       'audio.select': 'audio:select', 'audio.play': 'audio:play',
       'system.open-url': 'system:open-url', 'system.select-file': 'system:select-file',
@@ -1007,6 +1023,8 @@ export class PluginRuntime {
       case 'records.read': return this.getCoreSnapshot('records')
       case 'statistics.read': return this.getCoreSnapshot('statistics')
       case 'balance.read': return this.getCoreSnapshot('balance')
+      case 'core.hook.before': return { allow: true }
+      case 'core.hook.after': return { allow: true }
       case 'draw.execute': return this.executeCoreDraw?.(plugin, transferableValue(args))
       case 'resources.query': return this.getCoreSnapshot(String(args.resource), transferableValue(args.query || {}))
       case 'transactions.execute': {

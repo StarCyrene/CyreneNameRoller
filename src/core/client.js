@@ -14,6 +14,22 @@ class CoreClient {
     this.lastStateSignature = ''
     this.commitQueue = Promise.resolve()
     this.webQueue = Promise.resolve()
+    this.hookCoordinator = null
+  }
+
+  setHookCoordinator(coordinator) { this.hookCoordinator = coordinator }
+
+  async runAfterHooks(operation, receipt, audit, metadata) {
+    return this.hookCoordinator?.after(operation, receipt, audit, metadata) || []
+  }
+
+  async executeHookedOperation(operation, filter, execute) {
+    const hooked = this.hookCoordinator && await this.hookCoordinator.before(operation, filter)
+    const finalFilter = hooked ? { ...filter, ...hooked.filter } : filter
+    const receipt = await execute(finalFilter)
+    if (!hooked) return receipt
+    const afterAudit = await this.runAfterHooks(operation, receipt, hooked.audit, { originalFilter: filter, finalFilter })
+    return JSON.parse(JSON.stringify({ ...receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: filter, finalFilter }))
   }
 
   ensureWorker() {
@@ -111,6 +127,8 @@ class CoreClient {
   async executeDraw({ caller: rawCaller, input: rawInput }) {
     const caller = normalizeCoreCaller(rawCaller)
     const input = normalizeCoreDrawInput(rawInput)
+    const hooked = this.hookCoordinator && await this.hookCoordinator.before('name-draw', input)
+    const effectiveInput = hooked ? { ...input, ...hooked.filter } : input
     const namesStore = useNamesStore()
     const recordsStore = useRecordsStore()
     const statisticsStore = useStatisticsStore()
@@ -124,23 +142,26 @@ class CoreClient {
         pluginId: caller.pluginId,
         operationId: caller.operationId,
         countStatistics: caller.countStatistics,
-        input
+        input: effectiveInput
       })
       await statisticsStore.restoreState(value.statistics, { persist: false })
       await recordsStore.restoreState(value.records, { persist: false })
-      return JSON.parse(JSON.stringify(value.receipt))
+        const afterAudit = await this.runAfterHooks('name-draw', value.receipt, hooked?.audit, { originalFilter: input, finalFilter: effectiveInput })
+       return JSON.parse(JSON.stringify(hooked ? { ...value.receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: effectiveInput } : value.receipt))
     }
     return this.enqueueWebTransaction(async () => {
       const balance = await this.syncWebState(namesStore, recordsStore, statisticsStore)
-      const receipt = await this.request({ type: 'draw.execute', caller, input })
+      const receipt = await this.request({ type: 'draw.execute', caller, input: effectiveInput })
       this.lastStateSignature = this.webStateSignature(namesStore, recordsStore, statisticsStore, balance)
-      return JSON.parse(JSON.stringify(receipt))
+       const afterAudit = await this.runAfterHooks('name-draw', receipt, hooked?.audit, { originalFilter: input, finalFilter: effectiveInput })
+      return JSON.parse(JSON.stringify(hooked ? { ...receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: effectiveInput } : receipt))
     })
   }
 
   async commitCard({ listId, personIds, operationId = '' }) {
     const caller = normalizeCoreCaller({ kind: 'core-ui', pluginId: 'core', operationId, countStatistics: false })
     const input = normalizeCoreCardInput({ listId, personIds })
+    const hooked = this.hookCoordinator && await this.hookCoordinator.before('card-flip', { ...input, count: input.personIds.length, allowDuplicates: false, gender: 'all' })
     const namesStore = useNamesStore()
     const recordsStore = useRecordsStore()
     const statisticsStore = useStatisticsStore()
@@ -152,16 +173,18 @@ class CoreClient {
         callerKind: 'core-ui',
         pluginId: 'core',
         operationId: caller.operationId,
-        input
+        input: hooked ? { ...input, listId: hooked.filter.listId } : input
       })
       await recordsStore.restoreState(value.records, { persist: false })
-      return JSON.parse(JSON.stringify(value.receipt))
+        const afterAudit = await this.runAfterHooks('card-flip', value.receipt, hooked?.audit, { originalFilter: input, finalFilter: { ...input, ...hooked.filter } })
+       return JSON.parse(JSON.stringify(hooked ? { ...value.receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: { ...input, ...hooked.filter } } : value.receipt))
     }
     return this.enqueueWebTransaction(async () => {
       const balance = await this.syncWebState(namesStore, recordsStore, statisticsStore)
-      const receipt = await this.request({ type: 'card.commit', caller, input })
+      const receipt = await this.request({ type: 'card.commit', caller, input: hooked ? { ...input, listId: hooked.filter.listId } : input })
       this.lastStateSignature = this.webStateSignature(namesStore, recordsStore, statisticsStore, balance)
-      return JSON.parse(JSON.stringify(receipt))
+       const afterAudit = await this.runAfterHooks('card-flip', receipt, hooked?.audit, { originalFilter: input, finalFilter: { ...input, ...hooked.filter } })
+      return JSON.parse(JSON.stringify(hooked ? { ...receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: { ...input, ...hooked.filter } } : receipt))
     })
   }
 

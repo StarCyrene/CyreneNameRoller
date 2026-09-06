@@ -2,6 +2,7 @@ const DRAW_INPUT_FIELDS = new Set(['listId', 'target', 'count', 'allowDuplicates
 const CARD_INPUT_FIELDS = new Set(['listId', 'personIds'])
 const MAINTENANCE_ACTIONS = new Set(['clear-records', 'initialize-person-count'])
 const COMMIT_FIELDS = new Set(['nextStatistics', 'nextRecords'])
+const HOOK_FILTER_FIELDS = new Set(['listId', 'count', 'gender', 'allowDuplicates'])
 const RECORD_FIELDS = new Set(['personId', 'listId', 'groupId', 'source', 'pluginId', 'operationId', 'time'])
 
 function coreError(code, message) { return Object.assign(new Error(message), { code }) }
@@ -17,6 +18,11 @@ export function normalizeCoreDrawInput(raw = {}) {
     allowDuplicates: raw.allowDuplicates === true,
     gender: ['male', 'female'].includes(raw.gender) ? raw.gender : 'all'
   }
+}
+
+export function normalizeCoreHookFilter(raw = {}) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(key => !HOOK_FILTER_FIELDS.has(key))) throw coreError('PLUGIN_HOOK_INVALID_RESPONSE', 'Invalid core hook filter')
+  return normalizeCoreDrawInput(raw)
 }
 
 export function normalizeCoreCaller(raw = {}) {

@@ -28,6 +28,7 @@ import { styleVarsForTarget } from './ui/stylePolicy'
 import { PluginFontRegistry } from './ui/fontRegistry'
 import { overrideStateForTarget } from './ui/overridePolicy'
 import { createTauriRunner } from './rpc/desktopHost.js'
+import { CoreHookCoordinator } from './api15/coreHooks.js'
 
 const STATE_KEY = 'pluginState'
 const PLUGIN_DATA_KEY = 'pluginData'
@@ -115,6 +116,8 @@ export const usePluginsStore = defineStore('plugins', () => {
     addressBinding: false
   }})
   const coreClient = getCoreClient()
+  const coreHooks = new CoreHookCoordinator({ onDisable: pluginId => { void disableFromHook(pluginId) } })
+  coreClient.setHookCoordinator(coreHooks)
 
   const runtime = new PluginRuntime({
     getPlugin: pluginId => installed.value[pluginId],
@@ -146,6 +149,7 @@ export const usePluginsStore = defineStore('plugins', () => {
     playAudio,
     platformBridge,
     onFault: handleRuntimeFault,
+    coreHooks,
     runnerFactory: (plugin, instanceId) => platformBridge.info().runtime === 'tauri'
       ? createTauriRunner({ pluginId: plugin.manifest.id, instanceId, files: plugin.files })
       : null,
@@ -209,6 +213,17 @@ export const usePluginsStore = defineStore('plugins', () => {
   async function deactivatePluginRuntime(pluginId) {
     await runtime.deactivate(pluginId)
     await coreClient.revokePlugin(pluginId).catch(() => {})
+  }
+
+  async function disableFromHook(pluginId) {
+    const plugin = installed.value[pluginId]
+    if (!plugin || plugin.enabled === false) return
+    await deactivatePluginRuntime(pluginId).catch(() => {})
+    animationRegistry.unregisterPlugin(pluginId)
+    plugin.enabled = false
+    plugin.runtimeError = '插件钩子连续失败，已自动禁用'
+    await saveState(false).catch(() => {})
+    refreshPages()
   }
 
   async function executeCoreDraw(plugin, rawArgs = {}) {
@@ -882,6 +897,7 @@ export const usePluginsStore = defineStore('plugins', () => {
   function unregisterAnimationSurface(target, element) { animationRegistry.unregisterSurface(target, element) }
 
   function mountPageFrame(frame, pluginId, pageId) { runtime.mountFrame(frame, pluginId, pageId) }
+  function setPageSurface(surface, pluginId, pageId) { runtime.setPageSurface(pluginId, pageId, surface, globalThis.document) }
   function unmountPageFrame(pluginId, pageId) { runtime.unmountFrame(pluginId, pageId) }
   function connectPageFrame(frame, pluginId, pageId) { return runtime.connectFrame(frame, pluginId, pageId) }
   function mountVisualSurface(canvas, pluginId, surfaceId, viewport) { return runtime.mountVisualSurface(canvas, pluginId, surfaceId, viewport) }
@@ -900,7 +916,7 @@ export const usePluginsStore = defineStore('plugins', () => {
     if (!message.pluginId || message.type !== 'rpc-request') return
     if (!runtime.ownsFrameSource(event.source, message.pluginId)) return
     try {
-      const result = await runtime.handleRpc(message.pluginId, message.method, message.args)
+      const result = await runtime.handleRpc(runtime.principalForFrameSource(event.source, message.pluginId) || message.pluginId, message.method, message.args)
       event.source?.postMessage({ type: 'rpc-response', id: message.id, result: clone(result) }, '*')
     } catch (error) {
       event.source?.postMessage({ type: 'rpc-response', id: message.id, code: error.code, error: error.message || String(error) }, '*')
@@ -933,7 +949,7 @@ export const usePluginsStore = defineStore('plugins', () => {
     installed, list, source, initialized, recovering, lastError, enabledPlugins, contributedPages, contributedCommands, contributedVisualSurfaces, contributedAppearancePacks, contributedComponentStylePacks, contributedComponentOverridePacks, contributedNativeViews, contributedResultPresentations, animationSelections, animationDurationScales, componentStyleSelections, componentOverrideSelections, resultPresentationSelections, safeModeStatus,
     initialize, configureSafeMode, setBannerHandler, saveState, activateEnabled, inspectPackage, installPackage, uninstall, setEnabled,
     setSource, fetchList, downloadPlugin, loadCatalogDetails, pageById, appearanceByValue, appearanceOptions, resolveAppearance, componentStyleByValue, componentStyleOptions, componentStyleStyle, setComponentStyleSelection, componentOverrideByValue, componentOverrideOptions, nativeViewsForSlot, resultPresentationByValue, resultPresentationOptions, resultPresentationForTarget, setResultPresentationSelection, componentOverrideState, setComponentOverrideSelection, resetComponentOverrides, pluginById, pluginAssetUrl,
-    pluginPageSource, requestPlugin, invokePluginCommand, executeRollerDraw, mountPageFrame, connectPageFrame, unmountPageFrame, mountVisualSurface, resizeVisualSurface, unmountVisualSurface,
+     pluginPageSource, requestPlugin, invokePluginCommand, executeRollerDraw, mountPageFrame, setPageSurface, connectPageFrame, unmountPageFrame, mountVisualSurface, resizeVisualSurface, unmountVisualSurface,
     animationOptions, animationSelectionValue, setAnimationSelection, hasAnimation, startAnimation, animationDurationScale, setAnimationDurationScale, registerAnimationSurface, unregisterAnimationSurface,
     dispatchEvent, handlePluginMessage, markCleanShutdown,
     compatibilityFor, platform: platformBridge.info(), platformCapabilities: platformBridge.capabilities()

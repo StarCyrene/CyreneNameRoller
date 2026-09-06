@@ -953,6 +953,10 @@ fn core_draw_execute(
             return Err(error);
         }
     };
+    if let Err(error) = core_state::verify_bound_values(&old_values, &envelope) {
+        authority.readonly.store(true, Ordering::Release);
+        return Err(error);
+    }
     envelope.state.names = json!({
         "currentListId": old_values.get("currentListId").cloned().unwrap_or_else(|| json!("default")),
         "lists": old_values.get("lists").cloned().unwrap_or_else(|| json!({}))
@@ -1077,6 +1081,10 @@ fn core_card_commit(
             return Err(error);
         }
     };
+    if let Err(error) = core_state::verify_bound_values(&old_values, &envelope) {
+        authority.readonly.store(true, Ordering::Release);
+        return Err(error);
+    }
     envelope.state.names = json!({
         "currentListId": old_values.get("currentListId").cloned().unwrap_or_else(|| json!("default")),
         "lists": old_values.get("lists").cloned().unwrap_or_else(|| json!({}))
