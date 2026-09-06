@@ -166,6 +166,22 @@ export function manifestMigrationMetadata(raw) {
   return { ...JSON.parse(JSON.stringify(raw)), activatable: false, displayOnly: true, migrationRequired: true, api: null, id: typeof raw.id === 'string' ? raw.id : '', version: typeof raw.version === 'string' ? raw.version : '', name: typeof raw.name === 'string' ? raw.name : '' }
 }
 
+export function isPluginActivatable(manifest) {
+  return manifest?.api === '1.5' && manifest.displayOnly !== true && manifest.activatable !== false
+}
+
+export function summarizeInstallationRisk(manifest = {}) {
+  const permissions = (manifest.permissions || []).map(item => typeof item === 'string' ? item : item?.id).filter(Boolean)
+  return {
+    network: manifest.network?.internet === true,
+    externalRoots: Array.isArray(manifest.files?.external) ? manifest.files.external : [],
+    execute: permissions.includes('system:execute'),
+    coreData: permissions.filter(permission => permission.startsWith('core:') || permission.endsWith(':read')),
+    hostSurface: permissions.filter(permission => permission.startsWith('dom:') || permission.startsWith('style:')),
+    signed: manifest.signed === true || manifest.publisherVerified === true
+  }
+}
+
 export function resolveApi15Capabilities(manifest, platform) {
   const runtime = typeof platform === 'string' ? platform : platform?.runtime
   const availableOn = id => {

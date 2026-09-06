@@ -650,9 +650,18 @@ export class PluginRuntime {
         .filter(key => key.startsWith(`${pluginId}:`))
         .map(key => this.unmountVisualSurface(...key.split(':'))))
       this.unregisterVisualSurfaces(pluginId)
+      this.windowBridges.get(pluginId)?.cleanup?.()
+      this.windowBridges.delete(pluginId)
+      for (const key of [...this.pageBridges.keys()]) if (key.startsWith(`${pluginId}:`)) this.pageBridges.delete(key)
       this.revokePluginPrincipals(pluginId)
     } finally {
       this.deactivatingPlugins.delete(pluginId)
+    }
+  }
+
+  async deactivateAll() {
+    for (const pluginId of new Set([...this.workers.keys(), ...this.pages.keys()].map(key => key.split(':')[0]))) {
+      await this.deactivate(pluginId).catch(() => {})
     }
   }
 

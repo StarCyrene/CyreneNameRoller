@@ -9,7 +9,8 @@ import { getCoreClient } from '../core/client'
 import { emitPluginEvent } from './eventBus'
 import {
   parsePluginPackage,
-  satisfiesPluginVersion
+  satisfiesPluginVersion,
+  isPluginActivatable
 } from './package'
 import {
   PLUGIN_DOWNLOAD_SOURCES,
@@ -296,7 +297,17 @@ export const usePluginsStore = defineStore('plugins', () => {
 
   function configureSafeMode(status) {
     safeModeStatus.value = Object.freeze({ ...status })
-    if (safeModeStatus.value.enabled) refreshPages()
+    if (safeModeStatus.value.enabled) {
+      void runtime.deactivateAll()
+      installed.value = {}
+      animationSelections.value = {}
+      animationDurationScales.value = {}
+      componentStyleSelections.value = {}
+      componentOverrideSelections.value = {}
+      resultPresentationSelections.value = {}
+      fontRegistry.clear()
+      refreshPages()
+    }
     return safeModeStatus.value
   }
 
@@ -372,6 +383,11 @@ export const usePluginsStore = defineStore('plugins', () => {
     if (safeModeStatus.value.enabled) return false
     const plugins = []
     for (const plugin of Object.values(installed.value).filter(item => item.enabled)) {
+      if (!isPluginActivatable(plugin.manifest)) {
+        plugin.enabled = false
+        plugin.runtimeError = '该插件需要迁移到 API 1.5，旧版本仅可查看'
+        continue
+      }
       const compatibility = compatibilityFor(plugin)
       plugin.platformCompatibility = compatibility
       if (!compatibility.compatible) {
@@ -450,6 +466,7 @@ export const usePluginsStore = defineStore('plugins', () => {
       runtimeError: '',
       recoveryDisabled: false
     }
+    if (!isPluginActivatable(candidate.manifest)) candidate.enabled = false
     const compatibility = compatibilityFor(candidate)
     candidate.platformCompatibility = compatibility
     if (!compatibility.compatible) {
@@ -531,6 +548,7 @@ export const usePluginsStore = defineStore('plugins', () => {
       await saveState(false)
       return true
     }
+    if (!isPluginActivatable(plugin.manifest)) throw Object.assign(new Error('旧版插件仅可查看，不能启用；请迁移到 API 1.5'), { code: 'PLUGIN_MIGRATION_REQUIRED' })
     try {
       assertPlatformCompatibility(plugin)
       assertDependencies(plugin)
@@ -633,7 +651,7 @@ export const usePluginsStore = defineStore('plugins', () => {
     }
     const expectedHash = String(item.sha256 || item.packageHash || '').toLowerCase()
     if (expectedHash && parsed.packageHash !== expectedHash) throw new Error('插件包哈希与目录登记不一致')
-    if (authorize && await authorize(parsed.manifest, item) === false) throw new Error('用户取消了插件安装')
+    if (authorize && await authorize({ ...parsed.manifest, signed: parsed.publisherVerified }, item) === false) throw new Error('用户取消了插件安装')
 
     for (const dependency of parsed.manifest.dependencies || []) {
       const range = dependency.range || dependency.version || '*'
