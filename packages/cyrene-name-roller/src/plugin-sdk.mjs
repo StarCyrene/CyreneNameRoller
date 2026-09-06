@@ -117,6 +117,53 @@ export function createRequest(context) {
   return context.request
 }
 
+const call = (context, method, args = {}) => createRequest(context)(method, args)
+
+export const page = Object.freeze({
+  read: (context, field) => call(context, 'page.read', { field }),
+  write: (context, field, value, options = {}) => call(context, 'page.write', { field, value, ...options })
+})
+
+export const window = Object.freeze({
+  create: (context, options = {}) => call(context, 'window.create', options),
+  close: (context, handle) => call(context, 'window.close', { handle })
+})
+
+export const files = Object.freeze({
+  read: (context, args = {}) => call(context, 'files.read', args),
+  write: (context, args = {}) => call(context, 'files.write', args)
+})
+
+export const net = Object.freeze({
+  request: (context, args = {}) => call(context, 'net.request', args)
+})
+
+export const state = Object.freeze({
+  read: page.read,
+  write: page.write
+})
+
+export const dom = Object.freeze({
+  query: (context, args = {}) => call(context, 'dom.query', args),
+  read: (context, args = {}) => call(context, 'dom.read', args),
+  write: (context, args = {}) => call(context, 'dom.write', args),
+  insert: (context, args = {}) => call(context, 'dom.insert', args)
+})
+
+export const core = Object.freeze({
+  names: Object.freeze({ read: context => call(context, 'core.names.read') }),
+  records: Object.freeze({ read: context => call(context, 'core.records.read') }),
+  statistics: Object.freeze({ read: context => call(context, 'core.statistics.read') }),
+  balance: Object.freeze({ read: context => call(context, 'balance.read') }),
+  hook: Object.freeze({
+    before: (context, operation, input = {}) => call(context, 'core.hook.before', { operation, context: input }),
+    after: (context, operation, input = {}) => call(context, 'core.hook.after', { operation, context: input })
+  })
+})
+
+// `groups` is the public namespace bundle; group snapshots come from core.names.read.
+export const groups = Object.freeze({ page, window, files, net, state, dom, core })
+
 export async function getPlatform(context) {
   if (context?.platform?.runtime) return context.platform
   return createRequest(context)('runtime.platform')
