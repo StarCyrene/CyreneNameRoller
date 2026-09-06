@@ -2,6 +2,7 @@ import { dataBridge } from '../utils/dataBridge.js'
 import { useNamesStore } from '../stores/names.js'
 import { useRecordsStore } from '../stores/records.js'
 import { useStatisticsStore } from '../stores/statistics.js'
+import { usePrizesStore } from '../stores/prizes.js'
 import { commitCoreStateTransaction } from '../plugins/coreDraw.js'
 import { normalizeCoreCaller, normalizeCoreCardInput, normalizeCoreCommitState, normalizeCoreDrawInput, normalizeCoreMaintenanceInput } from './protocol.js'
 import { isTauri, tauriAPI } from '../utils/tauriAPI.js'
@@ -74,17 +75,21 @@ class CoreClient {
 
   async commitWorkerState(worker, message) {
     try {
-      const { nextStatistics, nextRecords } = normalizeCoreCommitState(message.value)
+      const { nextStatistics, nextRecords, nextPrizes } = normalizeCoreCommitState(message.value)
       const statisticsStore = useStatisticsStore()
       const recordsStore = useRecordsStore()
+      const prizesStore = usePrizesStore()
       const commit = this.commitQueue.catch(() => {}).then(() => commitCoreStateTransaction({
         statisticsStore,
         recordsStore,
+        prizesStore,
         nextStatistics,
-        nextRecords
+        nextRecords,
+        ...(nextPrizes ? { nextPrizes } : {})
       }))
       this.commitQueue = commit
       await commit
+      if (nextPrizes) await usePrizesStore().restoreState(nextPrizes)
       worker.postMessage({ type: 'commit.resolve', requestId: message.requestId })
     } catch (error) {
       worker.postMessage({
@@ -103,7 +108,13 @@ class CoreClient {
   }
 
   webStateSignature(namesStore, recordsStore, statisticsStore, balance) {
-    return `${namesStore.revision}:${recordsStore.revision}:${statisticsStore.revision}:${JSON.stringify(balance || {})}`
+    return JSON.stringify({
+      names: { currentListId: namesStore.currentListId, lists: namesStore.nameLists },
+      records: recordsStore.snapshotState(),
+      statistics: statisticsStore.snapshotState(),
+      balance: balance || {},
+      prizes: usePrizesStore().snapshotState()
+    })
   }
 
   async syncWebState(namesStore, recordsStore, statisticsStore) {
@@ -116,6 +127,7 @@ class CoreClient {
           names: { currentListId: namesStore.currentListId, lists: JSON.parse(JSON.stringify(namesStore.nameLists)) },
           records: recordsStore.snapshotState(),
           statistics: statisticsStore.snapshotState(),
+          prizes: usePrizesStore().snapshotState(),
           balance
         }
       })
@@ -146,6 +158,7 @@ class CoreClient {
       })
       await statisticsStore.restoreState(value.statistics, { persist: false })
       await recordsStore.restoreState(value.records, { persist: false })
+      if (value.prizes) await usePrizesStore().restoreState(value.prizes, { persist: false })
         const afterAudit = await this.runAfterHooks('name-draw', value.receipt, hooked?.audit, { originalFilter: input, finalFilter: effectiveInput })
        return JSON.parse(JSON.stringify(hooked ? { ...value.receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: effectiveInput } : value.receipt))
     }
@@ -155,6 +168,33 @@ class CoreClient {
       this.lastStateSignature = this.webStateSignature(namesStore, recordsStore, statisticsStore, balance)
        const afterAudit = await this.runAfterHooks('name-draw', receipt, hooked?.audit, { originalFilter: input, finalFilter: effectiveInput })
       return JSON.parse(JSON.stringify(hooked ? { ...receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: effectiveInput } : receipt))
+    })
+  }
+
+  async executePrizeOperation({ operation, input, caller = { kind: 'core-ui', pluginId: 'core' } }) {
+    const prizesStore = usePrizesStore()
+    await prizesStore.initialize()
+    const namesStore = useNamesStore()
+    const recordsStore = useRecordsStore()
+    const statisticsStore = useStatisticsStore()
+    await Promise.all([namesStore.initialize(), recordsStore.initialize(), statisticsStore.initialize()])
+    const normalizedCaller = normalizeCoreCaller(caller)
+    const hooked = this.hookCoordinator && await this.hookCoordinator.before(operation, input)
+    const effectiveInput = hooked ? { ...input, ...hooked.filter } : input
+    if (isTauri()) {
+      const value = await tauriAPI.corePrizeExecute({
+        grantToken: await tauriAPI.coreGrantTokenFor('core-ui'), principal: 'core-ui', callerKind: 'core-ui', pluginId: 'core',
+        operationId: normalizedCaller.operationId, operation, input: effectiveInput
+      })
+      await prizesStore.restoreState(value.prizes, { persist: false })
+      return hooked ? { ...value.receipt, hookAudit: [...hooked.audit, ...(await this.runAfterHooks(operation, value.receipt, hooked.audit, { originalFilter: input, finalFilter: effectiveInput }))], originalFilter: input, finalFilter: effectiveInput } : value.receipt
+    }
+    return this.enqueueWebTransaction(async () => {
+      await this.syncWebState(namesStore, recordsStore, statisticsStore)
+      const value = await this.request({ type: 'prize.execute', caller: normalizedCaller, operation, input: effectiveInput })
+      await prizesStore.restoreState(value.prizes, { persist: false })
+      const afterAudit = await this.runAfterHooks(operation, value.receipt, hooked?.audit, { originalFilter: input, finalFilter: effectiveInput })
+      return hooked ? { ...value.receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: effectiveInput } : value.receipt
     })
   }
 

@@ -171,3 +171,24 @@ test('Core Client 只在 Worker 提交确认路径落地主线程状态', async 
   assert.doesNotMatch(source, /executeCoreDrawRequest|fallbackState/)
   assert.match(source, /Core Worker 不可用/)
 })
+
+test('Core Worker preserves omitted statistics and records', async () => {
+  const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../src/core/web/core.worker.js', import.meta.url), 'utf8'))
+  assert.match(source, /value\.nextStatistics === undefined \? coreState\.statistics : value\.nextStatistics/)
+  assert.match(source, /value\.nextRecords === undefined \? coreState\.records : value\.nextRecords/)
+  assert.match(source, /statistics: nextStatistics, records: nextRecords/)
+})
+
+test('Core Worker prize state sync includes authoritative host state', async () => {
+  const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../src/core/client.js', import.meta.url), 'utf8'))
+  assert.match(source, /names: \{ currentListId: namesStore\.currentListId, lists: namesStore\.nameLists \}/)
+  assert.match(source, /records: recordsStore\.snapshotState\(\)/)
+  assert.match(source, /prizes: usePrizesStore\(\)\.snapshotState\(\)/)
+  assert.match(source, /await this\.syncWebState\(namesStore, recordsStore, statisticsStore\)/)
+})
+
+test('Core Client syncs prize state before web prize execution', async () => {
+  const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../src/core/client.js', import.meta.url), 'utf8'))
+  assert.match(source, /prizes: usePrizesStore\(\)\.snapshotState\(\)/)
+  assert.match(source, /const balance = await this\.syncWebState\(namesStore, recordsStore, statisticsStore\)/)
+})

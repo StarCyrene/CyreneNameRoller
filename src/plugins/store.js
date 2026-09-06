@@ -4,6 +4,7 @@ import { dataBridge } from '../utils/dataBridge'
 import { useNamesStore } from '../stores/names'
 import { useRecordsStore } from '../stores/records'
 import { useStatisticsStore } from '../stores/statistics'
+import { useSettingsStore } from '../stores/settings'
 import { ALGORITHM_NAME, ALGORITHM_VERSION, DEFAULT_CYRENE_BALANCE_SETTINGS, TARGET_GAP, normalizeCyreneBalanceSettings } from '../utils/cyrene-balance'
 import { getCoreClient } from '../core/client'
 import { emitPluginEvent } from './eventBus'
@@ -151,6 +152,31 @@ export const usePluginsStore = defineStore('plugins', () => {
     platformBridge,
     onFault: handleRuntimeFault,
     coreHooks,
+    pageStateAdapter: {
+      read(field) {
+        const settings = useSettingsStore().settings
+        if (field === 'language') return settings.language
+        if (field === 'theme') return settings.colorTheme || settings.theme
+        if (field === 'animation') return settings.finishAnimation
+        if (field === 'display') return settings.englishMode ? 'english' : 'native'
+        if (field === 'drawFilter') return { listId: useNamesStore().currentListId, target: settings.groupMode ? 'groups' : 'people', count: settings.multiMode ? settings.peopleCount : 1, gender: 'all', allowDuplicates: !settings.forbidDuplicates }
+      },
+      write(field, value) {
+        const settings = useSettingsStore()
+        if (field === 'language') return settings.update('language', value)
+        if (field === 'theme') return settings.update('colorTheme', value)
+        if (field === 'animation') return settings.update('finishAnimation', value)
+        if (field === 'display') return settings.update('englishMode', value === 'english')
+        if (field === 'drawFilter' && value && typeof value === 'object') return Promise.all([
+          value.listId ? useNamesStore().switchList(value.listId) : true,
+          settings.update('groupMode', value.target === 'groups'),
+          settings.update('multiMode', Number(value.count) > 1),
+          settings.update('peopleCount', Math.max(1, Number(value.count) || 1)),
+          settings.update('forbidDuplicates', value.allowDuplicates === false)
+        ])
+        throw new Error('state field is not writable')
+      }
+    },
     runnerFactory: (plugin, instanceId) => platformBridge.info().runtime === 'tauri'
       ? createTauriRunner({ pluginId: plugin.manifest.id, instanceId, files: plugin.files })
       : null,

@@ -1,7 +1,37 @@
 import { ALGORITHM_NAME, ALGORITHM_VERSION, normalizeCyreneBalanceSettings, personKey, pickCyreneBatch, secureRandom } from '../../utils/cyrene-balance.js'
-import { normalizeCoreCaller, normalizeCoreCardInput, normalizeCoreDrawInput, normalizeCoreMaintenanceInput } from '../protocol.js'
+import { normalizeCoreCaller, normalizeCoreCardInput, normalizeCoreDrawInput, normalizeCoreMaintenanceInput, normalizeCorePrizeInput } from '../protocol.js'
 
 function coreError(code, message) { return Object.assign(new Error(message), { code }) }
+
+export function executePrizeRequest({ operation, input, state, caller }) {
+  input = normalizeCorePrizeInput(input)
+  if (operation !== 'lottery-draw' && operation !== 'prize-assignment') throw coreError('CORE_TRANSACTION_REJECTED', 'Prize operation is invalid')
+  if (!state || typeof state !== 'object' || !state.prizes || !state.names || !state.prizes.lists || !Array.isArray(state.prizes.records)) throw coreError('CORE_TRANSACTION_REJECTED', 'Prize state is invalid')
+  const prizeState = state.prizes
+  const list = prizeState.lists[input.listId]
+  if (!list || !Array.isArray(list.prizes)) throw coreError('CORE_TRANSACTION_REJECTED', 'Prize list does not exist')
+  const count = Math.max(1, Math.min(100, Math.floor(Number(input.count) || 1)))
+  const available = list.prizes.filter(prize => Number(prize.quantity) > 0)
+  if (available.reduce((sum, prize) => sum + Number(prize.quantity), 0) < count) throw coreError('CORE_TRANSACTION_REJECTED', 'Prize inventory is insufficient')
+  const peoplePool = operation === 'prize-assignment' ? (state.names.lists[input.peopleListId]?.names || []).filter(person => person?.id && person.cn && !person.isWhiteList && (input.gender === 'all' || person.gender === input.gender)) : []
+  if (operation === 'prize-assignment' && peoplePool.length < count) throw coreError('CORE_TRANSACTION_REJECTED', 'Assignment people are invalid')
+  const people = operation === 'prize-assignment' ? [...peoplePool].sort(() => secureRandom() - 0.5).slice(0, count) : []
+  const next = structuredClone(prizeState)
+  const results = []
+  for (let index = 0; index < count; index += 1) {
+    const pool = next.lists[input.listId].prizes.filter(prize => prize.quantity > 0)
+    const total = pool.reduce((sum, prize) => sum + Number(prize.weight || 1), 0)
+    let cursor = secureRandom() * total
+    const selected = pool.find(prize => (cursor -= Number(prize.weight || 1)) < 0) || pool.at(-1)
+    selected.quantity -= 1
+    const result = { id: selected.id, name: selected.name, quality: selected.quality || '' }
+    if (people[index]) result.person = { id: people[index].id, name: people[index].cn || '', englishName: people[index].en || '' }
+    results.push(result)
+    next.records.unshift({ id: `core-${Date.now()}-${index}`, prizeId: selected.id, prizeListId: input.listId, personId: people[index]?.id || null, peopleListId: input.peopleListId || null, mode: operation === 'prize-assignment' ? 'assign' : 'draw', time: Date.now() })
+  }
+  next.records = next.records.slice(0, 500)
+  return { receipt: { kind: operation, operationId: caller.operationId || `prize-${Date.now()}`, pluginId: caller.pluginId, listId: input.listId, count, results, committedAt: Date.now() }, nextPrizes: next }
+}
 
 export function executeCoreDrawRequest({ input: rawInput, caller: rawCaller, state, peopleCache }) {
   const input = normalizeCoreDrawInput(rawInput)

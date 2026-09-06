@@ -1,9 +1,10 @@
 const DRAW_INPUT_FIELDS = new Set(['listId', 'target', 'count', 'allowDuplicates', 'gender'])
 const CARD_INPUT_FIELDS = new Set(['listId', 'personIds'])
 const MAINTENANCE_ACTIONS = new Set(['clear-records', 'initialize-person-count'])
-const COMMIT_FIELDS = new Set(['nextStatistics', 'nextRecords'])
+const COMMIT_FIELDS = new Set(['nextStatistics', 'nextRecords', 'nextPrizes'])
 const HOOK_FILTER_FIELDS = new Set(['listId', 'count', 'gender', 'allowDuplicates'])
 const RECORD_FIELDS = new Set(['personId', 'listId', 'groupId', 'source', 'pluginId', 'operationId', 'time'])
+const PRIZE_INPUT_FIELDS = new Set(['listId', 'count', 'peopleListId', 'gender'])
 
 function coreError(code, message) { return Object.assign(new Error(message), { code }) }
 
@@ -67,6 +68,11 @@ export function normalizeCoreMaintenanceInput(raw = {}) {
   return { action, listId, personId, mode }
 }
 
+export function normalizeCorePrizeInput(raw = {}) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(key => !PRIZE_INPUT_FIELDS.has(key))) throw coreError('CORE_TRANSACTION_REJECTED', 'prize input contains forged authority fields')
+  return { listId: String(raw.listId || ''), count: Math.max(1, Math.min(100, Math.floor(Number(raw.count) || 1))), peopleListId: String(raw.peopleListId || ''), gender: ['male', 'female'].includes(raw.gender) ? raw.gender : 'all' }
+}
+
 export function normalizeCoreCommitState(raw = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw coreError('CORE_TRANSACTION_REJECTED', 'Core commit must be an object')
   const unsupported = Object.keys(raw).find(key => !COMMIT_FIELDS.has(key))
@@ -92,9 +98,11 @@ export function normalizeCoreCommitState(raw = {}) {
       throw coreError('CORE_TRANSACTION_REJECTED', 'Core commit record is invalid')
     }
   }
+  if (raw.nextPrizes !== undefined && (!raw.nextPrizes || typeof raw.nextPrizes !== 'object' || Array.isArray(raw.nextPrizes) || !raw.nextPrizes.lists || !Array.isArray(raw.nextPrizes.records))) throw coreError('CORE_TRANSACTION_REJECTED', 'Core commit prizes are invalid')
   return {
     nextStatistics: JSON.parse(JSON.stringify(statistics)),
-    nextRecords: JSON.parse(JSON.stringify(raw.nextRecords))
+    nextRecords: JSON.parse(JSON.stringify(raw.nextRecords)),
+    ...(raw.nextPrizes === undefined ? {} : { nextPrizes: JSON.parse(JSON.stringify(raw.nextPrizes)) })
   }
 }
 

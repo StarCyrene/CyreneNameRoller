@@ -43,6 +43,7 @@ export const tauriAPI = {
   },
   async coreDrawExecute(request) { return this.invokeStrict('core_draw_execute', { request }) },
   async coreCardCommit(request) { return this.invokeStrict('core_card_commit', { request }) },
+  async corePrizeExecute(request) { return this.invokeStrict('core_prize_execute', { request }) },
   async coreMaintenanceExecute(action, fields = {}) {
     const principal = 'core-ui'
     return this.invokeStrict('core_maintenance_execute', { request: { grantToken: await this.coreGrantTokenFor(principal), principal, action, ...fields } })

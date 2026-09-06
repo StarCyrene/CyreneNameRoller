@@ -24,7 +24,11 @@ pub struct CoreState {
     pub balance: Value,
     pub statistics: Value,
     pub records: Value,
+    #[serde(default = "default_prizes")]
+    pub prizes: Value,
 }
+
+fn default_prizes() -> Value { json!({ "lists": {}, "currentId": "default", "records": [] }) }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -89,6 +93,7 @@ pub fn genesis(values: &Value) -> CoreStateEnvelope {
         balance: object.get("balance").cloned().unwrap_or_else(|| json!({ "enabled": true })),
         statistics: object.get("statistics").cloned().unwrap_or_else(|| json!({ "counts": {}, "totalCount": 0 })),
         records: object.get("records").cloned().unwrap_or_else(|| json!([])),
+        prizes: object.get("prizes").cloned().unwrap_or_else(|| json!({ "lists": {}, "currentId": "default", "records": [] })),
     };
     CoreStateEnvelope { schema_version: CORE_SCHEMA_VERSION, state, state_mac: String::new() }
 }
@@ -114,9 +119,9 @@ pub fn parse(values: &Value, key: &[u8; 32]) -> Result<CoreStateEnvelope, String
 
 pub fn verify_bound_values(values: &Value, envelope: &CoreStateEnvelope) -> Result<(), String> {
     let object = values.as_object().ok_or_else(|| "CORE_INTEGRITY_CHECK_FAILED".to_string())?;
-    for (key, expected) in [("lists", envelope.state.names.get("lists")), ("currentListId", envelope.state.names.get("currentListId")), ("balance", Some(&envelope.state.balance)), ("statistics", Some(&envelope.state.statistics)), ("records", Some(&envelope.state.records))] {
+    for (key, expected) in [("lists", envelope.state.names.get("lists")), ("currentListId", envelope.state.names.get("currentListId")), ("balance", Some(&envelope.state.balance)), ("statistics", Some(&envelope.state.statistics)), ("records", Some(&envelope.state.records)), ("prizes", Some(&envelope.state.prizes))] {
         if let Some(expected) = expected {
-            if object.get(key) != Some(expected) { return Err("CORE_INTEGRITY_CHECK_FAILED".into()); }
+            if object.contains_key(key) && object.get(key) != Some(expected) { return Err("CORE_INTEGRITY_CHECK_FAILED".into()); }
         }
     }
     Ok(())
@@ -132,6 +137,7 @@ pub fn normalize_values(values: &Value, key: &[u8; 32]) -> Result<Value, String>
     object.insert("balance".into(), envelope.state.balance.clone());
     object.insert("statistics".into(), envelope.state.statistics.clone());
     object.insert("records".into(), envelope.state.records.clone());
+    object.insert("prizes".into(), envelope.state.prizes.clone());
     Ok(normalized)
 }
 

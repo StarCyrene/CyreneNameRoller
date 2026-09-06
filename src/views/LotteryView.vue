@@ -297,10 +297,9 @@ async function stopDraw() {
   if (!rolling.value || settling.value) return
   clearDrawTimers()
   rolling.value = false
-  const result = await coreClient.executeHookedOperation('lottery-draw', { listId: prizes.currentId, count: 1, gender: 'all', allowDuplicates: false }, filter => {
-    const drawn = prizes.draw(filter.count)
-    return drawn.success ? { success: true, operationId: crypto.randomUUID?.() || `lottery-${Date.now()}`, result: drawn } : drawn
-  })
+  const filter = { listId: prizes.currentId, count: 1 }
+  const receipt = await coreClient.executePrizeOperation({ operation: 'lottery-draw', input: filter, caller: { kind: 'core-ui', pluginId: 'core' } })
+  const result = { success: true, operationId: receipt.operationId, result: { prizes: receipt.results } }
   if (!result.success) {
     wheelSnapshot.value = []
     return notifyError(result.error)
@@ -348,16 +347,12 @@ async function assignPrizes() {
   assigning.value = true
   allocations.value = []
   await new Promise(resolve => setTimeout(resolve, 700))
-  const result = await coreClient.executeHookedOperation('prize-assignment', { listId: prizes.currentId, count: normalizedAssignmentCount.value, gender: 'all', allowDuplicates: false }, filter => {
-    const people = [...eligiblePeople.value].sort(() => Math.random() - 0.5).slice(0, filter.count)
-    const drawn = prizes.draw(people.length)
-    return drawn.success ? { success: true, operationId: crypto.randomUUID?.() || `lottery-assign-${Date.now()}`, people, result: drawn } : drawn
-  })
+  const receipt = await coreClient.executePrizeOperation({ operation: 'prize-assignment', input: { listId: prizes.currentId, count: normalizedAssignmentCount.value, peopleListId: names.currentListId }, caller: { kind: 'core-ui', pluginId: 'core' } })
+  const result = { success: true, operationId: receipt.operationId, people: receipt.results.map(item => ({ id: item.person?.id, cn: item.person?.name, en: item.person?.englishName })), result: { prizes: receipt.results } }
   if (!result.success) { assigning.value = false; return notifyError(result.error) }
   const operationId = result.operationId
   allocations.value = result.people.map((person, index) => ({ person, prize: result.result.prizes[index] }))
   allocations.value.forEach((allocation, index) => {
-    prizes.recordDraw({ prizeId: allocation.prize.id, personId: allocation.person.id, peopleListId: names.currentListId, mode: 'assign' })
     pluginsStore.dispatchEvent('lottery:item-result', {
       operationId,
       index,

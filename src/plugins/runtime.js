@@ -95,7 +95,7 @@ function wait(milliseconds) {
 }
 
 export class PluginRuntime {
-  constructor({ getPlugin, savePluginData, loadPluginData, showBanner, getCoreSnapshot, executeCoreDraw, selectFile, playAudio, platformBridge, onFault, workerFactory, runnerFactory, onApi15Message, coreHooks }) {
+  constructor({ getPlugin, savePluginData, loadPluginData, showBanner, getCoreSnapshot, executeCoreDraw, selectFile, playAudio, platformBridge, onFault, workerFactory, runnerFactory, onApi15Message, coreHooks, pageStateAdapter }) {
     this.getPlugin = getPlugin
     this.savePluginData = savePluginData
     this.loadPluginData = loadPluginData
@@ -110,6 +110,7 @@ export class PluginRuntime {
     this.runnerFactory = runnerFactory
     this.onApi15Message = onApi15Message
     this.coreHooks = coreHooks
+    this.pageStateAdapter = pageStateAdapter
     this.workers = new Map()
     this.frames = new Map()
     this.pages = new Map()
@@ -147,7 +148,7 @@ export class PluginRuntime {
     const root = record?.surface || { tagName: 'MAIN', children: [] }
     const location = this.pageRegistry.routeFor(plugin.manifest.id, pageId)?.location
     bridge = {
-      state: new PageStateBridge({ pluginId: plugin.manifest.id, state: {}, permissions: [...principal.grants] }),
+      state: new PageStateBridge({ pluginId: plugin.manifest.id, adapter: this.pageStateAdapter || { read: () => undefined, write: (_field, value) => value }, permissions: [...principal.grants] }),
       window: this.windowBridges.get(plugin.manifest.id) || new WindowBridge({ pluginId: plugin.manifest.id, document: this.styleSurface?.document })
     }
     if (principal.grants.has(location === 'settings' ? 'dom:settings' : 'dom:main')) {

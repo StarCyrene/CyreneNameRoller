@@ -57,17 +57,47 @@ test('allows ordinary page state but requires permission and confirmation for se
 })
 
 test('uses controlled structured DOM operations and rejects executable or raw content', () => {
-  const root = { tagName: 'MAIN', id: 'host-main', className: 'surface', textContent: 'Hello', children: [] }
-  const dom = new DomBridge({ pluginId: 'p', permission: 'dom:main', root, maxNodes: 4 })
+  class Node {}
+  class Element extends Node {
+    constructor(tagName) { super(); this.tagName = tagName.toUpperCase(); this.children = []; this.className = ''; this.textContent = '' }
+    appendChild(node) { this.children.push(node); return node }
+    removeChild(node) { this.children.splice(this.children.indexOf(node), 1); return node }
+  }
+  const document = { createElement: tag => new Element(tag), createTextNode: text => Object.assign(new Node(), { textContent: text }) }
+  const root = Object.assign(new Element('main'), { id: 'host-main', className: 'surface', textContent: 'Hello' })
+  const dom = new DomBridge({ pluginId: 'p', permission: 'dom:main', root, document, maxNodes: 4 })
   assert.equal(dom.query({ selector: '.surface' }).length, 1)
   assert.equal(dom.read({ selector: '.surface', fields: ['textContent'] })[0].textContent, 'Hello')
   dom.write({ selector: '.surface', fields: { textContent: 'Changed' } })
   dom.insert({ selector: '.surface', node: { type: 'element', tag: 'span', text: 'Child' } })
   assert.equal(root.textContent, 'Changed')
   assert.equal(root.children[0].tagName, 'SPAN')
+  assert.ok(root.children[0] instanceof Node)
+  dom.remove({ selector: '.surface' })
+  assert.equal(root.children.length, 0)
   assert.throws(() => dom.insert({ selector: '.surface', node: { type: 'html', value: '<script>x</script>' } }), /structured|HTML/i)
   assert.throws(() => dom.write({ selector: '.surface', fields: { onclick: 'alert(1)' } }), /field|handler/i)
   assert.throws(() => dom.execute(), /unsupported|execute/i)
+})
+
+test('DOM insertion uses document-created Node instances for non-array collections', () => {
+  class Node {}
+  class Element extends Node {
+    constructor(tagName) { super(); this.tagName = tagName.toUpperCase(); this.children = { length: 0 }; this.className = '' }
+    appendChild(node) { this.children[this.children.length++] = node; return node }
+    removeChild(node) { delete this.children[Array.from(this.children).indexOf(node)]; return node }
+  }
+  const created = []
+  const document = {
+    createElement: tag => { const node = new Element(tag); created.push(node); return node },
+    createTextNode: text => { const node = Object.assign(new Node(), { textContent: text }); created.push(node); return node }
+  }
+  const root = new Element('main')
+  const dom = new DomBridge({ pluginId: 'p', permission: 'dom:main', root, document })
+  dom.insert({ node: { type: 'element', tag: 'span', text: 'Child' } })
+  assert.ok(root.children[0] instanceof Node)
+  assert.ok(root.children[0].children[0] instanceof Node)
+  assert.equal(created.length, 2)
 })
 
 test('creates restrictive plugin WebView source without Tauri globals or raw URLs', () => {

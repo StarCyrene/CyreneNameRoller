@@ -227,8 +227,11 @@ fn plugin_runner_start(
     OsRng.fill_bytes(&mut credential_bytes);
     let credential = hex::encode(credential_bytes);
     let credential_proof = hex::encode(Sha256::digest(format!("{}\0{}\0{}", credential, plugin_id, session_id).as_bytes()));
-    // The credential prelude is sent through the private child stdin, never argv or environment.
-    if let Err(error) = writeln!(stdin, "{}", credential).and_then(|_| stdin.flush()) {
+    // Windows has no inherited FD 3 here; use a bounded prelude before framed RPC stdin.
+    let mut prelude = b"CNRP-CREDENTIAL\0".to_vec();
+    prelude.extend_from_slice(&(credential.len() as u32).to_le_bytes());
+    prelude.extend_from_slice(credential.as_bytes());
+    if let Err(error) = stdin.write_all(&prelude).and_then(|_| stdin.flush()) {
         let _ = child.kill(); let _ = child.wait(); let _ = fs::remove_dir_all(&package_root); return Err(error.to_string());
     }
     let pid = child.id();
@@ -892,6 +895,11 @@ fn apply_core_state_update(
             next_values["balance"] = balance.clone();
             envelope.state.balance = balance;
         }
+        "prizes" => {
+            if !value.is_object() || value.get("lists").and_then(Value::as_object).is_none() || value.get("records").and_then(Value::as_array).is_none() { return Err("CORE_TRANSACTION_REJECTED".into()); }
+            next_values["prizes"] = value.clone();
+            envelope.state.prizes = value;
+        }
         _ => return Err("PLUGIN_PERMISSION_DENIED".into()),
     }
     let envelope = core_state::seal(envelope, mac_key)?;
@@ -1032,7 +1040,7 @@ fn core_draw_execute(
         records.insert(0, json!({ "personId": if result["isGroup"].as_bool().unwrap_or(false) { Value::Null } else { result["id"].clone() }, "listId": receipt["listId"], "groupId": if result["isGroup"].as_bool().unwrap_or(false) { result["id"].clone() } else { Value::Null }, "source": if request.caller_kind == "plugin" { format!("plugin:{}", request.plugin_id) } else { "roller".into() }, "pluginId": if request.caller_kind == "plugin" { request.plugin_id.clone() } else { String::new() }, "operationId": receipt["operationId"], "time": committed_at }));
     }
     records.truncate(500);
-    let next_state = core_state::CoreState { schema_version: core_state::CORE_SCHEMA_VERSION, sequence: envelope.state.sequence + 1, previous_hash, receipt_hash: receipt_hash.clone(), algorithm: core_state::ALGORITHM_NAME.into(), algorithm_version: core_state::ALGORITHM_VERSION.into(), names: envelope.state.names.clone(), balance: envelope.state.balance.clone(), statistics: statistics.clone(), records: Value::Array(records.clone()) };
+    let next_state = core_state::CoreState { schema_version: core_state::CORE_SCHEMA_VERSION, sequence: envelope.state.sequence + 1, previous_hash, receipt_hash: receipt_hash.clone(), algorithm: core_state::ALGORITHM_NAME.into(), algorithm_version: core_state::ALGORITHM_VERSION.into(), names: envelope.state.names.clone(), balance: envelope.state.balance.clone(), statistics: statistics.clone(), records: Value::Array(records.clone()), prizes: envelope.state.prizes.clone() };
     let next_envelope = core_state::seal(core_state::CoreStateEnvelope { schema_version: core_state::CORE_SCHEMA_VERSION, state: next_state, state_mac: String::new() }, &key)?;
     receipt["receiptHash"] = json!(receipt_hash);
     let mut next_values = old_values.clone();
@@ -1156,6 +1164,7 @@ fn core_card_commit(
         balance: envelope.state.balance.clone(),
         statistics: envelope.state.statistics.clone(),
         records: Value::Array(records.clone()),
+        prizes: envelope.state.prizes.clone(),
     };
     let next_envelope = core_state::seal(core_state::CoreStateEnvelope {
         schema_version: core_state::CORE_SCHEMA_VERSION,
@@ -1281,6 +1290,7 @@ fn apply_core_maintenance(
         balance: balance.clone(),
         statistics: statistics.clone(),
         records: Value::Array(records.clone()),
+        prizes: envelope.state.prizes.clone(),
     };
     let next_envelope = core_state::seal(core_state::CoreStateEnvelope {
         schema_version: core_state::CORE_SCHEMA_VERSION,
@@ -2518,6 +2528,86 @@ async fn plugin_select_directory(app: tauri::AppHandle) -> Result<serde_json::Va
         "path": path.to_string_lossy()
     }))
 }
+
+#[tauri::command]
+fn core_prize_execute(
+    store: State<'_, EncryptedStore>,
+    authority: State<'_, CoreAuthorityState>,
+    request: RustPrizeRequest,
+) -> Result<Value, String> {
+    if request.caller_kind != "core-ui" || request.principal != "core-ui" || request.plugin_id != "core" { return Err("PLUGIN_PERMISSION_DENIED".into()); }
+    if request.operation != "lottery-draw" && request.operation != "prize-assignment" { return Err("CORE_TRANSACTION_REJECTED".into()); }
+    authority.authorize(&request.grant_token, &request.principal)?;
+    let _transaction = authority.transaction.lock().map_err(|_| "CORE_TRANSACTION_REJECTED".to_string())?;
+    let key = core_data_key()?;
+    let old_values = store.values.lock().map_err(|_| "CORE_TRANSACTION_REJECTED".to_string())?.clone();
+    let mut envelope = core_state::parse(&old_values, &key)?;
+    if let Err(error) = core_state::verify_bound_values(&old_values, &envelope) {
+        authority.readonly.store(true, Ordering::Release);
+        return Err(error);
+    }
+    let input = request.input.as_object().ok_or_else(|| "CORE_TRANSACTION_REJECTED".to_string())?;
+    if input.keys().any(|field| !matches!(field.as_str(), "listId" | "count" | "peopleListId" | "gender")) { return Err("CORE_TRANSACTION_REJECTED".into()); }
+    let list_id = input.get("listId").and_then(Value::as_str).unwrap_or("");
+    let count = input.get("count").and_then(Value::as_u64).unwrap_or(1).clamp(1, 100) as usize;
+    let people_list_id = input.get("peopleListId").and_then(Value::as_str).unwrap_or("");
+    let gender = match input.get("gender").and_then(Value::as_str) { Some("male") => "male", Some("female") => "female", _ => "all" };
+    let mut people = if request.operation == "prize-assignment" {
+        envelope.state.names.get("lists").and_then(|lists| lists.get(people_list_id)).and_then(|list| list.get("names")).and_then(Value::as_array).map(|names| names.iter().filter(|person| person["id"].as_str().is_some_and(|id| !id.is_empty()) && person["cn"].as_str().is_some_and(|name| !name.is_empty()) && !person["isWhiteList"].as_bool().unwrap_or(false) && (gender == "all" || person["gender"].as_str() == Some(gender))).cloned().collect::<Vec<_>>()).unwrap_or_default()
+    } else { Vec::new() };
+    for index in (1..people.len()).rev() {
+        let mut random = [0u8; 8];
+        OsRng.fill_bytes(&mut random);
+        let selected = (u64::from_le_bytes(random) as usize) % (index + 1);
+        people.swap(index, selected);
+    }
+    if request.operation == "prize-assignment" && people.len() < count { return Err("CORE_TRANSACTION_REJECTED".into()); }
+    let mut prizes_state = envelope.state.prizes.clone();
+    let mut records = prizes_state.get("records").and_then(Value::as_array).cloned().unwrap_or_default();
+    let list = prizes_state.get_mut("lists").and_then(Value::as_object_mut).and_then(|lists| lists.get_mut(list_id)).and_then(Value::as_object_mut).ok_or_else(|| "CORE_TRANSACTION_REJECTED".to_string())?;
+    let prize_items = list.get_mut("prizes").and_then(Value::as_array_mut).ok_or_else(|| "CORE_TRANSACTION_REJECTED".to_string())?;
+    let mut results = Vec::new();
+    for index in 0..count {
+        let available: Vec<usize> = prize_items.iter().enumerate().filter(|(_, prize)| prize.get("quantity").and_then(Value::as_u64).unwrap_or(0) > 0).map(|(index, _)| index).collect();
+        if available.is_empty() { return Err("CORE_TRANSACTION_REJECTED".into()); }
+        let mut random = [0u8; 8]; OsRng.fill_bytes(&mut random);
+        let total_weight: f64 = available.iter().map(|index| prize_items[*index].get("weight").and_then(Value::as_f64).unwrap_or(1.0).max(0.01)).sum();
+        let mut cursor = (u64::from_le_bytes(random) as f64 / (u64::MAX as f64 + 1.0)) * total_weight;
+        let selected_index = available.iter().copied().find(|index| { cursor -= prize_items[*index].get("weight").and_then(Value::as_f64).unwrap_or(1.0).max(0.01); cursor < 0.0 }).unwrap_or(*available.last().unwrap());
+        let selected = &mut prize_items[selected_index];
+        selected["quantity"] = json!(selected["quantity"].as_u64().unwrap_or(0) - 1);
+        let person = if request.operation == "prize-assignment" { people[index].clone() } else { Value::Null };
+        let mut result = json!({ "id": selected["id"], "name": selected["name"], "quality": selected["quality"].as_str().unwrap_or("") });
+        if request.operation == "prize-assignment" { result["person"] = json!({ "id": person["id"], "name": person["cn"].as_str().unwrap_or(""), "englishName": person["en"].as_str().unwrap_or("") }); }
+         records.insert(0, json!({ "id": format!("core-prize-{}-{}", chrono_like_now(), index), "prizeId": selected["id"], "prizeListId": list_id, "personId": person.get("id").cloned().unwrap_or(Value::Null), "peopleListId": input.get("peopleListId").cloned().unwrap_or(Value::Null), "mode": if request.operation == "prize-assignment" { "assign" } else { "draw" }, "time": chrono_like_now() }));
+        results.push(result);
+    }
+    records.truncate(500);
+    prizes_state["records"] = Value::Array(records.clone());
+    envelope.state.prizes = prizes_state.clone();
+    let committed_at = chrono_like_now();
+    let operation_id = if request.operation_id.is_empty() { format!("prize-{}", committed_at) } else { request.operation_id.clone() };
+    let mut receipt = json!({ "kind": request.operation, "operationId": operation_id, "pluginId": "core", "listId": list_id, "count": results.len(), "committedAt": committed_at, "results": results });
+    let previous_hash = core_state::hash_state(&core_state::parse(&old_values, &key)?)?;
+    receipt["sequence"] = json!(envelope.state.sequence + 1);
+    receipt["previousHash"] = json!(previous_hash.clone());
+    let receipt_hash = core_state::receipt_hash(&receipt)?;
+    envelope.state.sequence += 1;
+    envelope.state.previous_hash = previous_hash;
+    envelope.state.receipt_hash = receipt_hash.clone();
+    let next_envelope = core_state::seal(envelope, &key)?;
+    receipt["receiptHash"] = json!(receipt_hash);
+    let mut next_values = old_values.clone();
+    next_values["prizes"] = prizes_state;
+    next_values[core_state::CORE_STATE_KEY] = core_state::to_value(&next_envelope)?;
+    *store.values.lock().map_err(|_| "CORE_TRANSACTION_REJECTED".to_string())? = next_values;
+    if let Err(error) = store.persist() { *store.values.lock().map_err(|_| "CORE_TRANSACTION_ROLLED_BACK".to_string())? = old_values; let _ = store.persist(); return Err(format!("CORE_TRANSACTION_ROLLED_BACK: {}", error)); }
+    Ok(json!({ "receipt": receipt, "prizes": next_envelope.state.prizes, "sequence": next_envelope.state.sequence }))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RustPrizeRequest { grant_token: String, principal: String, caller_kind: String, plugin_id: String, operation_id: String, operation: String, input: Value }
 
 fn reject_reparse_components(root: &Path, target: &Path) -> Result<(), String> {
     let relative = target.strip_prefix(root).map_err(|_| "插件文件路径越界")?;
@@ -3816,6 +3906,7 @@ pub fn run() {
             core_revoke_principal,
             core_state_set,
             core_draw_execute,
+            core_prize_execute,
             core_card_commit,
             core_maintenance_execute,
             export_encrypted_data,

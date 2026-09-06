@@ -3,11 +3,24 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import vm from 'node:vm'
+const CREDENTIAL_MAGIC = Buffer.from('CNRP-CREDENTIAL\0', 'ascii')
+function readExact(fd, size) {
+  const result = Buffer.alloc(size)
+  let offset = 0
+  while (offset < size) {
+    const count = fs.readSync(fd, result, offset, size - offset, null)
+    if (!count) throw new Error('credential prelude truncated')
+    offset += count
+  }
+  return result
+}
 let credential
-try { credential = fs.readFileSync(3, 'utf8') } catch {
-  const credentialBytes = Buffer.alloc(65)
-  fs.readSync(0, credentialBytes, 0, credentialBytes.length, null)
-  credential = credentialBytes.toString('utf8').trim()
+try { credential = fs.readFileSync(3, 'utf8').trim() } catch {
+  const magic = readExact(0, CREDENTIAL_MAGIC.length)
+  if (!magic.equals(CREDENTIAL_MAGIC)) process.exit(2)
+  const length = readExact(0, 4).readUInt32LE(0)
+  if (!length || length > 4096) process.exit(2)
+  credential = readExact(0, length).toString('utf8')
 }
 if (!credential && process.env.CNRP_ALLOW_EMPTY_CREDENTIAL !== '1') process.exit(2)
 

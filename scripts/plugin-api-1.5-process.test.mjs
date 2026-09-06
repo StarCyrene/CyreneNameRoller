@@ -77,6 +77,17 @@ test('declares the native Tauri runner bridge contract', async () => {
   assert.match(rust, /cyrene-plugin-rpc/)
 })
 
+test('declares the native credential fallback contract without using RPC stdin as an unframed secret', async () => {
+  const [rust, runner] = await Promise.all([
+    fs.readFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src-tauri/src/lib.rs'), 'utf8'),
+    fs.readFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/plugins/rpc/runner.mjs'), 'utf8')
+  ])
+  assert.match(rust, /CNRP-CREDENTIAL\\0/)
+  assert.match(runner, /CNRP-CREDENTIAL\\0/)
+  assert.match(runner, /readExact\(0, CREDENTIAL_MAGIC\.length\)/)
+  assert.doesNotMatch(runner, /readSync\(0, credentialBytes/)
+})
+
 test('owns opaque resources and kills a desktop runtime after heartbeat loss', async () => {
   const killed = []
   const host = new DesktopPluginHost({ pluginId: 'cn.example.resources', transport: { send() {} }, runner: { killTree: async reason => killed.push(reason) }, heartbeatMs: 5 })
