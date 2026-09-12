@@ -115,3 +115,12 @@ test('splash pop animation runs through gsap', () => {
   assert.match(splash, /runSplashPop\(/)
   assert.doesNotMatch(splash, /@keyframes enter-pop/)
 })
+
+test('vue transition css keyframes are retained by design', () => {
+  const rollerView = read('src', 'views', 'RollerView.vue')
+  const cardView = read('src', 'views', 'CardView.vue')
+  const settingsView = read('src', 'views', 'SettingsView.vue')
+  assert.match(rollerView, /@keyframes toggle-in/)
+  assert.match(cardView, /@keyframes slide-in/)
+  assert.match(settingsView, /@keyframes toggle-in/)
+})

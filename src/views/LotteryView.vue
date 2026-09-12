@@ -425,7 +425,7 @@ function deletePrize() { if (deletingPrize.value) prizes.remove(deletingPrize.va
 function notifyError(message) { showBanner({ message, icon: 'warning-16-regular', type: 'warning', duration: 8000 }) }
 
 onMounted(async () => { await Promise.all([prizes.initialize(), names.initialize()]) })
-onBeforeUnmount(() => { clearDrawTimers(); clearTimeout(settleTimer) })
+onBeforeUnmount(() => { clearDrawTimers(); clearTimeout(settleTimer); gsap.killTweensOf([rollerResultRef.value, wheelResultRef.value, ...allocationRowRefs].filter(Boolean)) })
 </script>
 
 <style scoped>
