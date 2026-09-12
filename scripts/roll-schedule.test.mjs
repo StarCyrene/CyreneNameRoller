@@ -75,3 +75,12 @@ test('decelerate finish setting is persisted and exposed', () => {
   assert.match(settingsStore, /decelerateFinish:\s*false/)
   assert.match(settingsView, /decelerateFinish/)
 })
+
+test('roller view drives rolling via gsap ticker and gsap finish animations', () => {
+  const rollerView = read('src', 'views', 'RollerView.vue')
+  assert.match(rollerView, /gsap\.ticker\.add\(rollTickerTick\)/)
+  assert.match(rollerView, /createRollScheduler\(/)
+  assert.match(rollerView, /runFinishAnimation\(/)
+  assert.doesNotMatch(rollerView, /@keyframes final-/)
+  assert.match(rollerView, /@keyframes gradient-shift/)
+})
