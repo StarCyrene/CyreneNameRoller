@@ -100,3 +100,12 @@ test('card deal animation runs through gsap', () => {
   assert.doesNotMatch(cardView, /@keyframes card-deal/)
   assert.match(cardView, /\.card\.show \{ opacity: 1; transform: none; \}/)
 })
+
+test('banner transitions and countdown run through gsap', () => {
+  const appLayout = read('src', 'components', 'layout', 'AppLayout.vue')
+  assert.match(appLayout, /onBannerTransitionEnter/)
+  assert.doesNotMatch(appLayout, /@keyframes banner-in/)
+  assert.doesNotMatch(appLayout, /@keyframes banner-out/)
+  assert.doesNotMatch(appLayout, /@keyframes banner-countdown/)
+  assert.match(appLayout, /@keyframes scanline-scroll/)
+})
