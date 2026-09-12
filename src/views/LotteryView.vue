@@ -300,7 +300,7 @@ async function revealResult(prize, operationId) {
   await nextTick()
   const resultElement = drawStyle.value === 'wheel' ? wheelResultRef.value : rollerResultRef.value
   pluginsStore.startAnimation('lottery.finish', resultElement)
-  if (!pluginFinishEnabled.value) {
+  if (!pluginFinishEnabled.value && animationEnabled()) {
     runFinishAnimation(resultElement, settingsStore.settings.finishAnimation || 'spotlight', 'lottery')
   }
   pluginsStore.startAnimation('global.transition', null, { variant: 'lottery' })
