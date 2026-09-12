@@ -84,3 +84,12 @@ test('roller view drives rolling via gsap ticker and gsap finish animations', ()
   assert.doesNotMatch(rollerView, /@keyframes final-/)
   assert.match(rollerView, /@keyframes gradient-shift/)
 })
+
+test('lottery view drives preview and wheel via gsap ticker', () => {
+  const lotteryView = read('src', 'views', 'LotteryView.vue')
+  assert.match(lotteryView, /gsap\.ticker\.add\(drawTickerTick\)/)
+  assert.match(lotteryView, /runFinishAnimation\(/)
+  assert.doesNotMatch(lotteryView, /@keyframes result-/)
+  assert.doesNotMatch(lotteryView, /@keyframes allocation-in/)
+  assert.doesNotMatch(lotteryView, /setInterval\(randomPreview/)
+})
