@@ -1,6 +1,8 @@
 import { gsap } from 'gsap'
 import { CustomEase } from 'gsap/CustomEase'
 
+gsap.registerPlugin(CustomEase)
+
 CustomEase.create('cnr-standard', 'M0,0,C0.1,0.9,0.2,1,1,1')
 CustomEase.create('cnr-lift', 'M0,0,C0.12,0.85,0.2,1.15,1,1')
 CustomEase.create('cnr-glow', 'M0,0,C0.16,0.84,0.3,1,1,1')
