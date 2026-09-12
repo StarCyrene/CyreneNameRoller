@@ -420,6 +420,13 @@
       </div>
       <div class="setting-row">
         <div class="setting-label-group">
+          <span class="setting-label">{{ lang === 'en' ? 'Decelerate before result' : '减速收尾' }}</span>
+          <span class="setting-desc">{{ lang === 'en' ? 'Slow the roll down before revealing the result (adds ~1.2s).' : '点击停止后滚动逐渐减速再揭示结果（约多 1.2 秒）。' }}</span>
+        </div>
+        <FluentToggle :model-value="settings.decelerateFinish" :aria-label="lang === 'en' ? 'Decelerate before result' : '减速收尾'" @update:model-value="update('decelerateFinish', $event)" />
+      </div>
+      <div class="setting-row">
+        <div class="setting-label-group">
           <span class="setting-label">{{ t('multiStepStop', lang) }}</span>
         </div>
         <FluentToggle :model-value="settings.multiStepStop" :aria-label="lang === 'en' ? 'Reveal results one by one' : '逐个揭示结果'" @update:model-value="update('multiStepStop', $event)" />

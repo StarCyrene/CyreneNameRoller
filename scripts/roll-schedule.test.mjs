@@ -68,3 +68,10 @@ test('invalid options fall back to safe defaults', () => {
   scheduler.tick(1200)
   assert.ok(Math.abs(scheduler.currentIntervalMs() - 400) < 1)
 })
+
+test('decelerate finish setting is persisted and exposed', () => {
+  const settingsStore = read('src', 'stores', 'settings.js')
+  const settingsView = read('src', 'views', 'SettingsView.vue')
+  assert.match(settingsStore, /decelerateFinish:\s*false/)
+  assert.match(settingsView, /decelerateFinish/)
+})
