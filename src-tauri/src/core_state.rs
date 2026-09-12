@@ -71,6 +71,52 @@ pub fn verify(envelope: &CoreStateEnvelope, key: &[u8; 32]) -> Result<(), String
         .map_err(|_| "CORE_INTEGRITY_CHECK_FAILED".to_string())
 }
 
+// ponytail: prizes 字段加入 CoreState（a7c8c20）前的旧字段集，声明顺序必须与当时完全一致，
+// 否则旧 envelope 的 MAC 永远对不上；删除本结构前先确认所有存量数据已升级
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyCoreState<'a> {
+    schema_version: u32,
+    sequence: u64,
+    previous_hash: &'a str,
+    receipt_hash: &'a str,
+    algorithm: &'a str,
+    algorithm_version: &'a str,
+    names: &'a Value,
+    balance: &'a Value,
+    statistics: &'a Value,
+    records: &'a Value,
+}
+
+fn legacy_view(state: &CoreState) -> LegacyCoreState<'_> {
+    LegacyCoreState {
+        schema_version: state.schema_version,
+        sequence: state.sequence,
+        previous_hash: &state.previous_hash,
+        receipt_hash: &state.receipt_hash,
+        algorithm: &state.algorithm,
+        algorithm_version: &state.algorithm_version,
+        names: &state.names,
+        balance: &state.balance,
+        statistics: &state.statistics,
+        records: &state.records,
+    }
+}
+
+fn state_mac_legacy(state: &CoreState, key: &[u8; 32]) -> Result<String, String> {
+    let mut mac = HmacSha256::new_from_slice(key).map_err(|error| error.to_string())?;
+    mac.update(&canonical(&legacy_view(state))?);
+    Ok(base64::engine::general_purpose::STANDARD_NO_PAD.encode(mac.finalize().into_bytes()))
+}
+
+fn verify_legacy(envelope: &CoreStateEnvelope, key: &[u8; 32]) -> bool {
+    let Ok(actual) = base64::engine::general_purpose::STANDARD_NO_PAD.decode(&envelope.state_mac) else { return false };
+    let Ok(canonical_bytes) = canonical(&legacy_view(&envelope.state)) else { return false };
+    let Ok(mut mac) = HmacSha256::new_from_slice(key) else { return false };
+    mac.update(&canonical_bytes);
+    mac.verify_slice(&actual).is_ok()
+}
+
 pub fn receipt_hash(receipt: &Value) -> Result<String, String> {
     let mut hasher = Sha256::new();
     hasher.update(canonical(receipt)?);
@@ -107,8 +153,13 @@ pub fn parse(values: &Value, key: &[u8; 32]) -> Result<CoreStateEnvelope, String
     let Some(raw) = values.as_object().and_then(|object| object.get(CORE_STATE_KEY)) else {
         return seal(genesis(values), key);
     };
-    let envelope: CoreStateEnvelope = serde_json::from_value(raw.clone()).map_err(|_| "CORE_INTEGRITY_CHECK_FAILED".to_string())?;
-    verify(&envelope, key)?;
+    let mut envelope: CoreStateEnvelope = serde_json::from_value(raw.clone()).map_err(|_| "CORE_INTEGRITY_CHECK_FAILED".to_string())?;
+    if verify(&envelope, key).is_err() {
+        if envelope.state.prizes != default_prizes() || !verify_legacy(&envelope, key) {
+            return Err("CORE_INTEGRITY_CHECK_FAILED".into());
+        }
+        envelope = seal(envelope, key)?;
+    }
     if envelope.state.sequence > 0
         && (envelope.state.previous_hash.len() != 64 || envelope.state.receipt_hash.len() != 64)
     {
@@ -179,6 +230,36 @@ mod tests {
         envelope.state.sequence = 1;
         envelope = seal(envelope, &key).unwrap();
         let values = json!({ CORE_STATE_KEY: envelope });
+        assert_eq!(parse(&values, &key).unwrap_err(), "CORE_INTEGRITY_CHECK_FAILED");
+    }
+
+    #[test]
+    fn legacy_envelope_without_prizes_is_upgraded_on_parse() {
+        let key = [5u8; 32];
+        let mut state = genesis(&json!({})).state;
+        state.sequence = 3;
+        state.previous_hash = "a".repeat(64);
+        state.receipt_hash = "b".repeat(64);
+        state.records = json!([{ "operationId": "op-1" }]);
+        let legacy_mac = state_mac_legacy(&state, &key).unwrap();
+        let mut raw = serde_json::to_value(&state).unwrap();
+        raw.as_object_mut().unwrap().remove("prizes");
+        let values = json!({ CORE_STATE_KEY: { "schemaVersion": 1, "state": raw, "stateMac": legacy_mac } });
+        let upgraded = parse(&values, &key).unwrap();
+        verify(&upgraded, &key).unwrap();
+        assert_eq!(upgraded.state.sequence, 3);
+        assert_eq!(upgraded.state.prizes, default_prizes());
+    }
+
+    #[test]
+    fn tampered_legacy_envelope_is_rejected() {
+        let key = [6u8; 32];
+        let mut state = genesis(&json!({})).state;
+        let legacy_mac = state_mac_legacy(&state, &key).unwrap();
+        state.records = json!([{ "operationId": "tampered" }]);
+        let mut raw = serde_json::to_value(&state).unwrap();
+        raw.as_object_mut().unwrap().remove("prizes");
+        let values = json!({ CORE_STATE_KEY: { "schemaVersion": 1, "state": raw, "stateMac": legacy_mac } });
         assert_eq!(parse(&values, &key).unwrap_err(), "CORE_INTEGRITY_CHECK_FAILED");
     }
 
