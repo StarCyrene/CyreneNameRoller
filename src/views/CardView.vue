@@ -90,6 +90,8 @@ import { usePluginsStore } from '../plugins/store'
 import { getCoreClient } from '../core/client'
 import { dataBridge } from '../utils/dataBridge'
 import { t } from '../utils/i18n'
+import { gsap } from 'gsap'
+import { runCardDeal } from '../utils/animation.js'
 
 const namesStore = useNamesStore()
 const settingsStore = useSettingsStore()
@@ -166,6 +168,7 @@ async function revealCard(card, generation = operationGeneration) {
   if (!operationIsActive(generation)) return false
   const run = pluginsStore.startAnimation('card.deal', cardRefs.get(card.id))
   if (!run && card.pluginDeal) card.pluginDeal = false
+  if (!run) runCardDeal(cardRefs.get(card.id))
   return true
 }
 
@@ -357,6 +360,7 @@ onBeforeUnmount(() => {
   unmounted = true
   stopNamesLoadedWatch?.()
   cancelPendingOperations()
+  gsap.killTweensOf([...cardRefs.values()])
   cardRefs.clear()
 })
 </script>
@@ -366,9 +370,7 @@ onBeforeUnmount(() => {
 .card-title { font-family: var(--font-display); font-size: 28px; font-weight: 700; color: var(--text-primary); margin-bottom: 24px; display: flex; align-items: center; gap: 10px; }
 .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--plugin-component-card-deck-size, 140px), 1fr)); gap: var(--plugin-component-card-deck-gap, 20px); width: 100%; justify-items: center; flex: 1; align-content: center; padding: 0 var(--plugin-component-card-deck-padding, 0) 24px; background: var(--plugin-component-card-deck-background, transparent); color: var(--plugin-component-card-deck-foreground, inherit); }
 .card { width: var(--plugin-component-card-item-size, 140px); aspect-ratio: 7 / 10; height: auto; perspective: 1500px; cursor: pointer; opacity: 0; transform: translateY(30px); }
-.card.show:not(.plugin-deal) { animation: card-deal 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
-.card.show.plugin-deal { opacity: 1; transform: translateY(0); }
-@keyframes card-deal { to { opacity: 1; transform: translateY(0); } }
+.card.show { opacity: 1; transform: none; }
 .card-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .card:hover .card-inner { transform: translateY(-8px); }
 .card.flipped .card-inner { transform: rotateY(180deg); }

@@ -93,3 +93,10 @@ test('lottery view drives preview and wheel via gsap ticker', () => {
   assert.doesNotMatch(lotteryView, /@keyframes allocation-in/)
   assert.doesNotMatch(lotteryView, /setInterval\(randomPreview/)
 })
+
+test('card deal animation runs through gsap', () => {
+  const cardView = read('src', 'views', 'CardView.vue')
+  assert.match(cardView, /runCardDeal\(/)
+  assert.doesNotMatch(cardView, /@keyframes card-deal/)
+  assert.match(cardView, /\.card\.show \{ opacity: 1; transform: none; \}/)
+})
