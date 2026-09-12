@@ -13,7 +13,7 @@
         class="card"
         data-plugin-component="card.item"
         :class="{ show: card.visible, flipped: card.flipped, 'plugin-deal': card.pluginDeal }"
-        :style="[pluginsStore.componentStyleStyle('card.item'), { animationDelay: (i * 0.08) + 's' }]"
+        :style="pluginsStore.componentStyleStyle('card.item')"
         role="button"
         tabindex="0"
         :aria-label="`${lang === 'en' ? 'Card' : '牌子'} ${i + 1}${card.flipped ? (lang === 'en' ? ', revealed' : '，已翻开') : ''}`"
