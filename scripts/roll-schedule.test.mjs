@@ -109,3 +109,9 @@ test('banner transitions and countdown run through gsap', () => {
   assert.doesNotMatch(appLayout, /@keyframes banner-countdown/)
   assert.match(appLayout, /@keyframes scanline-scroll/)
 })
+
+test('splash pop animation runs through gsap', () => {
+  const splash = read('src', 'components', 'SplashScreen.vue')
+  assert.match(splash, /runSplashPop\(/)
+  assert.doesNotMatch(splash, /@keyframes enter-pop/)
+})
