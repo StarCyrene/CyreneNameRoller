@@ -282,11 +282,10 @@ function pauseBannerTimer(banner) {
   banner._remaining = Math.max(0, banner._remaining - elapsed)
 }
 
-const bannerProgressTweens = new Map()
-
 function setBannerProgressEl(banner, element) {
-  const existing = bannerProgressTweens.get(banner.id)
-  if (existing) { existing.kill(); bannerProgressTweens.delete(banner.id) }
+  if (banner._progressEl === element) return
+  if (banner._tween) { banner._tween.kill(); banner._tween = null }
+  banner._progressEl = element
   if (!element || !(banner.duration > 0)) return
   if (!animationEnabled()) {
     try { gsap.set(element, { scaleX: 0 }) } catch {}
@@ -295,7 +294,7 @@ function setBannerProgressEl(banner, element) {
   try {
     const tween = gsap.fromTo(element, { scaleX: 1 }, { scaleX: 0, duration: banner._remaining / 1000, ease: 'none' })
     if (banner.hovered) tween.pause()
-    bannerProgressTweens.set(banner.id, tween)
+    banner._tween = tween
   } catch {}
 }
 
@@ -328,8 +327,7 @@ function dismissBanner(id) {
   if (idx !== -1) {
     const b = banners.value[idx]
     if (b._timer) clearTimeout(b._timer)
-    const tween = bannerProgressTweens.get(id)
-    if (tween) { tween.kill(); bannerProgressTweens.delete(id) }
+    if (b._tween) { b._tween.kill(); b._tween = null }
     banners.value.splice(idx, 1)
   }
 }
@@ -338,7 +336,7 @@ function onBannerEnter(b) {
   b.hovered = true
   if (b.duration > 0) {
     pauseBannerTimer(b)
-    bannerProgressTweens.get(b.id)?.pause()
+    b._tween?.pause()
   }
 }
 
@@ -346,7 +344,7 @@ function onBannerLeave(b) {
   b.hovered = false
   if (b.duration > 0) {
     startBannerTimer(b, b.id)
-    bannerProgressTweens.get(b.id)?.play()
+    b._tween?.play()
   }
 }
 
