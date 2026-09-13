@@ -1697,6 +1697,10 @@ fn decrypt_data(bytes: &[u8]) -> Result<serde_json::Value, String> {
 // 保存主窗口的尺寸、位置与最大化状态，供下次启动恢复
 fn save_window_state(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        // 最小化期间 outer_size() 返回幻影尺寸（约 160x31），绝不能存盘
+        if window.is_minimized().unwrap_or(false) {
+            return;
+        }
         if let Ok(size) = window.outer_size() {
             let store = app.state::<EncryptedStore>();
             if store.is_healthy().is_ok() {
@@ -1711,6 +1715,26 @@ fn save_window_state(app: &tauri::AppHandle) {
             }
         }
     }
+}
+
+// 与 tauri.conf.json 的 minWidth/minHeight 保持一致
+const MAIN_WINDOW_MIN_LOGICAL_WIDTH: f64 = 900.0;
+const MAIN_WINDOW_MIN_LOGICAL_HEIGHT: f64 = 600.0;
+
+// 恢复尺寸时钳制范围：上限防超出显示器，下限兜底自愈历史脏数据（最小化幻影尺寸等）
+fn clamp_main_window_size(
+    mut width: u32,
+    mut height: u32,
+    monitor_size: Option<(u32, u32)>,
+    scale_factor: f64,
+) -> (u32, u32) {
+    if let Some((monitor_width, monitor_height)) = monitor_size {
+        width = width.min((monitor_width as f64 * 0.9) as u32);
+        height = height.min((monitor_height as f64 * 0.86) as u32);
+    }
+    let min_width = (MAIN_WINDOW_MIN_LOGICAL_WIDTH * scale_factor) as u32;
+    let min_height = (MAIN_WINDOW_MIN_LOGICAL_HEIGHT * scale_factor) as u32;
+    (width.max(min_width), height.max(min_height))
 }
 
 // 恢复尺寸后重新居中，并限制在当前显示器内，避免高 DPI 下窗口被挤到屏幕边缘。
@@ -1741,12 +1765,15 @@ fn restore_window_state(app: &tauri::AppHandle) {
             .outer_size()
             .ok()
             .map(|size| (size.width, size.height));
-        if let Some((mut width, mut height)) = saved_size.or(current_size) {
-            if let Ok(Some(monitor)) = window.current_monitor() {
-                let monitor_size = monitor.size();
-                width = width.min((monitor_size.width as f64 * 0.9) as u32);
-                height = height.min((monitor_size.height as f64 * 0.86) as u32);
-            }
+        if let Some((width, height)) = saved_size.or(current_size) {
+            let monitor_size = window
+                .current_monitor()
+                .ok()
+                .flatten()
+                .map(|monitor| (monitor.size().width, monitor.size().height));
+            let scale_factor = window.scale_factor().unwrap_or(1.0);
+            let (width, height) =
+                clamp_main_window_size(width, height, monitor_size, scale_factor);
             let _ = window.set_size(tauri::PhysicalSize::new(width, height));
         }
         let _ = window.center();
@@ -3961,7 +3988,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_core_maintenance, apply_core_state_update, center_floating_window, clear_non_core_values, constrain_floating_window_position,
+        apply_core_maintenance, apply_core_state_update, center_floating_window, clear_non_core_values, clamp_main_window_size, constrain_floating_window_position,
         floating_window_position_visible, floating_window_region_geometry, is_cyrene_uri,
         launch_uri_from_arguments,
         normalize_floating_window_size, read_safe_mode_status, resize_floating_window_position,
@@ -4110,6 +4137,35 @@ mod tests {
         assert_eq!(normalize_floating_window_size(Some(66.0)), 68);
         assert_eq!(normalize_floating_window_size(Some(200.0)), 200);
         assert_eq!(normalize_floating_window_size(Some(300.0)), 256);
+    }
+
+    #[test]
+    fn main_window_restore_heals_minimized_phantom_size() {
+        // 最小化幻影尺寸约 160x31，恢复时必须被钳制到最小可用尺寸
+        assert_eq!(
+            clamp_main_window_size(160, 31, Some((1920, 1080)), 1.0),
+            (900, 600)
+        );
+    }
+
+    #[test]
+    fn main_window_restore_clamps_oversized_to_monitor() {
+        assert_eq!(
+            clamp_main_window_size(4000, 3000, Some((1920, 1080)), 1.0),
+            (1728, 928)
+        );
+    }
+
+    #[test]
+    fn main_window_restore_keeps_normal_size_and_scales_min() {
+        assert_eq!(
+            clamp_main_window_size(1200, 900, Some((1920, 1080)), 1.0),
+            (1200, 900)
+        );
+        assert_eq!(
+            clamp_main_window_size(160, 31, Some((2560, 1440)), 1.5),
+            (1350, 900)
+        );
     }
 
     #[test]
