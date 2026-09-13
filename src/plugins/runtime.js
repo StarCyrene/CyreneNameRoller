@@ -544,7 +544,16 @@ export class PluginRuntime {
     const declarations = Array.isArray(plugin.manifest.permissions) ? plugin.manifest.permissions : []
     const capabilities = resolveApi15Capabilities(plugin.manifest, platform)
     const required = declarations.filter(item => typeof item === 'object' && item.required).map(item => item.id)
-    const missingRequired = required.filter(id => capabilities[id]?.applies !== false && !capabilities[id]?.available)
+    // Only block for platform-specific 1.5 capabilities that genuinely vary by runtime;
+    // legacy product capabilities (storage, audio, events, notifications, core reads) are
+    // always available and must never prevent activation.
+    const PLATFORM_ONLY_IDS = new Set([
+      'files:app:read', 'files:app:write', 'files:app:execute',
+      'files:external:read', 'files:external:write', 'files:external:execute',
+      'window:create', 'window:main:control', 'window:floating:control', 'window:always-on-top',
+      'system:execute'
+    ])
+    const missingRequired = required.filter(id => PLATFORM_ONLY_IDS.has(id) && capabilities[id]?.applies !== false && !capabilities[id]?.available)
     if (missingRequired.length) throw Object.assign(new Error(`required capability unavailable: ${missingRequired.join(', ')}`), { code: 'UNSUPPORTED_PLATFORM' })
     const instanceId = globalThis.crypto?.randomUUID?.() || `plugin-${Date.now()}-${Math.random()}`
     const principal = this.createApi15Principal(plugin, instanceId, capabilities)
