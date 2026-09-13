@@ -1,5 +1,23 @@
 [
   {
+    "id": 10,
+    "title": {
+      "cn": "v26.3.0 已发布",
+      "en": "v26.3.0 Has released"
+    },
+    "important": true,
+    "pinned": true,
+    "tag": {
+      "cn": "更新",
+      "en": "Update"
+    },
+    "time": "2026/09/13 00:00",
+    "content": {
+      "cn": "v26.3.0 已发布！本次为插件平台的大版本升级，并集中统一了动画管线。\n\n本次更新重点包括：\n\n- 插件 API 升级至 1.5.0：隔离插件页面、核心操作钩子、细粒度能力权限，以及文件/网络/窗口能力\n- 旧格式插件需迁移至 API 1.5 后才能启用（插件管理页会显示迁移提示）\n- 启动、发牌/翻牌、抽奖揭晓、页面切换与横幅过渡统一迁移至 GSAP 驱动\n- 名单管理恢复为 Dock 独立二级菜单：人员名单、小组名单、奖品管理\n- 修复抽奖动画卸载残留、横幅倒计时中断等稳定性问题\n\n详细内容可在「设置 → 更新日志」查看。欢迎通过 GitHub Issues 反馈问题与建议。",
+      "en": "v26.3.0 has been released! This is a major upgrade of the plugin platform plus a unified animation pipeline.\n\nHighlights include:\n\n- Plugin API upgraded to 1.5.0: isolated plugin pages, core operation hooks, fine-grained capability permissions, and file/network/window capabilities\n- Legacy-format plugins must migrate to API 1.5 before they can be enabled (the plugin manager shows a migration hint)\n- Splash, card deal/flip, lottery reveal, page transitions, and banner transitions now run on a unified GSAP pipeline\n- List management is restored as its own Dock secondary menu (people lists, groups, prize lists)\n- Stability fixes for leftover lottery tweens and banner countdown interruption\n\nSee Settings → Changelog for details. Use GitHub Issues for feedback."
+    }
+  },
+  {
     "id": 9,
     "title": {
       "cn": "v26.2.2 已发布",
