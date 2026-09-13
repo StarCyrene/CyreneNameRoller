@@ -3008,8 +3008,8 @@ async fn plugin_download_bytes(url: String) -> Result<serde_json::Value, String>
         return Err("插件下载地址必须为 HTTPS".into());
     }
     let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(15))
-        .timeout(std::time::Duration::from_secs(180))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(60))
         .build()
         .map_err(|error| error.to_string())?;
     let response = client
