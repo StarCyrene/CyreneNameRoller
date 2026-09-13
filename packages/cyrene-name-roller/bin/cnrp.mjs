@@ -90,9 +90,11 @@ const API15_PERMISSIONS = new Set([
   'files:app:read', 'files:app:write', 'files:app:execute', 'files:external:read', 'files:external:write', 'files:external:execute',
   'net:internet', 'page:read', 'page:write', 'page:write-sensitive', 'dom:main', 'dom:settings', 'style:host', 'window:create',
   'window:main:control', 'window:floating:control', 'window:always-on-top', 'core:names:read', 'core:records:read',
-  'core:statistics:read', 'core:fairness:read', 'core:before-operation', 'system:execute'
+  'core:statistics:read', 'core:fairness:read', 'core:before-operation', 'system:execute',
+  'storage:read', 'storage:write', 'events:draw', 'events:lifecycle', 'notifications:show', 'audio:select', 'audio:play',
+  'ui:animations', 'ui:visual-surfaces', 'names:read', 'records:read', 'statistics:read', 'balance:read', 'draw:execute'
 ])
-const API15_FIELDS = new Set(['api', 'schemaVersion', 'id', 'name', 'version', 'author', 'description', 'engine', 'entry', 'platforms', 'permissions', 'files', 'network', 'windows', 'pages', 'hooks', 'signature', 'integrity'])
+const API15_FIELDS = new Set(['api', 'schemaVersion', 'id', 'name', 'version', 'author', 'description', 'engine', 'entry', 'platforms', 'permissions', 'files', 'network', 'windows', 'pages', 'hooks', 'signature', 'integrity', 'animationPacks', 'visualSurfaces', 'icon', 'readme'])
 const API15_OPERATIONS = new Set(['name-draw', 'card-flip', 'lottery-draw', 'prize-assignment'])
 const API15_FILE_SCOPES = new Set(['read', 'write', 'execute'])
 
@@ -131,19 +133,20 @@ function normalizeManifest15(raw) {
   const pages = raw.pages === undefined ? [] : raw.pages
   if (!Array.isArray(pages) || pages.length > 32) fail('pages is invalid')
   const pageIds = new Set()
-  const normalizedPages = pages.map((page, index) => {
-    if (!page || typeof page !== 'object' || Array.isArray(page) || Object.keys(page).some(key => !['id', 'title', 'titleEn', 'description', 'location', 'entry', 'children'].includes(key)) || !/^[a-z][a-z0-9._-]{0,63}$/.test(page.id || '') || pageIds.has(page.id) || typeof page.title !== 'string' || !page.title.trim() || page.title.length > 120 || (page.titleEn !== undefined && typeof page.titleEn !== 'string') || (page.description !== undefined && typeof page.description !== 'string') || !['main', 'settings'].includes(page.location)) fail(`pages[${index}] is invalid or duplicate`)
+  const normalizePage15 = (page, index, parentId = '') => {
+    const allowed = ['id', 'title', 'titleEn', 'description', 'location', 'entry', 'children', 'native']
+    if (!page || typeof page !== 'object' || Array.isArray(page) || Object.keys(page).some(key => !allowed.includes(key)) || !/^[a-z][a-z0-9._-]{0,63}$/.test(page.id || '') || pageIds.has(page.id) || typeof page.title !== 'string' || !page.title.trim() || page.title.length > 120 || (page.titleEn !== undefined && typeof page.titleEn !== 'string') || (page.description !== undefined && typeof page.description !== 'string')) fail(`pages[${index}] is invalid or duplicate`)
+    if (parentId === '' ? !['main', 'settings'].includes(page.location) : page.location !== undefined) fail(`pages[${index}] is invalid`)
     pageIds.add(page.id)
     const children = page.children === undefined ? [] : page.children
     if (!Array.isArray(children) || children.length > 32) fail(`pages[${index}].children is invalid`)
-    const childIds = new Set()
-    const normalizedChildren = children.map(child => {
-      if (!child || typeof child !== 'object' || Array.isArray(child) || Object.keys(child).some(key => !['id', 'title', 'titleEn', 'description', 'entry'].includes(key)) || !/^[a-z][a-z0-9._-]{0,63}$/.test(child.id || '') || childIds.has(child.id) || typeof child.title !== 'string' || !child.title.trim() || child.title.length > 120 || (child.titleEn !== undefined && typeof child.titleEn !== 'string') || (child.description !== undefined && typeof child.description !== 'string')) fail(`pages[${index}].children is invalid or duplicate`)
-      childIds.add(child.id)
-      return { id: child.id, title: child.title, titleEn: String(child.titleEn || ''), description: String(child.description || ''), entry: normalizePath(child.entry), children: [] }
-    })
-    return { id: page.id, title: page.title, titleEn: String(page.titleEn || ''), description: String(page.description || ''), location: page.location, entry: normalizePath(page.entry), children: normalizedChildren }
-  })
+    const normalizedChildren = children.map((child, childIndex) => normalizePage15(child, childIndex, page.id))
+    const native = normalizeNativePage(page.native, `pages[${index}].native`)
+    const entry = page.entry ? normalizePath(page.entry) : ''
+    if (!entry && !native) fail(`pages[${index}] needs a runtime entry or native controls`)
+    return { id: page.id, title: page.title, titleEn: String(page.titleEn || ''), description: String(page.description || ''), ...(parentId === '' ? { location: page.location } : {}), entry, native, children: normalizedChildren }
+  }
+  const normalizedPages = pages.map((page, index) => normalizePage15(page, index))
   const hooks = raw.hooks === undefined ? [] : raw.hooks
   if (!Array.isArray(hooks) || hooks.length > 16) fail('hooks is invalid')
   const hookIds = new Set()
@@ -159,7 +162,10 @@ function normalizeManifest15(raw) {
   if (raw.network !== undefined && (!raw.network || typeof raw.network !== 'object' || Array.isArray(raw.network) || Object.keys(raw.network).some(key => key !== 'internet') || typeof raw.network.internet !== 'boolean')) fail('network is invalid')
   if (raw.signature !== undefined && raw.signature !== null && (!raw.signature || raw.signature.algorithm !== 'Ed25519' || typeof raw.signature.publisher !== 'string' || raw.signature.publisher.length > 512 || Object.keys(raw.signature).some(key => !['algorithm', 'publisher', 'value'].includes(key)))) fail('signature is invalid')
   const permissions = raw.permissions.map(permission => ({ id: permission.id, required: permission.required, platforms: [...new Set(permission.platforms)] }))
-  return { api: '1.5', ...(raw.schemaVersion === undefined ? {} : { schemaVersion: 1 }), id: raw.id, name: raw.name, version: raw.version, author: raw.author, description: String(raw.description || '').slice(0, 500), engine: raw.engine === undefined ? null : raw.engine, entry: normalizeProcessEntry15(raw.entry), platforms: raw.platforms === undefined ? [] : [...new Set(raw.platforms)], permissions, files: normalizeFileScopes15(raw.files || {}), network: raw.network || { internet: false }, windows: { create: windows.create === true, main: { control: windows.main?.control === true }, floating: { control: windows.floating?.control === true, alwaysOnTop: windows.floating?.alwaysOnTop === true } }, pages: normalizedPages, hooks: normalizedHooks, signature: raw.signature || null }
+  const permissionList = permissions.map(permission => permission.id)
+  const animationPacks = normalizeAnimationPacks(raw.animationPacks, permissionList)
+  const visualSurfaces = normalizeVisualSurfaces(raw.visualSurfaces, permissionList)
+  return { api: '1.5', ...(raw.schemaVersion === undefined ? {} : { schemaVersion: 1 }), id: raw.id, name: raw.name, version: raw.version, author: raw.author, description: String(raw.description || '').slice(0, 500), engine: raw.engine === undefined ? null : raw.engine, entry: normalizeProcessEntry15(raw.entry), platforms: raw.platforms === undefined ? [] : [...new Set(raw.platforms)], permissions, files: normalizeFileScopes15(raw.files || {}), icon: raw.icon ? normalizePath(raw.icon) : null, readme: raw.readme ? normalizePath(raw.readme) : null, network: raw.network || { internet: false }, windows: { create: windows.create === true, main: { control: windows.main?.control === true }, floating: { control: windows.floating?.control === true, alwaysOnTop: windows.floating?.alwaysOnTop === true } }, pages: normalizedPages, hooks: normalizedHooks, animationPacks, visualSurfaces, signature: raw.signature || null }
 }
 
 function normalizePlatforms(value, label) {
@@ -729,10 +735,23 @@ async function validateDirectory(directory) {
   const files = new Set(await collectFiles(directory))
   if (files.size > MAX_FILE_COUNT) fail(`plugin has more than ${MAX_FILE_COUNT} files`)
   if (manifest.api === '1.5') {
-    const pageFiles = pages => pages.flatMap(page => [page.entry, ...pages.flatMap(() => page.children || []).map(child => child.entry)])
-    const requiredFiles = [manifest.entry.script, ...pageFiles(manifest.pages)].filter(Boolean)
+    const requiredFiles = [
+      manifest.entry.script,
+      ...(manifest.icon ? [manifest.icon] : []),
+      ...(manifest.readme ? [manifest.readme] : []),
+      ...(manifest.pages || []).flatMap(page => [page.entry, ...(page.children || []).map(child => child.entry)]),
+      ...(manifest.animationPacks || []).map(pack => pack.source),
+      ...(manifest.visualSurfaces || []).flatMap(surface => [surface.entry, ...Object.values(surface.platformEntries || {})])
+    ].filter(Boolean)
     for (const required of requiredFiles) if (!files.has(required)) fail(`manifest references missing file: ${required}`)
-    return { manifest, animationPacks: [], files: [...files].filter(file => file !== 'manifest.json') }
+    const animationPacks = []
+    for (const declaration of manifest.animationPacks || []) {
+      let raw
+      try { raw = JSON.parse(await fs.readFile(path.join(directory, declaration.source), 'utf8')) }
+      catch (error) { fail(`cannot parse animation pack ${declaration.id}: ${error.message || error}`) }
+      animationPacks.push(normalizeAnimationPack(raw, declaration))
+    }
+    return { manifest, animationPacks, files: [...files].filter(file => file !== 'manifest.json') }
   }
   const requiredFiles = [
     manifest.entry?.script || manifest.entry,
@@ -810,7 +829,9 @@ async function packDirectory(directory, outFile, options = {}) {
   const { manifest, files } = await validateDirectory(directory)
   const workerEntries = new Set([
     manifest.entry?.script || manifest.entry,
-    ...(manifest.api === '1.5' ? [] : [
+    ...(manifest.api === '1.5' ? [
+      ...(manifest.visualSurfaces || []).flatMap(surface => [surface.entry, ...Object.values(surface.platformEntries || {})])
+    ] : [
       ...Object.values(manifest.platformEntries || {}),
       ...(manifest.contributes.visualSurfaces || []).flatMap(surface => [surface.entry, ...Object.values(surface.platformEntries || {})])
     ])

@@ -111,7 +111,16 @@ export const PLUGIN_API15_PERMISSIONS = new Set([
   'dom:main', 'dom:settings', 'style:host', 'window:create',
   'window:main:control', 'window:floating:control', 'window:always-on-top',
   'core:names:read', 'core:records:read', 'core:statistics:read',
-  'core:fairness:read', 'core:before-operation', 'system:execute'
+  'core:fairness:read', 'core:before-operation', 'system:execute',
+  // API 1.5 declarative capability model also covers the legacy product capabilities
+  // so existing plugins can migrate without losing features (audio, events, storage, UI packs).
+  'storage:read', 'storage:write',
+  'events:draw', 'events:lifecycle',
+  'notifications:show',
+  'audio:select', 'audio:play',
+  'ui:animations', 'ui:visual-surfaces',
+  'names:read', 'records:read', 'statistics:read', 'balance:read',
+  'draw:execute'
 ])
 
 function githubRawAlternative(url) {

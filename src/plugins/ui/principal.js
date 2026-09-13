@@ -46,7 +46,7 @@ export function createLegacyPrincipal(plugin, platform = 'web') {
     instanceId: `legacy:${plugin?.manifest?.id || 'unknown'}`,
     kind: 'worker',
     contributionId: 'legacy',
-    grants: plugin?.manifest?.permissions || [],
+    grants: (plugin?.manifest?.permissions || []).map(permission => typeof permission === 'string' ? permission : permission?.id).filter(Boolean),
     platform,
     legacyPrincipal: true
   })

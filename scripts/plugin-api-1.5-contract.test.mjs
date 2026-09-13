@@ -83,6 +83,72 @@ test('keeps API 1.4 and older manifests displayable but never valid for activati
   assert.throws(() => normalizePluginManifest({ ...validManifest, api: '1.4' }), /API|需要 API/)
 })
 
+test('accepts API 1.5 declarative contributions and product capabilities', () => {
+  const manifest = normalizePluginManifest({
+    ...validManifest,
+    permissions: [
+      { id: 'storage:read', required: true, platforms: ['web', 'tauri'] },
+      { id: 'storage:write', required: true, platforms: ['web', 'tauri'] },
+      { id: 'events:draw', required: true, platforms: ['web', 'tauri'] },
+      { id: 'notifications:show', required: false, platforms: ['web', 'tauri'] },
+      { id: 'audio:select', required: false, platforms: ['web', 'tauri'] },
+      { id: 'audio:play', required: false, platforms: ['web', 'tauri'] },
+      { id: 'ui:animations', required: true, platforms: ['web', 'tauri'] },
+      { id: 'ui:visual-surfaces', required: true, platforms: ['web', 'tauri'] }
+    ],
+    pages: [{
+      id: 'settings',
+      title: 'Settings',
+      location: 'settings',
+      native: { type: 'settings', settingsKey: 'settings', controls: [{ id: 'enabled', type: 'toggle', path: 'enabled', label: 'Enabled', default: true }] }
+    }],
+    animationPacks: [{ id: 'signature', title: 'Signature', source: 'animations/signature.json' }],
+    visualSurfaces: [{ id: 'ambient', title: 'Ambient', entry: 'src/visual-surface.js', placement: 'background', events: ['draw:result'] }]
+  })
+  assert.equal(manifest.pages[0].native.type, 'settings')
+  assert.equal(manifest.pages[0].entry, '')
+  assert.deepEqual(manifest.animationPacks[0], { id: 'signature', title: 'Signature', description: '', source: 'animations/signature.json' })
+  assert.equal(manifest.visualSurfaces[0].entry, 'src/visual-surface.js')
+  assert.equal(manifest.visualSurfaces[0].placement, 'background')
+  assert.equal(manifest.visualSurfaces[0].defaultEnabled, true)
+  assert.throws(() => normalizePluginManifest({ ...validManifest, animationPacks: [{ id: 'x', title: 'X', source: 'a.json' }] }), /ui:animations/)
+  assert.throws(() => normalizePluginManifest({ ...validManifest, pages: [{ id: 'settings', title: 'S', location: 'settings' }] }), /entry or native|entry/i)
+})
+
+test('CLI validates and packs API 1.5 contributions with native pages', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cnr-api15-contrib-'))
+  const source = path.join(root, 'plugin')
+  await createTemplate(source, 'api15')
+  const manifest = JSON.parse(await fs.readFile(path.join(source, 'manifest.json'), 'utf8'))
+  manifest.permissions.push(
+    { id: 'ui:animations', required: true, platforms: ['web', 'tauri'] },
+    { id: 'ui:visual-surfaces', required: true, platforms: ['web', 'tauri'] }
+  )
+  manifest.pages = [{
+    id: 'settings',
+    title: 'Settings',
+    location: 'settings',
+    native: { type: 'settings', settingsKey: 'settings', controls: [{ id: 'enabled', type: 'toggle', path: 'enabled', label: 'Enabled', default: true }] }
+  }]
+  manifest.animationPacks = [{ id: 'signature', title: 'Signature', source: 'animations/signature.json' }]
+  manifest.visualSurfaces = [{ id: 'ambient', title: 'Ambient', entry: 'src/visual-surface.js', placement: 'background', events: ['draw:result'] }]
+  await fs.writeFile(path.join(source, 'manifest.json'), JSON.stringify(manifest, null, 2))
+  await fs.mkdir(path.join(source, 'animations'), { recursive: true })
+  await fs.writeFile(path.join(source, 'animations', 'signature.json'), JSON.stringify({
+    schemaVersion: 1,
+    presets: [{ id: 'fade', target: 'page.transition', label: 'Fade', animation: { keyframes: [{ opacity: 0 }, { opacity: 1 }], options: { duration: 300 } } }]
+  }))
+  await fs.writeFile(path.join(source, 'src', 'visual-surface.js'), 'globalThis.CyreneVisualSurfaceModule = { activate() {} }\n')
+  const validation = await validateDirectory(source)
+  assert.equal(validation.manifest.pages[0].native.type, 'settings')
+  assert.equal(validation.animationPacks.length, 1)
+  assert.equal(validation.manifest.visualSurfaces[0].entry, 'src/visual-surface.js')
+  const output = path.join(root, 'contrib.cnrp')
+  const packed = await packDirectory(source, output)
+  assert.equal(packed.manifest.api, '1.5')
+  assert.ok((await fs.stat(output)).size > 0)
+})
+
 test('returns migration metadata for manifests without api', () => {
   const legacy = { schemaVersion: 1, id: 'cn.example.legacy', name: 'Legacy', version: '1.0.0' }
   const status = normalizePluginManifest(legacy)

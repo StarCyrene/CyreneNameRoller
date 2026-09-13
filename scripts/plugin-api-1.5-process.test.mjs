@@ -170,6 +170,39 @@ test('routes API 1.5 page RPC through the page principal and rejects dom.execute
   await assert.rejects(() => runtime.handleRpc(principal, 'dom.execute'), /unsupported|execute/i)
 })
 
+test('registers API 1.5 native pages and visual surfaces on activation', async () => {
+  const output = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'cnrp-contrib-runtime-')), 'runtime.mjs')
+  await build({ entryPoints: [path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/plugins/runtime.js')], bundle: true, platform: 'browser', format: 'esm', outfile: output })
+  const { PluginRuntime } = await import(pathToFileURL(output).href)
+  const plugin = {
+    enabled: true,
+    manifest: {
+      api: '1.5',
+      id: 'cn.example.contrib',
+      name: 'Contrib',
+      permissions: [{ id: 'storage:read', required: true, platforms: ['web'] }, { id: 'ui:visual-surfaces', required: true, platforms: ['web'] }],
+      pages: [{ id: 'settings', title: 'Settings', location: 'main', native: { type: 'settings', settingsKey: 'settings', controls: [{ id: 'enabled', type: 'toggle', path: 'enabled', label: 'Enabled', default: true }] } }],
+      animationPacks: [{ id: 'signature', title: 'Signature', description: '', source: 'animations/signature.json' }],
+      visualSurfaces: [{ id: 'ambient', title: 'Ambient', entry: 'src/surface.js', platformEntries: {}, placement: 'background', events: ['draw:result'], defaultEnabled: true }]
+    },
+    files: { 'src/surface.js': 'Z2xvYmFsVGhpcy5DeXJlbmVWaXN1YWxTdXJmYWNlTW9kdWxlID0geyBhY3RpdmF0ZSgpIHt9IH0=' }
+  }
+  const runtime = new PluginRuntime({ getPlugin: id => id === plugin.manifest.id ? plugin : null, platformBridge: { info: () => ({ runtime: 'web', os: 'unknown' }), capabilities: () => ({}) } })
+  runtime.registerPages(plugin)
+  runtime.registerVisualSurfaces(plugin)
+  const pages = runtime.getContributedPages()
+  assert.equal(pages.length, 1)
+  assert.equal(pages[0].native.type, 'settings')
+  assert.equal(pages[0].entry, '')
+  const surfaces = runtime.getContributedVisualSurfaces()
+  assert.equal(surfaces.length, 1)
+  assert.equal(surfaces[0].entry, 'src/surface.js')
+  runtime.unregisterVisualSurfaces(plugin.manifest.id)
+  runtime.unregisterPages(plugin.manifest.id)
+  assert.equal(runtime.getContributedVisualSurfaces().length, 0)
+  assert.equal(runtime.getContributedPages().length, 0)
+})
+
 test('rejects malformed and duplicate frames and terminates on timeout or crash', async () => {
   const killed = []
   const host = new DesktopPluginHost({

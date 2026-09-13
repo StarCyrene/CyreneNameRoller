@@ -15,7 +15,52 @@ my-plugin/
 
 Use `cnrp create <directory>` for the basic template, or `cnrp create <directory> --template sound-effects` for the complete audio example.
 
-## Manifest
+## API 1.5 manifest
+
+API 1.5 manifests are the only activatable format. Legacy manifests are kept for display only and show a migration hint.
+
+```json
+{
+  "api": "1.5",
+  "schemaVersion": 1,
+  "id": "cn.example.my-plugin",
+  "name": "My Plugin",
+  "version": "1.0.0",
+  "author": "Your Name",
+  "description": "A CyreneNameRoller API 1.5 plugin.",
+  "engine": { "min": "1.5.0", "max": "1.5.0" },
+  "entry": { "runtime": "cnrp-runner", "script": "src/worker.js", "args": [] },
+  "icon": "assets/icon.svg",
+  "readme": "README.md",
+  "platforms": ["web", "tauri"],
+  "permissions": [
+    { "id": "storage:read", "required": true, "platforms": ["web", "tauri"] },
+    { "id": "events:draw", "required": true, "platforms": ["web", "tauri"] }
+  ],
+  "pages": [
+    {
+      "id": "settings",
+      "title": "Settings",
+      "location": "settings",
+      "native": {
+        "type": "settings",
+        "settingsKey": "settings",
+        "controls": [{ "id": "enabled", "type": "toggle", "path": "enabled", "label": "Enabled", "default": true }]
+      }
+    }
+  ],
+  "animationPacks": [{ "id": "signature", "title": "Signature Motion", "source": "animations/signature.json" }],
+  "visualSurfaces": [{ "id": "ambient", "title": "Ambient", "entry": "src/visual-surface.js", "placement": "background", "events": ["draw:result"] }]
+}
+```
+
+- `entry` is a `cnrp-runner` process; `script` points at a `definePlugin({ activate, onEvent, deactivate })` module. Use a minimal worker when the plugin only contributes pages, animation packs or visual surfaces.
+- `pages[].location` is `main` (opened from the plugin manager) or `settings` (nested under Settings). A page needs either an isolated HTML `entry` or a declarative native `settings` page with Fluent controls.
+- `animationPacks` and `visualSurfaces` are declared at the top level and require the `ui:animations` / `ui:visual-surfaces` permission.
+- Permission declarations are objects: `{ id, required, platforms }`. `required` capabilities block activation when unavailable on the current platform; optional ones degrade gracefully.
+- Product capabilities from API 1.4 remain available to 1.5 plugins: `storage:read`, `storage:write`, `events:draw`, `events:lifecycle`, `notifications:show`, `audio:select`, `audio:play`, `ui:animations`, `ui:visual-surfaces`, plus the `core:*`, `files:*`, `net:internet`, `page:*`, `dom:*`, `style:host` and `window:*` capabilities.
+
+## Manifest (legacy, display only)
 
 ```json
 {

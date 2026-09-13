@@ -24,11 +24,13 @@ export class PageRegistry {
     for (const page of pages) {
       for (const item of flatten(page)) {
         if (!ID.test(item.id) || ids.has(item.id)) throw new Error(`duplicate page id: ${item.id}`)
-        if (!LOCATIONS.has(item.location || page.location) || typeof item.entry !== 'string' || !item.entry || item.entry.includes('://') || item.entry.startsWith('/') || item.entry.includes('..')) {
+        if (!LOCATIONS.has(item.location || page.location)) throw new Error(`manifest page location is invalid: ${item.id}`)
+        const native = item.native || null
+        if (!native && (typeof item.entry !== 'string' || !item.entry || item.entry.includes('://') || item.entry.startsWith('/') || item.entry.includes('..'))) {
           throw new Error(`manifest page entry is invalid: ${item.id}`)
         }
         ids.add(item.id)
-        entries.push({ ...item, location: item.location || page.location, pluginId: plugin.manifest.id, native: false, loadOrder })
+        entries.push({ ...item, location: item.location || page.location, pluginId: plugin.manifest.id, native: !!native, loadOrder })
       }
     }
     this.plugins.push({ pluginId: plugin.manifest.id, loadOrder, entries })

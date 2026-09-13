@@ -58,7 +58,7 @@ const API15_DECLARATION_ID = /^[a-z][a-z0-9._-]{0,63}$/
 const API15_OPERATIONS = new Set(['name-draw', 'card-flip', 'lottery-draw', 'prize-assignment'])
 const API15_WINDOWS = new Set(['create', 'main:control', 'floating:control', 'always-on-top'])
 const API15_PAGE_LOCATIONS = new Set(['main', 'settings'])
-const API15_MANIFEST_FIELDS = new Set(['api', 'schemaVersion', 'id', 'name', 'version', 'author', 'description', 'engine', 'entry', 'platforms', 'permissions', 'files', 'network', 'windows', 'pages', 'hooks', 'signature', 'integrity'])
+const API15_MANIFEST_FIELDS = new Set(['api', 'schemaVersion', 'id', 'name', 'version', 'author', 'description', 'engine', 'entry', 'platforms', 'permissions', 'files', 'network', 'windows', 'pages', 'hooks', 'signature', 'integrity', 'animationPacks', 'visualSurfaces', 'icon', 'readme'])
 const API15_FILE_SCOPES = new Set(['read', 'write', 'execute'])
 const API15_WINDOW_FIELDS = new Set(['create', 'main', 'floating'])
 
@@ -105,14 +105,17 @@ export function normalizeHookDeclaration(value) {
 }
 
 function normalizeApi15Page(value, index, parent = '') {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['id', 'title', 'titleEn', 'description', 'location', 'entry', 'children'].includes(key))) throw new Error(`pages[${index}] is invalid`)
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['id', 'title', 'titleEn', 'description', 'location', 'entry', 'children', 'native'].includes(key))) throw new Error(`pages[${index}] is invalid`)
   const id = boundedString(value.id, `pages[${index}].id`, 64, true)
   if (!API15_DECLARATION_ID.test(id) || (parent === '' && !API15_PAGE_LOCATIONS.has(value.location)) || (parent !== '' && value.location !== undefined)) throw new Error(`pages[${index}] is invalid`)
   const children = value.children === undefined ? [] : value.children
   if (!Array.isArray(children) || children.length > 32) throw new Error(`pages[${index}].children is invalid`)
   const childIds = new Set()
   const normalizedChildren = children.map((child, childIndex) => { const normalized = normalizeApi15Page(child, childIndex, id); if (childIds.has(normalized.id)) throw new Error('duplicate child page id'); childIds.add(normalized.id); return normalized })
-  return { id, title: boundedString(value.title, `pages[${index}].title`, 120, true), titleEn: boundedString(value.titleEn || '', `pages[${index}].titleEn`, 120), description: boundedString(value.description || '', `pages[${index}].description`, 300), ...(parent === '' ? { location: value.location } : {}), entry: validatePath(boundedString(value.entry, `pages[${index}].entry`, 256, true)), children: normalizedChildren }
+  const native = normalizeNativePage(value.native, `pages[${index}].native`)
+  const entry = value.entry ? validatePath(boundedString(value.entry, `pages[${index}].entry`, 256, true)) : ''
+  if (!entry && !native) throw new Error(`pages[${index}] requires a runtime entry or native controls`)
+  return { id, title: boundedString(value.title, `pages[${index}].title`, 120, true), titleEn: boundedString(value.titleEn || '', `pages[${index}].titleEn`, 120), description: boundedString(value.description || '', `pages[${index}].description`, 300), ...(parent === '' ? { location: value.location } : {}), entry, native, children: normalizedChildren }
 }
 
 function normalizeApi15Manifest(raw) {
@@ -151,13 +154,18 @@ function normalizeApi15Manifest(raw) {
   const normalizedWindows = { create: windows.create === true, main: { control: windows.main?.control === true }, floating: { control: windows.floating?.control === true, alwaysOnTop: windows.floating?.alwaysOnTop === true } }
   if (raw.network !== undefined && (!raw.network || typeof raw.network !== 'object' || Array.isArray(raw.network) || Object.keys(raw.network).some(key => key !== 'internet') || typeof raw.network.internet !== 'boolean')) throw new Error('network is invalid')
   if (raw.signature !== undefined && raw.signature !== null && (!raw.signature || typeof raw.signature !== 'object' || Array.isArray(raw.signature) || Object.keys(raw.signature).some(key => !['algorithm', 'publisher', 'value'].includes(key)) || raw.signature.algorithm !== 'Ed25519' || typeof raw.signature.publisher !== 'string' || raw.signature.publisher.length > 512)) throw new Error('signature is invalid')
+  const permissionList = uniquePermissions.map(permission => permission.id)
+  const animationPacks = normalizeAnimationPacks(raw.animationPacks, permissionList)
+  const visualSurfaces = normalizeVisualSurfaces(raw.visualSurfaces, permissionList)
   return {
     api: '1.5', ...(raw.schemaVersion === undefined ? {} : { schemaVersion: 1 }), id: raw.id,
     name: boundedString(raw.name, 'name', 120, true), version: boundedString(raw.version, 'version', 64, true), author: boundedString(raw.author, 'author', 120, true), description: boundedString(raw.description || '', 'description', 500),
     engine: raw.engine === undefined ? null : raw.engine,
     entry: normalizeProcessEntry(raw.entry), platforms: normalizePlatforms(raw.platforms, 'platforms'), permissions: uniquePermissions, files: normalizeFileScopes(raw.files || {}),
+    icon: raw.icon ? validatePath(boundedString(raw.icon, 'icon', 256, true)) : null,
+    readme: raw.readme ? validatePath(boundedString(raw.readme, 'readme', 256, true)) : null,
     network: raw.network === undefined ? { internet: false } : raw.network,
-    windows: normalizedWindows, pages: normalizedPages, hooks: normalizedHooks, signature: raw.signature || null, ...(raw.integrity === undefined ? {} : { integrity: raw.integrity })
+    windows: normalizedWindows, pages: normalizedPages, hooks: normalizedHooks, animationPacks, visualSurfaces, signature: raw.signature || null, ...(raw.integrity === undefined ? {} : { integrity: raw.integrity })
   }
 }
 
@@ -448,8 +456,9 @@ export function normalizeAnimationPack(value, declaration = {}) {
 
 function normalizeAnimationPacks(value, permissions) {
   if (value === undefined) return []
-  if (!permissions.includes('ui:animations')) throw new Error('animationPacks 需要 ui:animations 权限')
   if (!Array.isArray(value) || value.length > 16) throw new Error('animationPacks 必须是最多 16 项的数组')
+  if (!value.length) return []
+  if (!permissions.includes('ui:animations')) throw new Error('animationPacks 需要 ui:animations 权限')
   const ids = new Set()
   return value.map((pack, index) => {
     if (!pack || typeof pack !== 'object' || !CONTRIBUTION_ID_PATTERN.test(pack.id || '') || ids.has(pack.id)) throw new Error(`animationPacks[${index}] ID 无效或重复`)
@@ -552,8 +561,9 @@ function normalizeAppearancePacks(value, permissions) {
 
 function normalizeVisualSurfaces(value, permissions) {
   if (value === undefined) return []
-  if (!permissions.includes('ui:visual-surfaces')) throw new Error('visualSurfaces 需要 ui:visual-surfaces 权限')
   if (!Array.isArray(value) || value.length > 8) throw new Error('visualSurfaces 必须是最多 8 项的数组')
+  if (!value.length) return []
+  if (!permissions.includes('ui:visual-surfaces')) throw new Error('visualSurfaces 需要 ui:visual-surfaces 权限')
   const ids = new Set()
   return value.map((surface, index) => {
     if (!surface || typeof surface !== 'object' || !CONTRIBUTION_ID_PATTERN.test(surface.id || '') || ids.has(surface.id)) throw new Error(`visualSurfaces[${index}] ID 无效或重复`)
@@ -850,18 +860,25 @@ export async function parsePluginPackage(input, { expectedPublisherKey = '' } = 
     ...(manifest.api === '1.5'
       ? (manifest.pages || []).flatMap(page => [page.entry, ...(page.children || []).map(child => child.entry)])
       : (manifest.contributes.pages || []).flatMap(page => [page.entry, ...Object.values(page.platformEntries || {})])),
-    ...(manifest.api === '1.5' ? [] : (manifest.contributes.animationPacks || []).map(pack => pack.source)),
+    ...(manifest.api === '1.5'
+      ? (manifest.animationPacks || []).map(pack => pack.source)
+      : (manifest.contributes.animationPacks || []).map(pack => pack.source)),
     ...(manifest.api === '1.5' ? [] : (manifest.contributes.fonts || []).map(font => font.source)),
     ...(manifest.api === '1.5' ? [] : (manifest.contributes.nativeViews || []).map(view => view.source)),
     ...(manifest.api === '1.5' ? [] : (manifest.contributes.visualSurfaces || []).flatMap(surface => [surface.entry, ...Object.values(surface.platformEntries || {})]))
   ].filter(Boolean)
+  if (manifest.api === '1.5') requiredFiles.push(
+    ...(manifest.icon ? [manifest.icon] : []),
+    ...(manifest.readme ? [manifest.readme] : []),
+    ...(manifest.visualSurfaces || []).flatMap(surface => [surface.entry, ...Object.values(surface.platformEntries || {})])
+  )
   for (const name of requiredFiles) if (!files[name]) throw new Error(`插件清单引用的文件不存在：${name}`)
   validateFontFiles(manifest.api === '1.5' ? [] : (manifest.contributes.fonts || []), files)
   const integrity = manifest.integrity || {}
   for (const name of fileNames) {
     if (name !== 'manifest.json' && !Object.hasOwn(integrity, name)) throw new Error(`完整性清单未覆盖文件：${name}`)
   }
-  const nativeViews = (manifest.contributes.nativeViews || []).map(declaration => {
+  const nativeViews = (manifest.contributes?.nativeViews || []).map(declaration => {
     try {
       return { ...declaration, document: normalizeNativeViewDocument(JSON.parse(decodePluginFile({ files }, declaration.source)), `nativeView ${declaration.id}`) }
     } catch (error) {
@@ -876,7 +893,8 @@ export async function parsePluginPackage(input, { expectedPublisherKey = '' } = 
     if (actual !== String(expected).toLowerCase()) throw new Error(`插件文件完整性校验失败：${name}`)
   }
   const packageHash = await sha256Hex(packageBytes)
-  const animationPacks = (manifest.contributes.animationPacks || []).map(declaration => {
+  const animationPackDeclarations = manifest.api === '1.5' ? (manifest.animationPacks || []) : (manifest.contributes.animationPacks || [])
+  const animationPacks = animationPackDeclarations.map(declaration => {
     let raw
     try {
       raw = JSON.parse(decodePluginFile({ files }, declaration.source))
