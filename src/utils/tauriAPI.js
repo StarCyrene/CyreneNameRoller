@@ -80,6 +80,7 @@ export const tauriAPI = {
   async importDataFile() { return this.invoke('import_data_file', {}) },
   async checkUpdate() { return this.invoke('check_update', {}) },
   async fetchAnnouncements() { return this.invoke('fetch_announcements', {}) },
+  async downloadPluginBytes(url) { return this.invokeStrict('plugin_download_bytes', { url }) },
   async showMainWindow() { return this.invoke('show_main_window', {}) },
   async mainWindowReady() { return this.invoke('main_window_ready', {}) },
   async saveFloatingWindowPosition() { return this.invoke('save_floating_window_position', {}) },
