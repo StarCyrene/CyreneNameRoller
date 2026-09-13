@@ -1,5 +1,23 @@
 [
   {
+    "version": "26.3.0",
+    "date": "2026-09-13",
+    "logs": {
+      "zh": [
+        "【插件平台】插件 API 升级至 1.5.0：引入隔离插件页面、核心操作钩子（抽取前/后）、细粒度能力权限，以及文件、网络、窗口与宿主页面能力，插件安全边界进一步收紧；旧格式插件需迁移至 API 1.5 后启用",
+        "【动画】启动动画、发牌/翻牌、抽奖揭晓、页面切换与横幅过渡统一迁移至 GSAP 驱动，动画时序更稳定、卸载更干净",
+        "【导航】名单管理恢复为 Dock 独立二级菜单：人员名单、小组名单与奖品管理集中管理，不再内嵌设置页",
+        "【稳定性】优化窗口还原与导航状态；修复抽奖动画卸载残留、横幅倒计时在重渲染后中断的问题"
+      ],
+      "en": [
+        "[Plugins] Plugin API upgraded to 1.5.0 with isolated plugin pages, core operation hooks (before/after), fine-grained capability permissions, and file/network/window/host-page capabilities for a tighter security boundary; legacy-format plugins must migrate to API 1.5 before they can be enabled",
+        "[Animation] Splash, card deal/flip, lottery reveal, page transitions, and banner transitions now run on a unified GSAP pipeline with more stable timing and cleaner teardown",
+        "[Navigation] List management is restored as its own Dock secondary menu (people lists, groups, prize lists) instead of living inside Settings",
+        "[Stability] Improved window restore and navigation state; fixed leftover lottery tweens and banner countdown interruption on re-render"
+      ]
+    }
+  },
+  {
     "version": "26.2.2",
     "date": "2026-08-22",
     "logs": {

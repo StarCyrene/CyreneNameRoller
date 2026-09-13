@@ -1,4 +1,4 @@
-export const APP_VERSION = '26.2.2'
+export const APP_VERSION = '26.3.0'
 export const APP_VERSION_PREFIX = 'v'
 
 function getBuildNumber() {
