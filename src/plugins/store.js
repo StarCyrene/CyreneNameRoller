@@ -59,6 +59,42 @@ async function fetchFirstSuccessful(urls, options = {}, label = '插件资源') 
   throw new Error(`${label}获取失败：${failures.join('；') || '没有可用地址'}`)
 }
 
+function decodeNativeBytes(result) {
+  const encoded = String(result?.base64 || '')
+  if (!encoded) throw new Error('空数据')
+  return Uint8Array.from(atob(encoded), character => character.charCodeAt(0))
+}
+
+// Tauri 桌面端统一走原生网络层（reqwest）：不受 webview CORS 与系统网络栈差异影响，
+// 且可跟随 GitHub Release 的 302 重定向。Web 端保持 webview fetch。
+async function fetchTextFirstSuccessful(urls, label = '插件资源') {
+  if (!isTauri()) {
+    const response = await fetchFirstSuccessful(urls, { cache: 'no-store' }, label)
+    return response.text()
+  }
+  const failures = []
+  for (const url of urls) {
+    try {
+      return new TextDecoder().decode(decodeNativeBytes(await tauriAPI.downloadPluginBytes(url)))
+    } catch (error) {
+      failures.push(`${url} → ${error?.message || String(error)}`)
+    }
+  }
+  throw new Error(`${label}获取失败：${failures.join('；') || '没有可用地址'}`)
+}
+
+async function fetchJsonFirstSuccessful(urls, label = '插件资源') {
+  return JSON.parse(await fetchTextFirstSuccessful(urls, label))
+}
+
+function catalogFetchImpl() {
+  if (!isTauri()) return fetch
+  return async url => {
+    const text = await fetchTextFirstSuccessful([url], '插件元数据')
+    return { ok: true, status: 200, text: async () => text, json: async () => JSON.parse(text) }
+  }
+}
+
 function mimeFor(path) {
   const extension = String(path || '').split('.').pop()?.toLowerCase()
   return {
@@ -610,12 +646,7 @@ export const usePluginsStore = defineStore('plugins', () => {
 
   async function fetchList() {
     if (safeModeStatus.value.enabled) throw Object.assign(new Error('安全模式已启用，在线插件目录不可用'), { code: 'SAFE_MODE_PLUGIN_BLOCKED' })
-    const response = await fetchFirstSuccessful(
-      pluginListCandidates(source.value),
-      { cache: 'no-store', headers: { Accept: 'application/json' } },
-      '插件列表'
-    )
-    const payload = await response.json()
+    const payload = await fetchJsonFirstSuccessful(pluginListCandidates(source.value), '插件列表')
     if (!Array.isArray(payload.plugins)) throw new Error('插件列表格式无效')
     const ids = new Set()
     const entries = payload.plugins.map(item => {
@@ -626,7 +657,7 @@ export const usePluginsStore = defineStore('plugins', () => {
     list.value = await Promise.all(entries.map(async item => {
       if (!item.release) return item
       try {
-        return await resolveCatalogRelease(item, { source: source.value })
+        return await resolveCatalogRelease(item, { source: source.value, fetchImpl: catalogFetchImpl() })
       } catch (error) {
         return { ...item, version: item.version || '', releaseError: error.message || String(error) }
       }
@@ -634,7 +665,7 @@ export const usePluginsStore = defineStore('plugins', () => {
     for (const item of list.value) {
       if (item.icon && item.author) continue
       Promise.resolve()
-        .then(() => fetchRepositoryOwner(item, { source: source.value }))
+        .then(() => fetchRepositoryOwner(item, { source: source.value, fetchImpl: catalogFetchImpl() }))
         .then(owner => {
           if (!owner) return
           if (!item.icon) item.icon = owner.icon
@@ -654,10 +685,7 @@ export const usePluginsStore = defineStore('plugins', () => {
       const failures = []
       for (const url of candidates) {
         try {
-          const result = await tauriAPI.downloadPluginBytes(url)
-          const encoded = String(result?.base64 || '')
-          if (!encoded) throw new Error('空数据')
-          return Uint8Array.from(atob(encoded), character => character.charCodeAt(0))
+          return decodeNativeBytes(await tauriAPI.downloadPluginBytes(url))
         } catch (error) {
           failures.push(`${url} → ${error?.message || String(error)}`)
         }
@@ -681,7 +709,7 @@ export const usePluginsStore = defineStore('plugins', () => {
     if (safeModeStatus.value.enabled) throw Object.assign(new Error('安全模式已启用，在线插件目录不可用'), { code: 'SAFE_MODE_PLUGIN_BLOCKED' })
     if (trail.includes(item.id)) throw new Error(`检测到插件目录依赖环：${[...trail, item.id].join(' → ')}`)
     if (item.release) {
-      const resolved = await resolveCatalogRelease(item, { source: source.value })
+      const resolved = await resolveCatalogRelease(item, { source: source.value, fetchImpl: catalogFetchImpl() })
       Object.assign(item, resolved, { releaseError: '' })
     }
     const nextTrail = [...trail, item.id]
@@ -723,28 +751,26 @@ export const usePluginsStore = defineStore('plugins', () => {
     const details = { ...item }
     if (details.readme || details.readmeContent) return details
     if (details.readmeUrl) {
-      const response = await fetchFirstSuccessful(
+      details.readme = await fetchTextFirstSuccessful(
         pluginSourceCandidates(details.readmeUrl, source.value),
-        { cache: 'no-store' },
         `${details.name || details.id} README`
       )
-      details.readme = await response.text()
       return details
     }
     const slug = repositorySlug(details.repository)
     if (!slug) return details
     try {
-      const repoResponse = await fetchFirstSuccessful(pluginSourceCandidates(`https://api.github.com/repos/${slug}`, source.value), {
-        cache: 'no-store', headers: { Accept: 'application/vnd.github+json' }
-      }, '插件仓库信息')
-      const repository = await repoResponse.json()
+      const repository = await fetchJsonFirstSuccessful(
+        pluginSourceCandidates(`https://api.github.com/repos/${slug}`, source.value),
+        '插件仓库信息'
+      )
       details.author ||= repository.owner?.login || ''
       details.icon ||= repository.owner?.avatar_url || ''
       details.description ||= repository.description || ''
-      const readmeResponse = await fetchFirstSuccessful(pluginSourceCandidates(`https://api.github.com/repos/${slug}/readme`, source.value), {
-        cache: 'no-store', headers: { Accept: 'application/vnd.github+json' }
-      }, '插件 README')
-      const readme = await readmeResponse.json()
+      const readme = await fetchJsonFirstSuccessful(
+        pluginSourceCandidates(`https://api.github.com/repos/${slug}/readme`, source.value),
+        '插件 README'
+      )
       if (readme.content) details.readme = decodeBase64Utf8(readme.content)
     } catch (error) {
       console.warn('[plugins] catalog metadata unavailable', error)
