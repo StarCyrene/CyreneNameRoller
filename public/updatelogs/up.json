@@ -1,5 +1,19 @@
 [
   {
+    "version": "26.3.1",
+    "date": "2026-09-13",
+    "logs": {
+      "zh": [
+        "【插件安装】修复桌面端在线安装/更新插件失败的问题：插件包改由原生网络层下载，可跟随 GitHub Release 重定向且不受 webview 跨域限制；镜像代理不可用时自动回退直连官方源",
+        "【插件生态】配套「来点音效」v1.3.0 与「更多动画」v1.2.0 已发布 API 1.5 版本，可在插件页直接安装/更新"
+      ],
+      "en": [
+        "[Plugin install] Fixed desktop online plugin install/update failures: packages are now downloaded by the native network layer, following GitHub Release redirects without webview CORS limits, with automatic fallback to the official source when mirrors fail",
+        "[Plugin ecosystem] The API 1.5 releases of Sound Effects v1.3.0 and More Animations v1.2.0 are available for direct install/update from the plugin page"
+      ]
+    }
+  },
+  {
     "version": "26.3.0",
     "date": "2026-09-13",
     "logs": {

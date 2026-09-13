@@ -1,5 +1,23 @@
 [
   {
+    "id": 10,
+    "title": {
+      "cn": "v26.3.1 正式发布",
+      "en": "v26.3.1 Is Now Officially Released"
+    },
+    "important": true,
+    "pinned": true,
+    "tag": {
+      "cn": "正式发布",
+      "en": "Release"
+    },
+    "time": "2026/09/13 20:00",
+    "content": {
+      "cn": "v26.3.1 正式发布！本次修复了桌面端在线安装/更新插件失败的问题。\n\n问题原因：镜像代理无法获取 GitHub Release 资源（502），而 webview 直连 GitHub 又受跨域限制。\n\n修复方式：\n\n- 插件包改由原生网络层下载，可跟随 Release 重定向并直连官方源\n- 镜像代理不可用时自动回退，安装不再依赖代理可用性\n- 配套「来点音效」v1.3.0 与「更多动画」v1.2.0（API 1.5）可直接在插件页安装/更新\n\n详细内容可在「设置 → 更新日志」查看。欢迎通过 GitHub Issues 反馈问题与建议。",
+      "en": "v26.3.1 is now officially released. This fixes desktop online plugin install/update failures.\n\nCause: mirror proxies could not fetch GitHub Release assets (HTTP 502), while the webview could not fetch GitHub directly because of CORS.\n\nFix:\n\n- Plugin packages are now downloaded by the native network layer, following Release redirects and reaching the official source directly\n- Automatic fallback when mirrors are unavailable, so installs no longer depend on proxy health\n- Sound Effects v1.3.0 and More Animations v1.2.0 (API 1.5) can now be installed/updated from the plugin page\n\nSee Settings → Changelog for the full list, and use GitHub Issues for feedback."
+    }
+  },
+  {
     "id": 9,
     "title": {
       "cn": "v26.3.0 正式发布",
