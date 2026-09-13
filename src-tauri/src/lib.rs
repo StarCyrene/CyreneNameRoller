@@ -2997,6 +2997,40 @@ async fn fetch_announcements() -> Result<serde_json::Value, String> {
     Err("无法获取公告内容".into())
 }
 
+const PLUGIN_DOWNLOAD_MAX_BYTES: usize = 64 * 1024 * 1024;
+
+// 由原生层（Rust reqwest）下载插件包，规避 webview 的 CORS 限制：
+// GitHub Release 资产会 302 到 objects.githubusercontent.com，浏览器 fetch 会被拦截；
+// reqwest 默认跟随重定向，可直连官方源，代理镜像不可用时也能完成安装。
+#[tauri::command]
+async fn plugin_download_bytes(url: String) -> Result<serde_json::Value, String> {
+    if !url.starts_with("https://") {
+        return Err("插件下载地址必须为 HTTPS".into());
+    }
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(180))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .get(&url)
+        .header("User-Agent", "CyreneNameRoller")
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("HTTP {}", response.status().as_u16()));
+    }
+    let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+    if bytes.len() > PLUGIN_DOWNLOAD_MAX_BYTES {
+        return Err("插件包超过 64 MB 限制".into());
+    }
+    Ok(serde_json::json!({
+        "base64": base64::engine::general_purpose::STANDARD.encode(&bytes),
+        "size": bytes.len(),
+    }))
+}
+
 #[tauri::command]
 async fn download_and_launch_update(
     app: tauri::AppHandle,
@@ -3969,6 +4003,7 @@ pub fn run() {
             is_process_elevated,
             is_autostart_launch,
             fetch_announcements,
+            plugin_download_bytes,
             download_and_launch_update,
             open_floating_window,
             close_floating_window,

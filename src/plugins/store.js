@@ -648,8 +648,24 @@ export const usePluginsStore = defineStore('plugins', () => {
   async function fetchPackage(item) {
     const original = item.downloadUrl || item.packageUrl
     if (!original) throw new Error(`${item.name || item.id} 没有可下载地址`)
+    const candidates = pluginSourceCandidates(original, source.value)
+    // Tauri: 原生 reqwest 下载，跟随 GitHub Release 302 重定向且不受 webview CORS 限制。
+    if (isTauri()) {
+      const failures = []
+      for (const url of candidates) {
+        try {
+          const result = await tauriAPI.downloadPluginBytes(url)
+          const encoded = String(result?.base64 || '')
+          if (!encoded) throw new Error('空数据')
+          return Uint8Array.from(atob(encoded), character => character.charCodeAt(0))
+        } catch (error) {
+          failures.push(`${url} → ${error?.message || String(error)}`)
+        }
+      }
+      throw new Error(`${item.name || item.id} 插件包获取失败：${failures.join('；') || '没有可用地址'}`)
+    }
     const response = await fetchFirstSuccessful(
-      pluginSourceCandidates(original, source.value),
+      candidates,
       { cache: 'no-store' },
       `${item.name || item.id} 插件包`
     )
