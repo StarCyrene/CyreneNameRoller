@@ -23,6 +23,21 @@ test('registers manifest-only pages in native, load, and declaration order', () 
   assert.throws(() => registry.registerPlugin(plugin('raw', [{ id: 'x', title: 'x', location: 'main', entry: 'https://evil/x.html' }])), /manifest|entry|URL/i)
 })
 
+test('registers API 1.5 native settings pages with host-rendered controls', () => {
+  const registry = new PageRegistry()
+  registry.registerPlugin(plugin('native.plugin', [{
+    id: 'settings',
+    title: 'Settings',
+    location: 'main',
+    entry: '',
+    native: { type: 'settings', settingsKey: 'settings', controls: [{ id: 'enabled', type: 'toggle', path: 'enabled', label: 'Enabled', default: true }] }
+  }]), 1)
+  const page = registry.routeFor('native.plugin', 'settings')
+  assert.equal(page.path, '/plugin/native.plugin/settings')
+  assert.equal(page.native, true)
+  assert.equal(registry.navigation()[0].native, true)
+})
+
 test('keeps host window/page/style handles opaque and plugin-owned', async () => {
   const bridge = new WindowBridge({ pluginId: 'p', maxWindows: 1 })
   const windowId = bridge.create({ title: 'Plugin' })

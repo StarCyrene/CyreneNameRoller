@@ -232,7 +232,7 @@ function catalogButtonLabel(item) {
   if (compareVersion(item.version, installed) > 0) return lang.value === 'en' ? 'Update' : '更新'
   return lang.value === 'en' ? 'Installed' : '已安装'
 }
-function pagesFor(plugin) { return contributedPages.value.filter(page => page.pluginId === plugin.manifest.id && page.location === 'plugins') }
+function pagesFor(plugin) { return contributedPages.value.filter(page => page.pluginId === plugin.manifest.id && (page.location === 'plugins' || page.location === 'main')) }
 function pluginIcon(plugin) { return plugins.pluginAssetUrl(plugin) || plugin.manifest.iconDataUrl || '' }
 function pluginCompatibility(plugin) { return plugins.compatibilityFor(plugin) }
 function pluginProvenance(plugin) {

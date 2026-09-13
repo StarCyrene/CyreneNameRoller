@@ -71,6 +71,10 @@ function canReceiveEvent(plugin, event) {
   return permissions.has('events:lifecycle') || permissions.has('core:before-operation')
 }
 
+function pluginHasPermission(plugin, id) {
+  return (plugin?.manifest?.permissions || []).some(permission => (typeof permission === 'string' ? permission : permission?.id) === id)
+}
+
 const RUNTIME_DEACTIVATE_GRACE_MS = 250
 const RUNTIME_COMMAND_TIMEOUT_MS = 15000
 const RUNTIME_CONTRIBUTION_ID_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/
@@ -223,7 +227,7 @@ export class PluginRuntime {
   }
 
   describeHost(plugin, principal = null) {
-    const granted = new Set(plugin?.manifest?.permissions || [])
+    const granted = new Set((plugin?.manifest?.permissions || []).map(permission => typeof permission === 'string' ? permission : permission?.id))
     const describe = ([id, definition]) => ({ id, ...definition, available: granted.has(definition.permission) })
     const platform = this.platformBridge.info()
     const componentTargets = listComponentTargets(platform.runtime).map(({ id, platform: targetPlatform, available, visibilityPolicy, allowedStyles, allowPluginFonts }) => ({
@@ -332,7 +336,10 @@ export class PluginRuntime {
   registerVisualSurfaces(plugin) {
     const ids = new Set()
     const surfaces = []
-    for (const surface of plugin.manifest.contributes?.visualSurfaces || []) {
+    const declarations = plugin.manifest.api === '1.5'
+      ? plugin.manifest.visualSurfaces || []
+      : plugin.manifest.contributes?.visualSurfaces || []
+    for (const surface of declarations) {
       if (!RUNTIME_CONTRIBUTION_ID_PATTERN.test(surface.id || '') || ids.has(surface.id)) throw new Error(`插件视觉层 ID 无效或重复：${surface.id || '空'}`)
       ids.add(surface.id)
       const entry = resolvePlatformEntry(surface, this.platformBridge.info())
@@ -557,9 +564,11 @@ export class PluginRuntime {
           invoke: context => this.invokeCoreHook(pluginId, declaration.operation, declaration.phase, context, declaration.timeoutMs)
       })
       this.registerPages(plugin)
+      this.registerVisualSurfaces(plugin)
       return true
     } catch (error) {
       this.unregisterPages(pluginId)
+      this.unregisterVisualSurfaces(pluginId)
       revokePrincipal(principal)
       this.principals.delete(instanceId)
       this.workers.delete(pluginId)
@@ -593,6 +602,7 @@ export class PluginRuntime {
       ${source}
       const module = self.CyrenePluginModule || self.cyrenePlugin || self.plugin;
       let identity = null;
+      let initialized = false;
       self.onmessage = async event => {
         const message = event.data || {};
         if (message.api !== '1.5' || message.protocol !== 'cnrp-jsonrpc/1') throw new Error('RPC message API or protocol is invalid');
@@ -606,7 +616,12 @@ export class PluginRuntime {
             const id = crypto.randomUUID(); self.postMessage({ jsonrpc: '2.0', protocol: 'cnrp-jsonrpc/1', api: '1.5', ...identity, id, method, params });
             self.addEventListener('message', function receive(response) { const data = response.data || {}; if (data.id !== id) return; self.removeEventListener('message', receive); if (data.api !== '1.5' || data.protocol !== 'cnrp-jsonrpc/1' || data.pluginId !== identity.pluginId || data.instanceId !== identity.instanceId) return reject(new Error('RPC response identity or API is invalid')); data.error ? reject(data.error) : resolve(data.result); });
           }) }));
+          initialized = true;
           return self.postMessage({ type: 'ready', role: 'plugin', pluginId: message.pluginId, instanceId: message.instanceId, api: '1.5', protocol: 'cnrp-jsonrpc/1' });
+        }
+        if (message.type === 'event' && initialized) {
+          await Promise.resolve(module?.onEvent?.(message.event, message.payload)).catch(() => {});
+          return;
         }
         if (message.type === 'shutdown') await module?.deactivate?.();
       };
@@ -745,7 +760,7 @@ export class PluginRuntime {
     const plugin = this.getPlugin(pluginId)
     const surface = this.visualSurfaces.get(key)
     if (!plugin || !surface) throw new Error('插件视觉层不存在或尚未启用')
-    if (!plugin.manifest.permissions.includes('ui:visual-surfaces')) throw new Error('插件未获授权：ui:visual-surfaces')
+    if (!pluginHasPermission(plugin, 'ui:visual-surfaces')) throw new Error('插件未获授权：ui:visual-surfaces')
     if (!canvas?.transferControlToOffscreen) throw new Error('当前环境不支持插件 Canvas 视觉层')
     await this.unmountVisualSurface(pluginId, surfaceId)
     const visualPrincipal = this.createPrincipal(plugin, 'visual', surfaceId, `visual:${pluginId}:${surfaceId}`)

@@ -480,6 +480,52 @@ export interface PluginManifest {
   }
 }
 
+export interface PluginManifest15Permission {
+  id: PluginPermission
+  required: boolean
+  platforms?: PluginPlatformId[]
+}
+
+export interface PluginManifest15Page {
+  id: string
+  title: string
+  titleEn?: string
+  description?: string
+  location: 'main' | 'settings'
+  entry?: string
+  native?: PluginNativeSettingsPage
+  children?: PluginManifest15Page[]
+}
+
+export interface PluginManifest15 {
+  api: '1.5'
+  schemaVersion?: 1
+  id: string
+  name: string
+  version: string
+  author: string
+  description?: string
+  engine?: { min: string; max?: string } | null
+  entry: { runtime: 'cnrp-runner'; script: string; args?: string[] }
+  platforms?: PluginPlatformId[]
+  permissions: PluginManifest15Permission[]
+  files?: {
+    app?: { scopes: Array<'read' | 'write' | 'execute'> }
+    external?: Array<{ path: string; scopes: Array<'read' | 'write' | 'execute'> }>
+  }
+  network?: { internet: boolean }
+  windows?: {
+    create?: boolean
+    main?: { control?: boolean }
+    floating?: { control?: boolean; alwaysOnTop?: boolean }
+  }
+  pages?: PluginManifest15Page[]
+  hooks?: Array<{ operation: 'name-draw' | 'card-flip' | 'lottery-draw' | 'prize-assignment'; timeoutMs: number; phase?: 'before' | 'after' }>
+  animationPacks?: PluginAnimationPackContribution[]
+  visualSurfaces?: PluginVisualSurfaceContribution[]
+  signature?: null | { algorithm: 'Ed25519'; publisher: string; value?: string }
+}
+
 export type ComponentStyleProperty = 'size' | 'scale' | 'foreground' | 'background' | 'accent' | 'fontFamily' | 'fontSize' | 'fontWeight' | 'lineHeight' | 'padding' | 'gap' | 'radius' | 'borderColor' | 'borderWidth' | 'shadow' | 'alignment' | 'density'
 export interface PluginComponentStylePackContribution { id: string; title: string; description?: string; targets: Record<string, Partial<Record<ComponentStyleProperty, string | number>>> }
 export interface PluginComponentOverridePackContribution { id: string; title: string; description?: string; targets: Record<string, { visibility?: 'visible' | 'hidden' | 'replaced'; layout?: 'collapse' | 'reserve' | 'compact' }> }

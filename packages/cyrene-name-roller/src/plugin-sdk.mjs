@@ -49,7 +49,29 @@ export const PluginPermissions = Object.freeze({
   SYSTEM_CLIPBOARD_READ: 'system:clipboard-read',
   SYSTEM_CLIPBOARD_WRITE: 'system:clipboard-write',
   SYSTEM_REVEAL_FILE: 'system:reveal-file',
-  SYSTEM_EXECUTE: 'system:execute'
+  SYSTEM_EXECUTE: 'system:execute',
+  FILES_APP_READ: 'files:app:read',
+  FILES_APP_WRITE: 'files:app:write',
+  FILES_APP_EXECUTE: 'files:app:execute',
+  FILES_EXTERNAL_READ: 'files:external:read',
+  FILES_EXTERNAL_WRITE: 'files:external:write',
+  FILES_EXTERNAL_EXECUTE: 'files:external:execute',
+  NET_INTERNET: 'net:internet',
+  PAGE_READ: 'page:read',
+  PAGE_WRITE: 'page:write',
+  PAGE_WRITE_SENSITIVE: 'page:write-sensitive',
+  DOM_MAIN: 'dom:main',
+  DOM_SETTINGS: 'dom:settings',
+  STYLE_HOST: 'style:host',
+  WINDOW_CREATE: 'window:create',
+  WINDOW_MAIN_CONTROL: 'window:main:control',
+  WINDOW_FLOATING_CONTROL: 'window:floating:control',
+  WINDOW_ALWAYS_ON_TOP: 'window:always-on-top',
+  CORE_NAMES_READ: 'core:names:read',
+  CORE_RECORDS_READ: 'core:records:read',
+  CORE_STATISTICS_READ: 'core:statistics:read',
+  CORE_FAIRNESS_READ: 'core:fairness:read',
+  CORE_BEFORE_OPERATION: 'core:before-operation'
 })
 
 export const AnimationTargets = Object.freeze({
