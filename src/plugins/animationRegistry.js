@@ -1,4 +1,5 @@
 import { decodePluginFile, MAX_PLUGIN_ANIMATION_ACTIVE_MS, normalizeAnimationPack } from './package'
+import { animationEnabled } from '../utils/animation'
 import { gsap } from 'gsap'
 
 const VALUE_SEPARATOR = '::'
@@ -14,11 +15,6 @@ function parseSelection(value) {
 
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
-}
-
-function animationEnabled() {
-  if (typeof document !== 'undefined' && document.querySelector('.app-layout')?.classList.contains('perf-no-anim')) return false
-  return true
 }
 
 function gsapSeconds(milliseconds) {

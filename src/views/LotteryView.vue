@@ -25,7 +25,6 @@
               class="roller-result"
               data-plugin-component="lottery.result"
               :style="pluginsStore.componentStyleStyle('lottery.result')"
-              :class="resultPrize && !rolling && !pluginFinishEnabled ? `finish-${settingsStore.settings.finishAnimation || 'spotlight'}` : ''"
             >
               <span class="result-quality">{{ visiblePrize?.quality || (lang === 'en' ? 'READY' : '等待抽取') }}</span>
               <strong>{{ visiblePrize?.name || (lang === 'en' ? 'Prize draw' : '奖品抽取') }}</strong>
@@ -53,7 +52,6 @@
               class="wheel-result"
               data-plugin-component="lottery.result"
               :style="pluginsStore.componentStyleStyle('lottery.result')"
-              :class="resultPrize && !rolling && !settling && !pluginFinishEnabled ? `finish-${settingsStore.settings.finishAnimation || 'spotlight'}` : ''"
             >
               <span>{{ resultPrize ? (lang === 'en' ? 'Selected prize' : '抽取结果') : (lang === 'en' ? 'Weighted wheel' : '加权转盘') }}</span>
               <strong>{{ resultPrize?.name || (lang === 'en' ? 'Ready' : '等待开始') }}</strong>
@@ -92,7 +90,7 @@
           {{ assigning ? (lang === 'en' ? 'Assigning...' : '分配中...') : (lang === 'en' ? 'Draw people and assign' : '抽取人员并分配奖品') }}
         </FluentButton>
         <section v-if="allocations.length" class="allocation-results">
-          <div v-for="(allocation, index) in allocations" :key="allocation.person.id" class="allocation-row" :style="{ '--delay': `${index * 70}ms` }">
+          <div v-for="(allocation, index) in allocations" :key="allocation.person.id" class="allocation-row" :ref="el => setAllocationRef(index, el)">
             <span class="allocation-index">{{ String(index + 1).padStart(2, '0') }}</span>
             <div><strong>{{ displayPerson(allocation.person) }}</strong><small>{{ allocation.person.id }}</small></div>
             <FluentIcon icon="arrow-right-20-regular" :width="20" />
@@ -158,9 +156,13 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePrizesStore } from '../stores/prizes'
+import { getCoreClient } from '../core/client'
 import { useNamesStore } from '../stores/names'
 import { useSettingsStore } from '../stores/settings'
 import { usePluginsStore } from '../plugins/store'
+import { gsap } from 'gsap'
+import { createRollScheduler } from '../utils/rollSchedule.mjs'
+import { runFinishAnimation, animationEnabled } from '../utils/animation.js'
 
 const AUTO_STOP_DELAY = 3000
 const WHEEL_SETTLE_DELAY = 1600
@@ -168,6 +170,7 @@ const WHEEL_COLORS = ['#e255aa', '#5d8fe5', '#39a783', '#eba13c', '#9670d5', '#d
 const props = defineProps({ section: { type: String, default: 'draw' } })
 const router = useRouter()
 const prizes = usePrizesStore()
+const coreClient = getCoreClient()
 const names = useNamesStore()
 const settingsStore = useSettingsStore()
 const pluginsStore = usePluginsStore()
@@ -195,11 +198,32 @@ const pluginFinishEnabled = computed(() => pluginsStore.hasAnimation('lottery.fi
 const wheelSnapshot = ref([])
 const wheelRotation = ref(0)
 const wheelTransition = ref('none')
-let previewTimer
 let autoStopTimer
-let wheelFrame
-let wheelLastTime
 let settleTimer
+const previewScheduler = createRollScheduler({ baseMs: 72 })
+let drawTickerActive = false
+
+function drawTickerTick(_time, deltaTimeMs) {
+  if (!rolling.value) return
+  if (drawStyle.value === 'wheel') {
+    wheelRotation.value += Math.min(40, deltaTimeMs) * 0.32
+    return
+  }
+  if (previewScheduler.tick(Math.min(deltaTimeMs, 100))) randomPreview()
+}
+
+function startDrawTicker() {
+  if (drawTickerActive) return
+  drawTickerActive = true
+  previewScheduler.reset()
+  gsap.ticker.add(drawTickerTick)
+}
+
+function stopDrawTicker() {
+  if (!drawTickerActive) return
+  drawTickerActive = false
+  gsap.ticker.remove(drawTickerTick)
+}
 
 const visiblePrize = computed(() => rolling.value ? previewPrize.value : resultPrize.value)
 const currentPrizeStock = computed(() => prizes.current.prizes.find(prize => prize.id === resultPrize.value?.id)?.quantity ?? 0)
@@ -239,40 +263,26 @@ function randomPreview() {
   let cursor = Math.random() * total
   previewPrize.value = pool.find(prize => (cursor -= prize.weight) < 0) || pool.at(-1)
 }
-function animateWheel(timestamp) {
-  if (!rolling.value || drawStyle.value !== 'wheel') return
-  if (wheelLastTime) wheelRotation.value += Math.min(40, timestamp - wheelLastTime) * 0.32
-  wheelLastTime = timestamp
-  wheelFrame = requestAnimationFrame(animateWheel)
-}
 function clearDrawTimers() {
-  clearInterval(previewTimer)
+  stopDrawTicker()
   clearTimeout(autoStopTimer)
-  cancelAnimationFrame(wheelFrame)
-  previewTimer = undefined
   autoStopTimer = undefined
-  wheelFrame = undefined
-  wheelLastTime = undefined
 }
+
 function beginDraw() {
   if (rolling.value || settling.value || prizes.totalStock < 1) return
   resultPrize.value = null
   wheelSnapshot.value = prizes.availablePrizes.map(prize => ({ ...prize }))
   wheelTransition.value = 'none'
   rolling.value = true
-  if (drawStyle.value === 'roller') {
-    randomPreview()
-    previewTimer = setInterval(randomPreview, 72)
-  } else {
-    wheelFrame = requestAnimationFrame(animateWheel)
-  }
+  if (drawStyle.value === 'roller') randomPreview()
+  startDrawTicker()
   if (settingsStore.settings.autoStop) autoStopTimer = setTimeout(stopDraw, AUTO_STOP_DELAY)
 }
-async function revealResult(prize) {
+async function revealResult(prize, operationId) {
   resultPrize.value = prize
   resultNonce.value += 1
   prizes.recordDraw({ prizeId: prize.id, mode: 'draw' })
-  const operationId = crypto.randomUUID?.() || `lottery-${Date.now()}`
   const result = { id: prize.id, name: prize.name, quality: prize.quality || '', remaining: currentPrizeStock.value }
   pluginsStore.dispatchEvent('lottery:item-result', {
     operationId,
@@ -290,20 +300,25 @@ async function revealResult(prize) {
   await nextTick()
   const resultElement = drawStyle.value === 'wheel' ? wheelResultRef.value : rollerResultRef.value
   pluginsStore.startAnimation('lottery.finish', resultElement)
+  if (!pluginFinishEnabled.value && animationEnabled()) {
+    runFinishAnimation(resultElement, settingsStore.settings.finishAnimation || 'spotlight', 'lottery')
+  }
   pluginsStore.startAnimation('global.transition', null, { variant: 'lottery' })
 }
-function stopDraw() {
+async function stopDraw() {
   if (!rolling.value || settling.value) return
   clearDrawTimers()
   rolling.value = false
-  const result = prizes.draw(1)
+  const filter = { listId: prizes.currentId, count: 1 }
+  const receipt = await coreClient.executePrizeOperation({ operation: 'lottery-draw', input: filter, caller: { kind: 'core-ui', pluginId: 'core' } })
+  const result = { success: true, operationId: receipt.operationId, result: { prizes: receipt.results } }
   if (!result.success) {
     wheelSnapshot.value = []
     return notifyError(result.error)
   }
-  const selected = result.prizes[0]
+  const selected = result.result.prizes[0]
   if (drawStyle.value !== 'wheel') {
-    revealResult(selected)
+    revealResult(selected, result.operationId)
     wheelSnapshot.value = []
     return
   }
@@ -317,7 +332,7 @@ function stopDraw() {
   wheelRotation.value += 5 * 360 + alignment
   settleTimer = setTimeout(() => {
     settling.value = false
-    revealResult(selected)
+    revealResult(selected, result.operationId)
     wheelSnapshot.value = []
   }, WHEEL_SETTLE_DELAY)
 }
@@ -329,6 +344,20 @@ function handleDrawAction() {
 const assignmentCount = ref(2)
 const assigning = ref(false)
 const allocations = ref([])
+const allocationRowRefs = []
+function setAllocationRef(index, element) { allocationRowRefs[index] = element }
+
+function animateAllocations() {
+  if (!animationEnabled()) return
+  allocationRowRefs.forEach((element, index) => {
+    if (!(element instanceof Element)) return
+    try {
+      gsap.fromTo(element,
+        { opacity: 0, y: 12, scale: 0.98 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.5, delay: index * 0.07, ease: 'cnr-standard', overwrite: 'auto' })
+    } catch {}
+  })
+}
 const eligiblePeople = computed(() => names.currentNames.filter(person => !person.isWhiteList))
 const maxAssignmentCount = computed(() => Math.max(1, Math.min(eligiblePeople.value.length, prizes.totalStock)))
 const normalizedAssignmentCount = computed(() => Math.max(1, Math.floor(Number(assignmentCount.value) || 1)))
@@ -344,13 +373,14 @@ async function assignPrizes() {
   assigning.value = true
   allocations.value = []
   await new Promise(resolve => setTimeout(resolve, 700))
-  const people = [...eligiblePeople.value].sort(() => Math.random() - 0.5).slice(0, normalizedAssignmentCount.value)
-  const result = prizes.draw(people.length)
+  const receipt = await coreClient.executePrizeOperation({ operation: 'prize-assignment', input: { listId: prizes.currentId, count: normalizedAssignmentCount.value, peopleListId: names.currentListId }, caller: { kind: 'core-ui', pluginId: 'core' } })
+  const result = { success: true, operationId: receipt.operationId, people: receipt.results.map(item => ({ id: item.person?.id, cn: item.person?.name, en: item.person?.englishName })), result: { prizes: receipt.results } }
   if (!result.success) { assigning.value = false; return notifyError(result.error) }
-  const operationId = crypto.randomUUID?.() || `lottery-assign-${Date.now()}`
-  allocations.value = people.map((person, index) => ({ person, prize: result.prizes[index] }))
+  const operationId = result.operationId
+  allocations.value = result.people.map((person, index) => ({ person, prize: result.result.prizes[index] }))
+  await nextTick()
+  animateAllocations()
   allocations.value.forEach((allocation, index) => {
-    prizes.recordDraw({ prizeId: allocation.prize.id, personId: allocation.person.id, peopleListId: names.currentListId, mode: 'assign' })
     pluginsStore.dispatchEvent('lottery:item-result', {
       operationId,
       index,
@@ -395,7 +425,7 @@ function deletePrize() { if (deletingPrize.value) prizes.remove(deletingPrize.va
 function notifyError(message) { showBanner({ message, icon: 'warning-16-regular', type: 'warning', duration: 8000 }) }
 
 onMounted(async () => { await Promise.all([prizes.initialize(), names.initialize()]) })
-onBeforeUnmount(() => { clearDrawTimers(); clearTimeout(settleTimer) })
+onBeforeUnmount(() => { clearDrawTimers(); clearTimeout(settleTimer); gsap.killTweensOf([rollerResultRef.value, wheelResultRef.value, ...allocationRowRefs].filter(Boolean)) })
 </script>
 
 <style scoped>
@@ -428,12 +458,6 @@ onBeforeUnmount(() => { clearDrawTimers(); clearTimeout(settleTimer) })
 .draw-actions { flex: 0 0 auto; padding: 16px 0 8px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .primary-action { width: min(300px, 100%); justify-content: center; }
 .validation-message { margin: 0; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--danger); font-size: 12px; }
-.finish-spotlight { animation: result-spotlight .62s cubic-bezier(.1,.9,.2,1); }
-.finish-lift { animation: result-lift .68s cubic-bezier(.12,.85,.2,1.15); }
-.finish-glow { animation: result-glow .8s cubic-bezier(.16,.84,.3,1); }
-@keyframes result-spotlight { 0% { transform: scale(.84); opacity: 0; filter: brightness(2.1) blur(4px); } 62% { transform: scale(1.07); filter: brightness(1.3); } 100% { transform: scale(1); opacity: 1; filter: brightness(1); } }
-@keyframes result-lift { 0% { transform: translateY(20px) scale(.9); opacity: 0; filter: blur(5px); } 58% { transform: translateY(-6px) scale(1.04); opacity: 1; } 100% { transform: none; filter: none; } }
-@keyframes result-glow { 0% { transform: scale(.92); opacity: 0; text-shadow: 0 0 0 var(--accent); } 50% { transform: scale(1.05); opacity: 1; text-shadow: 0 0 34px var(--accent); } 100% { transform: scale(1); text-shadow: none; } }
 .assignment-page, .prizes-page { width: min(1180px, 100%); margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
 .assignment-tool { padding: 20px; }
 .assignment-controls { display: grid; grid-template-columns: 1fr 1fr minmax(130px, .55fr); gap: 16px; }
@@ -441,12 +465,11 @@ onBeforeUnmount(() => { clearDrawTimers(); clearTimeout(settleTimer) })
 .capacity-row { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-default); display: flex; gap: 22px; color: var(--text-secondary); font-size: 13px; }
 .capacity-row span { display: flex; align-items: center; gap: 6px; }
 .allocation-results { border: 1px solid var(--border-default); border-radius: var(--radius-md); overflow: hidden; }
-.allocation-row { display: grid; grid-template-columns: 44px 1fr 24px 1fr; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border-default); animation: allocation-in .5s var(--ease-standard) both; animation-delay: var(--delay); }
+.allocation-row { display: grid; grid-template-columns: 44px 1fr 24px 1fr; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border-default); }
 .allocation-row:last-child { border-bottom: 0; }
 .allocation-row div { min-width: 0; display: flex; flex-direction: column; }
 .allocation-row small { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
 .allocation-index { color: var(--accent); font-weight: 700; }
-@keyframes allocation-in { from { opacity: 0; transform: translateY(12px) scale(.98); } }
 .prize-page-toolbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 4px 0; }
 .current-list-control { display: flex; flex-direction: column; gap: 6px; color: var(--text-muted); font-size: 12px; }
 .prize-editor { padding: 18px 20px; }

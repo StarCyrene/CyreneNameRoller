@@ -11,6 +11,13 @@ import {
 } from './ui/principal.js'
 import { listComponentTargets } from './ui/componentRegistry.js'
 import { NATIVE_VIEW_SLOTS } from './ui/nativeViewPolicy.js'
+import { DesktopPluginHost } from './rpc/desktopHost.js'
+import { WebPluginRuntime } from './rpc/webRuntime.js'
+import { resolveApi15Capabilities } from './api15/permissions.js'
+import { PageRegistry } from './api15/pageRegistry.js'
+import { DomBridge, createPluginPageSource } from './api15/domBridge.js'
+import { PageStateBridge } from './api15/pageState.js'
+import { WindowBridge } from './api15/windowBridge.js'
 
 const RESERVED_NATIVE_VIEW_SLOTS = Object.freeze([
   'slot:app.command-palette',
@@ -59,8 +66,9 @@ function isDrawEvent(event) {
 }
 
 function canReceiveEvent(plugin, event) {
-  if (isDrawEvent(event)) return plugin?.manifest.permissions.includes('events:draw')
-  return plugin?.manifest.permissions.includes('events:lifecycle')
+  const permissions = new Set((plugin?.manifest?.permissions || []).map(permission => typeof permission === 'string' ? permission : permission?.id))
+  if (isDrawEvent(event)) return permissions.has('events:draw') || permissions.has('core:before-operation')
+  return permissions.has('events:lifecycle') || permissions.has('core:before-operation')
 }
 
 const RUNTIME_DEACTIVATE_GRACE_MS = 250
@@ -87,7 +95,7 @@ function wait(milliseconds) {
 }
 
 export class PluginRuntime {
-  constructor({ getPlugin, savePluginData, loadPluginData, showBanner, getCoreSnapshot, executeCoreDraw, selectFile, playAudio, platformBridge, onFault }) {
+  constructor({ getPlugin, savePluginData, loadPluginData, showBanner, getCoreSnapshot, executeCoreDraw, selectFile, playAudio, platformBridge, onFault, workerFactory, runnerFactory, onApi15Message, coreHooks, pageStateAdapter }) {
     this.getPlugin = getPlugin
     this.savePluginData = savePluginData
     this.loadPluginData = loadPluginData
@@ -98,9 +106,16 @@ export class PluginRuntime {
     this.playAudio = playAudio
     this.platformBridge = platformBridge
     this.onFault = onFault
+    this.workerFactory = workerFactory
+    this.runnerFactory = runnerFactory
+    this.onApi15Message = onApi15Message
+    this.coreHooks = coreHooks
+    this.pageStateAdapter = pageStateAdapter
     this.workers = new Map()
     this.frames = new Map()
     this.pages = new Map()
+    this.pageRegistry = new PageRegistry()
+    this.pageLoadOrder = 0
     this.commands = new Map()
     this.visualSurfaces = new Map()
     this.visualRuntimes = new Map()
@@ -108,6 +123,8 @@ export class PluginRuntime {
     this.legacyPrincipals = new Map()
     this.deactivatingPlugins = new Set()
     this.lifecycleSnapshots = new Map()
+    this.pageBridges = new Map()
+    this.windowBridges = new Map()
   }
 
   createPrincipal(plugin, kind, contributionId, instanceId = '') {
@@ -116,10 +133,55 @@ export class PluginRuntime {
       instanceId: instanceId || `${kind}:${plugin.manifest.id}:${contributionId}`,
       kind,
       contributionId,
-      grants: plugin.manifest.permissions || [],
+      grants: (plugin.manifest.permissions || []).map(permission => typeof permission === 'string' ? permission : permission?.id).filter(Boolean),
       platform: this.platformBridge.info()?.runtime
     })
     this.principals.set(principal.instanceId, principal)
+    return principal
+  }
+
+  pageBridge(plugin, pageId, principal) {
+    const key = `${plugin.manifest.id}:${pageId}`
+    let bridge = this.pageBridges.get(key)
+    if (bridge) return bridge
+    const record = this.frames.get(key)
+    const root = record?.surface || { tagName: 'MAIN', children: [] }
+    const location = this.pageRegistry.routeFor(plugin.manifest.id, pageId)?.location
+    bridge = {
+      state: new PageStateBridge({ pluginId: plugin.manifest.id, adapter: this.pageStateAdapter || { read: () => undefined, write: (_field, value) => value }, permissions: [...principal.grants] }),
+      window: this.windowBridges.get(plugin.manifest.id) || new WindowBridge({ pluginId: plugin.manifest.id, document: this.styleSurface?.document })
+    }
+    if (principal.grants.has(location === 'settings' ? 'dom:settings' : 'dom:main')) {
+      bridge.dom = new DomBridge({ pluginId: plugin.manifest.id, permission: location === 'settings' ? 'dom:settings' : 'dom:main', root })
+    }
+    this.windowBridges.set(plugin.manifest.id, bridge.window)
+    this.pageBridges.set(key, bridge)
+    return bridge
+  }
+
+  setStyleSurface(surface, document) {
+    for (const bridge of this.windowBridges.values()) bridge.styles().setDocument(document)
+    this.styleSurface = { surface, document }
+  }
+
+  setPageSurface(pluginId, pageId, surface, document = globalThis.document) {
+    const record = this.frames.get(`${pluginId}:${pageId}`)
+    if (record) record.surface = surface?.contentDocument?.body || surface?.parentElement || surface
+    this.windowBridges.get(pluginId)?.styles().setDocument(document)
+    this.styleSurface = { surface, document }
+    this.pageBridges.delete(`${pluginId}:${pageId}`)
+  }
+
+  createApi15Principal(plugin, instanceId, capabilities) {
+    const principal = createPluginPrincipal({
+      pluginId: plugin.manifest.id,
+      instanceId,
+      kind: 'worker',
+      contributionId: 'api15',
+      grants: Object.entries(capabilities).filter(([, status]) => status?.available).map(([id]) => id),
+      platform: this.platformBridge.info()?.runtime
+    })
+    this.principals.set(instanceId, principal)
     return principal
   }
 
@@ -146,6 +208,13 @@ export class PluginRuntime {
   principalForFrame(pluginId, pageId) {
     const record = this.frames.get(`${pluginId}:${pageId}`)
     return record?.principal || null
+  }
+
+  principalForFrameSource(source, pluginId) {
+    for (const [key, record] of this.frames) {
+      if (key.startsWith(`${pluginId}:`) && (record?.frame?.contentWindow === source || record?.frame === source)) return record.principal
+    }
+    return null
   }
 
   isApi13Plugin(plugin) {
@@ -205,18 +274,28 @@ export class PluginRuntime {
   registerPages(plugin) {
     const ids = new Set()
     const pages = []
-    for (const page of plugin.manifest.contributes?.pages || []) {
+    const declarations = plugin.manifest.api === '1.5'
+      ? plugin.manifest.pages
+      : plugin.manifest.contributes?.pages || []
+    if (plugin.manifest.api === '1.5') this.pageRegistry.registerPlugin(plugin, this.pageLoadOrder++)
+    for (const page of declarations || []) {
       if (!RUNTIME_CONTRIBUTION_ID_PATTERN.test(page.id || '') || ids.has(page.id)) throw new Error(`插件页面 ID 无效或重复：${page.id || '空'}`)
       ids.add(page.id)
       const entry = resolvePlatformEntry(page, this.platformBridge.info())
       if (!entry && !page.native) continue
       pages.push([`${plugin.manifest.id}:${page.id}`, { pluginId: plugin.manifest.id, ...page, entry: entry || '' }])
+      for (const child of page.children || []) {
+        if (!RUNTIME_CONTRIBUTION_ID_PATTERN.test(child.id || '') || ids.has(child.id)) throw new Error(`插件页面 ID 无效或重复：${child.id || '空'}`)
+        ids.add(child.id)
+        pages.push([`${plugin.manifest.id}:${child.id}`, { pluginId: plugin.manifest.id, ...child, location: page.location, parentId: page.id }])
+      }
     }
     for (const [key, page] of pages) this.pages.set(key, page)
   }
 
   unregisterPages(pluginId) {
     for (const [key, page] of this.pages) if (page.pluginId === pluginId) this.pages.delete(key)
+    this.pageRegistry.unregister(pluginId)
   }
 
   unregisterFrames(pluginId) {
@@ -299,6 +378,7 @@ export class PluginRuntime {
   }
 
   async activate(plugin) {
+    if (plugin.manifest?.api === '1.5') return this.activateApi15(plugin)
     const compatibility = this.platformBridge.compatibility(plugin.manifest)
     if (!compatibility.compatible) throw new Error(compatibility.reason)
     const existingRuntime = this.workers.get(plugin.manifest.id)
@@ -449,36 +529,140 @@ export class PluginRuntime {
     }
   }
 
+  async activateApi15(plugin) {
+    const pluginId = plugin.manifest.id
+    const existing = this.workers.get(pluginId)
+    if (existing) return existing.activated
+    const platform = this.platformBridge.info()
+    const declarations = Array.isArray(plugin.manifest.permissions) ? plugin.manifest.permissions : []
+    const capabilities = resolveApi15Capabilities(plugin.manifest, platform)
+    const required = declarations.filter(item => typeof item === 'object' && item.required).map(item => item.id)
+    const missingRequired = required.filter(id => capabilities[id]?.applies !== false && !capabilities[id]?.available)
+    if (missingRequired.length) throw Object.assign(new Error(`required capability unavailable: ${missingRequired.join(', ')}`), { code: 'UNSUPPORTED_PLATFORM' })
+    const instanceId = globalThis.crypto?.randomUUID?.() || `plugin-${Date.now()}-${Math.random()}`
+    const principal = this.createApi15Principal(plugin, instanceId, capabilities)
+    const runtime = platform.runtime === 'tauri'
+       ? new DesktopPluginHost({ pluginId, instanceId, packagePath: plugin.packagePath || pluginId, entry: plugin.manifest.entry.script, args: plugin.manifest.entry.args || [], runner: this.runnerFactory?.(plugin, instanceId) || {}, initialize: capabilities, onMessage: message => this.onApi15Message?.(pluginId, message), onRequest: message => this.handleRpc(principal, message.method, message.params, message.signal) })
+       : new WebPluginRuntime({ pluginId, instanceId, worker: this.workerFactory?.(plugin) || this.createApi15Worker(plugin), requiredCapabilities: required.filter(id => capabilities[id]?.applies !== false), availableCapabilities: Object.fromEntries(Object.entries(capabilities).map(([name, value]) => [name, value.available])), onRequest: message => this.handleRpc(principal, message.method, message.params, message.signal) })
+    const activated = runtime.start().then(() => runtime.ready)
+    this.workers.set(pluginId, { api15: true, runtime, activated, commandRequests: new Map() })
+    try {
+      await activated
+      for (const declaration of plugin.manifest.hooks || []) this.coreHooks?.register({
+         pluginId,
+         operation: declaration.operation,
+          timeoutMs: declaration.timeoutMs,
+          phase: declaration.phase,
+          loadOrder: this.pageLoadOrder++,
+          invoke: context => this.invokeCoreHook(pluginId, declaration.operation, declaration.phase, context, declaration.timeoutMs)
+      })
+      this.registerPages(plugin)
+      return true
+    } catch (error) {
+      this.unregisterPages(pluginId)
+      revokePrincipal(principal)
+      this.principals.delete(instanceId)
+      this.workers.delete(pluginId)
+      await runtime.shutdown().catch(() => {})
+      throw error
+    }
+  }
+
+  receiveApi15(pluginId, message) {
+    const record = this.workers.get(pluginId)
+    if (!record?.api15) return false
+    record.runtime.receive(message)
+    return true
+  }
+
+  sendApi15Event(pluginId, event, payload) {
+    const record = this.workers.get(pluginId)
+    if (!record?.api15) return false
+    if (record.runtime.send) record.runtime.send({ type: 'event', role: 'host', pluginId, instanceId: record.runtime.instanceId, event, payload: transferableValue(payload) })
+    return true
+  }
+
+  createApi15Worker(plugin) {
+    if (typeof Worker !== 'function' || typeof globalThis.URL?.createObjectURL !== 'function' || typeof Blob !== 'function') throw new Error('当前环境不支持 API 1.5 Web Worker')
+    const source = decodePluginFile(plugin, plugin.manifest.entry.script)
+    const bootstrap = `
+      'use strict';
+      for (const key of ['fetch', 'WebSocket', 'EventSource', 'XMLHttpRequest', 'importScripts', 'Worker', 'SharedWorker']) {
+        try { Object.defineProperty(self, key, { value: undefined, writable: false, configurable: false }); } catch {}
+      }
+      ${source}
+      const module = self.CyrenePluginModule || self.cyrenePlugin || self.plugin;
+      let identity = null;
+      self.onmessage = async event => {
+        const message = event.data || {};
+        if (message.api !== '1.5' || message.protocol !== 'cnrp-jsonrpc/1') throw new Error('RPC message API or protocol is invalid');
+        if (message.type === 'hello') {
+          identity = Object.freeze({ pluginId: message.pluginId, instanceId: message.instanceId });
+          return self.postMessage({ type: 'hello.accepted', role: 'plugin', ...identity, api: '1.5', protocol: 'cnrp-jsonrpc/1' });
+        }
+        if (!identity || message.pluginId !== identity.pluginId || message.instanceId !== identity.instanceId) throw new Error('stale or invalid plugin instance identity');
+        if (message.type === 'initialize') {
+          await module?.activate?.(Object.freeze({ plugin: { id: message.pluginId }, capabilities: message.capabilities || {}, request: (method, params) => new Promise((resolve, reject) => {
+            const id = crypto.randomUUID(); self.postMessage({ jsonrpc: '2.0', protocol: 'cnrp-jsonrpc/1', api: '1.5', ...identity, id, method, params });
+            self.addEventListener('message', function receive(response) { const data = response.data || {}; if (data.id !== id) return; self.removeEventListener('message', receive); if (data.api !== '1.5' || data.protocol !== 'cnrp-jsonrpc/1' || data.pluginId !== identity.pluginId || data.instanceId !== identity.instanceId) return reject(new Error('RPC response identity or API is invalid')); data.error ? reject(data.error) : resolve(data.result); });
+          }) }));
+          return self.postMessage({ type: 'ready', role: 'plugin', pluginId: message.pluginId, instanceId: message.instanceId, api: '1.5', protocol: 'cnrp-jsonrpc/1' });
+        }
+        if (message.type === 'shutdown') await module?.deactivate?.();
+      };
+    `
+    const workerUrl = globalThis.URL.createObjectURL(new Blob([bootstrap], { type: 'text/javascript' }))
+    const worker = new Worker(workerUrl)
+    const terminate = worker.terminate.bind(worker)
+    worker.terminate = () => { globalThis.URL.revokeObjectURL(workerUrl); terminate() }
+    return worker
+  }
+
   async deactivate(pluginId) {
     this.deactivatingPlugins.add(pluginId)
     try {
       const runtime = this.workers.get(pluginId)
       if (runtime) {
-        for (const task of runtime.commandRequests?.values() || []) {
-          clearTimeout(task.timeout)
-          revokePrincipal(task.principal)
-          this.principals.delete(task.principal?.instanceId)
-          task.reject(new Error('插件已停止，命令已取消'))
+        if (runtime.api15) {
+          await runtime.runtime.shutdown()
+          this.workers.delete(pluginId)
+        } else {
+          for (const task of runtime.commandRequests?.values() || []) {
+            clearTimeout(task.timeout)
+            revokePrincipal(task.principal)
+            this.principals.delete(task.principal?.instanceId)
+            task.reject(new Error('插件已停止，命令已取消'))
+          }
+          runtime.commandRequests?.clear()
+          try { runtime.worker.postMessage({ type: 'deactivate' }) } catch {}
+          await Promise.race([runtime.deactivated, wait(RUNTIME_DEACTIVATE_GRACE_MS)])
+          runtime.worker.terminate()
+          revokePrincipal(runtime.principal)
+          this.principals.delete(runtime.principal?.instanceId)
+          if (runtime.workerUrl) URL.revokeObjectURL(runtime.workerUrl)
+          this.workers.delete(pluginId)
         }
-        runtime.commandRequests?.clear()
-        try { runtime.worker.postMessage({ type: 'deactivate' }) } catch {}
-        await Promise.race([runtime.deactivated, wait(RUNTIME_DEACTIVATE_GRACE_MS)])
-        runtime.worker.terminate()
-        revokePrincipal(runtime.principal)
-        this.principals.delete(runtime.principal?.instanceId)
-        if (runtime.workerUrl) URL.revokeObjectURL(runtime.workerUrl)
-        this.workers.delete(pluginId)
       }
       this.unregisterPages(pluginId)
+      this.coreHooks?.unregister(pluginId)
       this.unregisterCommands(pluginId)
       this.unregisterFrames(pluginId)
       await Promise.all([...this.visualRuntimes.keys()]
         .filter(key => key.startsWith(`${pluginId}:`))
         .map(key => this.unmountVisualSurface(...key.split(':'))))
       this.unregisterVisualSurfaces(pluginId)
+      this.windowBridges.get(pluginId)?.cleanup?.()
+      this.windowBridges.delete(pluginId)
+      for (const key of [...this.pageBridges.keys()]) if (key.startsWith(`${pluginId}:`)) this.pageBridges.delete(key)
       this.revokePluginPrincipals(pluginId)
     } finally {
       this.deactivatingPlugins.delete(pluginId)
+    }
+  }
+
+  async deactivateAll() {
+    for (const pluginId of new Set([...this.workers.keys(), ...this.pages.keys()].map(key => key.split(':')[0]))) {
+      await this.deactivate(pluginId).catch(() => {})
     }
   }
 
@@ -488,7 +672,10 @@ export class PluginRuntime {
     for (const [pluginId, runtime] of this.workers) {
       const plugin = this.getPlugin(pluginId)
       if (!canReceiveEvent(plugin, event)) continue
-      try { runtime.worker.postMessage({ type: 'event', event, payload: transferredPayload }) } catch {}
+      try {
+        if (runtime.api15) this.sendApi15Event(pluginId, event, transferredPayload)
+        else runtime.worker.postMessage({ type: 'event', event, payload: transferredPayload })
+      } catch {}
     }
     for (const [key, frame] of this.frames) {
       const pluginId = key.split(':')[0]
@@ -778,18 +965,26 @@ export class PluginRuntime {
     }
   }
 
-  async handleRpc(pluginId, method, args = {}) {
-    if (pluginId && typeof pluginId === 'object') return this.handleRpcPrincipal(pluginId, method, args)
+  async handleRpc(pluginId, method, args = {}, signal) {
+    if (pluginId && typeof pluginId === 'object') return this.handleRpcPrincipal(pluginId, method, args, signal)
     const plugin = this.getPlugin(pluginId)
     if (!plugin) throw new Error('插件不存在')
-    return this.handleRpcPrincipal(this.getLegacyPrincipal(plugin), method, args)
+    return this.handleRpcPrincipal(this.getLegacyPrincipal(plugin), method, args, signal)
   }
 
-  async handleRpcPrincipal(principal, method, args = {}) {
+  async invokeCoreHook(pluginId, operation, phase, context, timeoutMs) {
+    const record = this.workers.get(pluginId)
+    if (!record?.api15) throw runtimeError('PLUGIN_HOOK_DISCONNECTED', 'Plugin hook runtime is unavailable')
+    return record.runtime.call(`core.hook.${phase || 'before'}`, { operation, context, timeoutMs })
+  }
+
+  async handleRpcPrincipal(principal, method, args = {}, signal) {
     assertActivePrincipal(principal)
     const pluginId = principal.pluginId
     const plugin = this.getPlugin(pluginId)
     if (!plugin) throw new Error('插件不存在')
+    const activeRuntime = this.workers.get(pluginId)
+    if (!principal.legacyPrincipal && activeRuntime?.api15 && activeRuntime.runtime.instanceId !== (principal.runtimeInstanceId || principal.instanceId)) throw runtimeError('PLUGIN_INSTANCE_REVOKED', '插件实例身份已失效')
     if (plugin.enabled === false || this.deactivatingPlugins.has(pluginId)) throw runtimeError('PLUGIN_INSTANCE_REVOKED', '插件已禁用')
     const resource = method === 'resources.query' ? HOST_RESOURCES[String(args.resource || '')] : null
     const transaction = method === 'transactions.execute' ? HOST_TRANSACTIONS[String(args.transaction || args.id || '')] : null
@@ -797,22 +992,37 @@ export class PluginRuntime {
     if (method === 'transactions.execute' && !transaction) throw new Error(`未知宿主事务：${String(args.transaction || args.id || '')}`)
     const permissionFor = method => ({
       'storage.read': 'storage:read', 'storage.write': 'storage:write',
+      'core.names.read': 'core:names:read', 'core.records.read': 'core:records:read', 'core.statistics.read': 'core:statistics:read',
       'names.read': 'names:read', 'records.read': 'records:read', 'statistics.read': 'statistics:read', 'balance.read': 'balance:read',
-      'draw.execute': 'draw:execute',
+       'draw.execute': 'draw:execute', 'core.hook.before': 'core:before-operation', 'core.hook.after': 'core:before-operation',
       'notifications.show': 'notifications:show',
       'audio.select': 'audio:select', 'audio.play': 'audio:play',
       'system.open-url': 'system:open-url', 'system.select-file': 'system:select-file',
       'system.select-directory': 'system:select-directory',
       'system.clipboard-read': 'system:clipboard-read', 'system.clipboard-write': 'system:clipboard-write',
       'system.reveal-file': 'system:reveal-file', 'system.execute': 'system:execute'
+       , 'files.read': 'files:app:read', 'files.write': 'files:app:write', 'net.request': 'net:internet'
+       , 'page.read': 'page:read', 'page.write': 'page:write'
+       , 'style.add': 'style:host', 'style.inject': 'style:host', 'style.remove': 'style:host'
+       , 'window.create': 'window:create', 'window.close': 'window:create'
     }[method] || resource?.permission || transaction?.permission)
     const permission = permissionFor(method)
-    if (permission && !hasPrincipalPermission(principal, permission)) throw runtimeError('PLUGIN_PERMISSION_DENIED', `插件未获授权：${permission}`, { permission })
+    const effectivePermission = method.startsWith('dom.') && principal.kind === 'page'
+      ? (this.pageRegistry.routeFor(pluginId, principal.contributionId)?.location === 'settings' ? 'dom:settings' : 'dom:main')
+      : permission
+    if (effectivePermission && !hasPrincipalPermission(principal, effectivePermission)) {
+      const result = { ok: false, capability: effectivePermission, code: 'PLUGIN_PERMISSION_DENIED', message: `插件未获授权：${effectivePermission}` }
+      this.platformBridge.auditDecision?.(plugin, method, args, principal.instanceId, result, Date.now(), 'deny')
+      throw runtimeError('PLUGIN_PERMISSION_DENIED', `插件未获授权：${effectivePermission}`, { permission: effectivePermission })
+    }
     switch (method) {
       case 'runtime.platform': return this.platformBridge.info()
       case 'runtime.capabilities': return this.platformBridge.capabilities()
       case 'host.describe': return this.describeHost(plugin)
       case 'storage.read': return this.loadPluginData(pluginId, storageKey(args.key))
+      case 'core.names.read': return this.getCoreSnapshot('names')
+      case 'core.records.read': return this.getCoreSnapshot('records')
+      case 'core.statistics.read': return this.getCoreSnapshot('statistics')
       case 'storage.write': {
         const key = storageKey(args.key)
         const result = await this.savePluginData(pluginId, key, args.value)
@@ -823,6 +1033,8 @@ export class PluginRuntime {
       case 'records.read': return this.getCoreSnapshot('records')
       case 'statistics.read': return this.getCoreSnapshot('statistics')
       case 'balance.read': return this.getCoreSnapshot('balance')
+      case 'core.hook.before': return { allow: true }
+      case 'core.hook.after': return { allow: true }
       case 'draw.execute': return this.executeCoreDraw?.(plugin, transferableValue(args))
       case 'resources.query': return this.getCoreSnapshot(String(args.resource), transferableValue(args.query || {}))
       case 'transactions.execute': {
@@ -845,7 +1057,34 @@ export class PluginRuntime {
       case 'system.clipboard-write':
       case 'system.reveal-file':
       case 'system.execute':
-        return this.platformBridge.request(plugin, method, args)
+      case 'files.read':
+      case 'files.write':
+      case 'net.request':
+        return this.platformBridge.request(plugin, method, args, principal.instanceId, signal)
+      case 'page.read':
+      case 'page.write':
+      case 'dom.query':
+      case 'dom.read':
+      case 'dom.write':
+      case 'dom.insert':
+      case 'dom.execute':
+      case 'window.create':
+      case 'window.close':
+      case 'style.add':
+      case 'style.inject':
+      case 'style.remove': {
+        if (principal.kind !== 'page' || principal.legacyPrincipal) throw runtimeError('PLUGIN_PERMISSION_DENIED', '页面能力仅可由 API 1.5 页面调用')
+        if (method === 'dom.execute') throw new Error('dom.execute is unsupported')
+        const bridge = this.pageBridge(plugin, principal.contributionId, principal)
+        if (method === 'page.read') return bridge.state.read(args.field)
+        if (method === 'page.write') return bridge.state.write(args.field, args.value, args)
+        if (method.startsWith('dom.')) return bridge.dom?.[method.slice(4)](args)
+        if (method === 'window.create') return bridge.window.create(args)
+        if (method === 'window.close') return bridge.window.close(args.handle, principal.pluginId)
+        if (method === 'style.add') return bridge.window.styles().add(args.surface, args.css)
+        if (method === 'style.inject') return bridge.window.styles().inject(args.surface, args.css, { signal })
+        return bridge.window.styles().remove(args.handle, principal.pluginId)
+      }
       case 'dependency.storage.read': {
         const dependency = plugin.manifest.dependencies.find(item => item.id === args.pluginId && item.dataAccess)
         if (!dependency) throw new Error('未声明此前置插件的数据访问权限')
@@ -935,6 +1174,7 @@ export class PluginRuntime {
         });
       })();
     <\/script>`
+    if (plugin.manifest.api === '1.5') return createPluginPageSource(`${csp}${fluentBase}${bootstrap}${html}`)
     return /<head(?:\s[^>]*)?>/i.test(html)
       ? html.replace(/<head(\s[^>]*)?>/i, match => `${match}${csp}${fluentBase}${bootstrap}`)
       : `${csp}${fluentBase}${bootstrap}${html}`
@@ -950,8 +1190,14 @@ export class PluginRuntime {
     const key = `${pluginId}:${pageId}`
     if (this.frames.has(key)) this.unmountFrame(pluginId, pageId)
     const plugin = this.getPlugin(pluginId)
+    const active = this.workers.get(pluginId)
     const principal = plugin ? this.createPrincipal(plugin, 'page', pageId, `page:${pluginId}:${pageId}`) : null
-    this.frames.set(key, { frame, principal, port: null })
+    if (principal && active?.api15) {
+      principal.runtimeInstanceId = active.runtime.instanceId
+      principal.grants = this.principals.get(active.runtime.instanceId)?.grants || principal.grants
+    }
+    this.frames.set(key, { frame, principal, port: null, surface: frame?.contentDocument?.body || frame?.parentElement })
+    if (plugin?.manifest.api === '1.5') this.pageBridges.delete(key)
   }
 
   connectFrame(frame, pluginId, pageId) {
@@ -986,6 +1232,9 @@ export class PluginRuntime {
     revokePrincipal(record?.principal)
     this.principals.delete(record?.principal?.instanceId)
     this.frames.delete(key)
+    const bridge = this.pageBridges.get(key)
+    bridge?.window.cleanup()
+    this.pageBridges.delete(key)
   }
 
   ownsFrameSource(source, pluginId) {

@@ -10,14 +10,14 @@ import { build } from 'esbuild'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = relative => fs.readFile(path.join(root, relative), 'utf8')
 
-test('API 1.4 release metadata is synchronized', async () => {
+test('API 1.5 release metadata is synchronized', async () => {
   const packageJson = JSON.parse(await read('packages/cyrene-name-roller/package.json'))
-  assert.equal(packageJson.version, '1.4.0')
+  assert.equal(packageJson.version, '1.5.0')
   assert.equal(packageJson.bin.cnrp, 'bin/cnrp.mjs')
-  assert.match(await read('src/plugins/constants.js'), /PLUGIN_API_VERSION = '1\.4\.0'/)
-  assert.match(await read('packages/cyrene-name-roller/src/plugin-sdk.mjs'), /PLUGIN_API_VERSION = '1\.4\.0'/)
-  assert.match(await read('packages/cyrene-name-roller/src/plugin-sdk.d.ts'), /PLUGIN_API_VERSION: '1\.4\.0'/)
-  assert.match(await read('packages/cyrene-name-roller/bin/cnrp.mjs'), /const API_VERSION = '1\.4\.0'/)
+  assert.match(await read('src/plugins/constants.js'), /PLUGIN_API_VERSION = '1\.5\.0'/)
+  assert.match(await read('packages/cyrene-name-roller/src/plugin-sdk.mjs'), /PLUGIN_API_VERSION = '1\.5\.0'/)
+  assert.match(await read('packages/cyrene-name-roller/src/plugin-sdk.d.ts'), /PLUGIN_API_VERSION: '1\.5\.0'/)
+  assert.match(await read('packages/cyrene-name-roller/bin/cnrp.mjs'), /const API_VERSION = '1\.5\.0'/)
 })
 
 test('API 1.4 UI template validates, packs and parses through host parser', async () => {
@@ -103,7 +103,9 @@ test('core write boundaries remain present for the release gate', async () => {
   assert.match(client, /message\.type === 'commit\.request'/)
   assert.match(client, /type: 'commit\.resolve'/)
   assert.match(worker, /await requestCommit/)
-  assert.match(worker, /coreState = \{ \.\.\.coreState, statistics: value\.nextStatistics, records: value\.nextRecords \}/)
+  assert.match(worker, /const nextStatistics = value\.nextStatistics === undefined \? coreState\.statistics : value\.nextStatistics/)
+  assert.match(worker, /const nextRecords = value\.nextRecords === undefined \? coreState\.records : value\.nextRecords/)
+  assert.match(worker, /coreState = \{ \.\.\.coreState, statistics: nextStatistics, records: nextRecords \}/)
   assert.doesNotMatch(coreDraw, /commitCoreDrawTransaction|createCoreDrawQueue/)
   assert.doesNotMatch(client, /executeCoreDrawRequest|fallbackState/)
   assert.match(tauri, /coreDrawExecute/)
