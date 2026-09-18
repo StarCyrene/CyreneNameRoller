@@ -11,7 +11,7 @@ import JavaScriptObfuscator from 'javascript-obfuscator'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const packageRoot = path.resolve(__dirname, '..')
 const MAGIC = Buffer.from('CNRP1\n', 'utf8')
-const API_VERSION = '1.5.0'
+const API_VERSION = '1.4.0'
 const MAX_FILE_COUNT = 256
 const MAX_PACKAGE_SIZE = 32 * 1024 * 1024
 const ID_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)+$/
@@ -84,82 +84,6 @@ function normalizePath(value) {
     fail(`unsafe plugin path: ${value}`)
   }
   return normalized
-}
-
-const API15_PERMISSIONS = new Set([
-  'files:app:read', 'files:app:write', 'files:app:execute', 'files:external:read', 'files:external:write', 'files:external:execute',
-  'net:internet', 'page:read', 'page:write', 'page:write-sensitive', 'dom:main', 'dom:settings', 'style:host', 'window:create',
-  'window:main:control', 'window:floating:control', 'window:always-on-top', 'core:names:read', 'core:records:read',
-  'core:statistics:read', 'core:fairness:read', 'core:before-operation', 'system:execute'
-])
-const API15_FIELDS = new Set(['api', 'schemaVersion', 'id', 'name', 'version', 'author', 'description', 'engine', 'entry', 'platforms', 'permissions', 'files', 'network', 'windows', 'pages', 'hooks', 'signature', 'integrity'])
-const API15_OPERATIONS = new Set(['name-draw', 'card-flip', 'lottery-draw', 'prize-assignment'])
-const API15_FILE_SCOPES = new Set(['read', 'write', 'execute'])
-
-function normalizeProcessEntry15(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['runtime', 'script', 'args'].includes(key)) || value.runtime !== 'cnrp-runner') fail('entry is invalid')
-  const script = normalizePath(value.script)
-  const args = value.args === undefined ? [] : value.args
-  if (!Array.isArray(args) || args.length > 32 || args.some(arg => typeof arg !== 'string' || arg.length > 2048 || arg.includes('\0'))) fail('entry.args is invalid')
-  return { runtime: 'cnrp-runner', script, args: [...args] }
-}
-
-function normalizeFileScopes15(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['app', 'external'].includes(key))) fail('files is invalid')
-  const scope = (raw, label, external = false) => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail(`${label} is invalid`)
-    const allowed = external ? ['path', 'scopes'] : ['scopes']
-    if (Object.keys(raw).some(key => !allowed.includes(key))) fail(`${label} contains unknown field`)
-    if (!Array.isArray(raw.scopes) || raw.scopes.length > 3 || raw.scopes.some(item => typeof item !== 'string' || !API15_FILE_SCOPES.has(item)) || new Set(raw.scopes).size !== raw.scopes.length) fail(`${label}.scopes is invalid`)
-    if (external) normalizePath(raw.path)
-    return { ...(external ? { path: normalizePath(raw.path) } : {}), scopes: [...raw.scopes] }
-  }
-  const result = {}
-  if (value.app !== undefined) result.app = scope(value.app, 'files.app')
-  if (value.external !== undefined) {
-    if (!Array.isArray(value.external) || value.external.length > 16) fail('files.external is invalid')
-    result.external = value.external.map((raw, index) => scope(raw, `files.external[${index}]`, true))
-  }
-  return result
-}
-
-function normalizeManifest15(raw) {
-  if (Object.keys(raw).some(key => !API15_FIELDS.has(key)) || raw.api !== '1.5' || (raw.schemaVersion !== undefined && raw.schemaVersion !== 1)) fail('API 1.5 manifest is required')
-  if (!ID_PATTERN.test(raw.id || '') || typeof raw.name !== 'string' || !raw.name || raw.name.length > 120 || typeof raw.version !== 'string' || !raw.version || raw.version.length > 64 || typeof raw.author !== 'string' || !raw.author || raw.author.length > 120) fail('manifest identity is invalid')
-  if (!Array.isArray(raw.permissions) || raw.permissions.length > 64 || raw.permissions.some(permission => !permission || typeof permission !== 'object' || Array.isArray(permission) || Object.keys(permission).some(key => !['id', 'required', 'platforms'].includes(key)) || typeof permission.id !== 'string' || !API15_PERMISSIONS.has(permission.id) || typeof permission.required !== 'boolean' || !Array.isArray(permission.platforms) || permission.platforms.some(platform => !PLATFORM_IDS.has(platform)))) fail('permission declaration is invalid')
-  if (raw.platforms !== undefined && (!Array.isArray(raw.platforms) || raw.platforms.some(platform => !PLATFORM_IDS.has(platform)))) fail('platforms is invalid')
-  const pages = raw.pages === undefined ? [] : raw.pages
-  if (!Array.isArray(pages) || pages.length > 32) fail('pages is invalid')
-  const pageIds = new Set()
-  const normalizedPages = pages.map((page, index) => {
-    if (!page || typeof page !== 'object' || Array.isArray(page) || Object.keys(page).some(key => !['id', 'title', 'titleEn', 'description', 'location', 'entry', 'children'].includes(key)) || !/^[a-z][a-z0-9._-]{0,63}$/.test(page.id || '') || pageIds.has(page.id) || typeof page.title !== 'string' || !page.title.trim() || page.title.length > 120 || (page.titleEn !== undefined && typeof page.titleEn !== 'string') || (page.description !== undefined && typeof page.description !== 'string') || !['main', 'settings'].includes(page.location)) fail(`pages[${index}] is invalid or duplicate`)
-    pageIds.add(page.id)
-    const children = page.children === undefined ? [] : page.children
-    if (!Array.isArray(children) || children.length > 32) fail(`pages[${index}].children is invalid`)
-    const childIds = new Set()
-    const normalizedChildren = children.map(child => {
-      if (!child || typeof child !== 'object' || Array.isArray(child) || Object.keys(child).some(key => !['id', 'title', 'titleEn', 'description', 'entry'].includes(key)) || !/^[a-z][a-z0-9._-]{0,63}$/.test(child.id || '') || childIds.has(child.id) || typeof child.title !== 'string' || !child.title.trim() || child.title.length > 120 || (child.titleEn !== undefined && typeof child.titleEn !== 'string') || (child.description !== undefined && typeof child.description !== 'string')) fail(`pages[${index}].children is invalid or duplicate`)
-      childIds.add(child.id)
-      return { id: child.id, title: child.title, titleEn: String(child.titleEn || ''), description: String(child.description || ''), entry: normalizePath(child.entry), children: [] }
-    })
-    return { id: page.id, title: page.title, titleEn: String(page.titleEn || ''), description: String(page.description || ''), location: page.location, entry: normalizePath(page.entry), children: normalizedChildren }
-  })
-  const hooks = raw.hooks === undefined ? [] : raw.hooks
-  if (!Array.isArray(hooks) || hooks.length > 16) fail('hooks is invalid')
-  const hookIds = new Set()
-  const normalizedHooks = hooks.map(hook => {
-    if (!hook || typeof hook !== 'object' || !API15_OPERATIONS.has(hook.operation) || hookIds.has(hook.operation) || typeof hook.timeoutMs !== 'number' || !Number.isInteger(hook.timeoutMs) || hook.timeoutMs < 1 || hook.timeoutMs > 1000) fail('hook declaration is invalid')
-    hookIds.add(hook.operation)
-    return { operation: hook.operation, timeoutMs: hook.timeoutMs }
-  })
-  const windows = raw.windows === undefined ? {} : raw.windows
-  if (!windows || typeof windows !== 'object' || Array.isArray(windows) || Object.keys(windows).some(key => !['create', 'main', 'floating'].includes(key))) fail('windows is invalid')
-  if (windows.main !== undefined && (!windows.main || typeof windows.main !== 'object' || Object.keys(windows.main).some(key => key !== 'control') || typeof windows.main.control !== 'boolean')) fail('windows.main is invalid')
-  if (windows.floating !== undefined && (!windows.floating || typeof windows.floating !== 'object' || Object.keys(windows.floating).some(key => !['control', 'alwaysOnTop'].includes(key)))) fail('windows.floating is invalid')
-  if (raw.network !== undefined && (!raw.network || typeof raw.network !== 'object' || Array.isArray(raw.network) || Object.keys(raw.network).some(key => key !== 'internet') || typeof raw.network.internet !== 'boolean')) fail('network is invalid')
-  if (raw.signature !== undefined && raw.signature !== null && (!raw.signature || raw.signature.algorithm !== 'Ed25519' || typeof raw.signature.publisher !== 'string' || raw.signature.publisher.length > 512 || Object.keys(raw.signature).some(key => !['algorithm', 'publisher', 'value'].includes(key)))) fail('signature is invalid')
-  const permissions = raw.permissions.map(permission => ({ id: permission.id, required: permission.required, platforms: [...new Set(permission.platforms)] }))
-  return { api: '1.5', ...(raw.schemaVersion === undefined ? {} : { schemaVersion: 1 }), id: raw.id, name: raw.name, version: raw.version, author: raw.author, description: String(raw.description || '').slice(0, 500), engine: raw.engine === undefined ? null : raw.engine, entry: normalizeProcessEntry15(raw.entry), platforms: raw.platforms === undefined ? [] : [...new Set(raw.platforms)], permissions, files: normalizeFileScopes15(raw.files || {}), network: raw.network || { internet: false }, windows: { create: windows.create === true, main: { control: windows.main?.control === true }, floating: { control: windows.floating?.control === true, alwaysOnTop: windows.floating?.alwaysOnTop === true } }, pages: normalizedPages, hooks: normalizedHooks, signature: raw.signature || null }
 }
 
 function normalizePlatforms(value, label) {
@@ -554,8 +478,6 @@ function normalizeCommands(value) {
 
 function normalizeManifest(raw) {
   if (!raw || typeof raw !== 'object') fail('manifest.json must be an object')
-  if (raw.api === undefined && (!raw.name || !raw.version || !raw.author || !raw.schemaVersion || !raw.engine)) return { ...structuredClone(raw), activatable: false, displayOnly: true, migrationRequired: true, api: null, id: String(raw.id || ''), version: String(raw.version || ''), name: String(raw.name || '') }
-  if (raw.api === '1.5' || (raw.api !== undefined && raw.api !== null)) return normalizeManifest15(raw)
   const manifest = structuredClone(raw)
   if (manifest.schemaVersion !== 1) fail('schemaVersion must be 1')
   if (!ID_PATTERN.test(manifest.id || '')) fail('manifest.id must use reverse-domain style')
@@ -663,9 +585,7 @@ function normalizeManifest(raw) {
   }
   if (manifest.icon) manifest.icon = normalizePath(manifest.icon)
   if (manifest.readme) manifest.readme = normalizePath(manifest.readme)
-  return raw.api === null
-    ? { ...manifest, activatable: false, displayOnly: true, migrationRequired: true, api: null }
-    : manifest
+  return manifest
 }
 
 function toBase64(bytes) { return Buffer.from(bytes).toString('base64') }
@@ -725,17 +645,10 @@ async function validateDirectory(directory) {
   const manifestPath = path.join(directory, 'manifest.json')
   const raw = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
   const manifest = normalizeManifest(raw)
-  if (manifest.displayOnly) return { manifest, animationPacks: [], files: [] }
   const files = new Set(await collectFiles(directory))
   if (files.size > MAX_FILE_COUNT) fail(`plugin has more than ${MAX_FILE_COUNT} files`)
-  if (manifest.api === '1.5') {
-    const pageFiles = pages => pages.flatMap(page => [page.entry, ...pages.flatMap(() => page.children || []).map(child => child.entry)])
-    const requiredFiles = [manifest.entry.script, ...pageFiles(manifest.pages)].filter(Boolean)
-    for (const required of requiredFiles) if (!files.has(required)) fail(`manifest references missing file: ${required}`)
-    return { manifest, animationPacks: [], files: [...files].filter(file => file !== 'manifest.json') }
-  }
   const requiredFiles = [
-    manifest.entry?.script || manifest.entry,
+    manifest.entry,
     ...Object.values(manifest.platformEntries || {}),
     manifest.icon,
     manifest.readme,
@@ -809,11 +722,9 @@ async function encryptEnvelope(zipBytes, manifest, options = {}) {
 async function packDirectory(directory, outFile, options = {}) {
   const { manifest, files } = await validateDirectory(directory)
   const workerEntries = new Set([
-    manifest.entry?.script || manifest.entry,
-    ...(manifest.api === '1.5' ? [] : [
-      ...Object.values(manifest.platformEntries || {}),
-      ...(manifest.contributes.visualSurfaces || []).flatMap(surface => [surface.entry, ...Object.values(surface.platformEntries || {})])
-    ])
+    manifest.entry,
+    ...Object.values(manifest.platformEntries || {}),
+    ...(manifest.contributes.visualSurfaces || []).flatMap(surface => [surface.entry, ...Object.values(surface.platformEntries || {})])
   ].filter(Boolean))
   const bundledWorkers = new Map()
   for (const entry of workerEntries) bundledWorkers.set(entry, Buffer.from(await bundleWorker(path.resolve(directory, entry)), 'utf8'))
@@ -835,14 +746,6 @@ async function packDirectory(directory, outFile, options = {}) {
 }
 
 async function createTemplate(directory, kind = 'basic') {
-  if (kind === 'api15') {
-    const target = path.join(packageRoot, 'templates', 'api15')
-    await fs.access(path.join(target, 'manifest.json'))
-    await fs.mkdir(directory, { recursive: true })
-    if ((await fs.readdir(directory)).length) fail(`target directory is not empty: ${directory}`)
-    await fs.cp(target, directory, { recursive: true })
-    return
-  }
   const templateName = ['sound', 'sound-effects'].includes(kind)
     ? 'sound-effects'
     : ['ui', 'ui-customization'].includes(kind) ? 'ui-customization' : 'basic'
@@ -858,7 +761,7 @@ async function main() {
   const { positional, options } = parseArgs(process.argv.slice(2))
   const command = positional[0] || 'help'
   if (command === 'help' || options.help) {
-    console.log('cnrp create <dir> [--template api15|basic|sound-effects|ui-customization]')
+    console.log('cnrp create <dir> [--template basic|sound-effects|ui-customization]')
     console.log('cnrp validate <dir>')
     console.log('cnrp pack <dir> --out <file.cnrp> [--private-key key.pem]')
     return

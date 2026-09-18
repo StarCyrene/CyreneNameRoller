@@ -1,4 +1,4 @@
-export const PLUGIN_API_VERSION = '1.5.0'
+export const PLUGIN_API_VERSION = '1.4.0'
 export const PLUGIN_LIST_REPOSITORY = 'StarCyrene/CyreneNameRoller'
 export const PLUGIN_LIST_PATH = 'plugins/list.json'
 
@@ -9,30 +9,6 @@ export const PLUGIN_DOWNLOAD_SOURCES = [
 ]
 
 export const PLUGIN_PERMISSIONS = new Set([
-  'files:app:read',
-  'files:app:write',
-  'files:app:execute',
-  'files:external:read',
-  'files:external:write',
-  'files:external:execute',
-  'net:internet',
-  'page:read',
-  'page:write',
-  'page:write-sensitive',
-  'dom:main',
-  'dom:settings',
-  'style:host',
-  'window:create',
-  'window:main:control',
-  'window:floating:control',
-  'window:always-on-top',
-  'core:names:read',
-  'core:records:read',
-  'core:statistics:read',
-  'core:fairness:read',
-  'core:before-operation',
-  'system:execute',
-  // API 1.4 identifiers remain known for migration display only.
   'storage:read',
   'storage:write',
   'events:draw',
@@ -102,16 +78,6 @@ export const PLUGIN_PLATFORM_IDS = new Set([
 // their own worker.
 export const PLUGIN_COMMAND_LOCATIONS = new Set([
   'command-palette', 'page-header', 'context-menu'
-])
-
-export const PLUGIN_API15_PERMISSIONS = new Set([
-  'files:app:read', 'files:app:write', 'files:app:execute',
-  'files:external:read', 'files:external:write', 'files:external:execute',
-  'net:internet', 'page:read', 'page:write', 'page:write-sensitive',
-  'dom:main', 'dom:settings', 'style:host', 'window:create',
-  'window:main:control', 'window:floating:control', 'window:always-on-top',
-  'core:names:read', 'core:records:read', 'core:statistics:read',
-  'core:fairness:read', 'core:before-operation', 'system:execute'
 ])
 
 function githubRawAlternative(url) {

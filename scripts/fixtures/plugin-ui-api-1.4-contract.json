@@ -1,5 +1,5 @@
 {
-  "apiVersion": "1.5.0",
+  "apiVersion": "1.4.0",
   "legacyApiVersion": "1.2.0",
   "componentTargets": [
     { "id": "app.title-bar", "platform": "tauri", "visibilityPolicy": "required", "allowedStyles": ["color", "fontAlias", "density"], "source": "src/components/layout/TitleBar.vue", "selector": ".titlebar" },

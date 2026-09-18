@@ -14,15 +14,9 @@ export const tauriAPI = {
       return null
     }
   },
-  async invokeStrict(cmd, args, signal) {
+  async invokeStrict(cmd, args) {
     if (!isTauri()) throw new Error('Tauri API 不可用')
-    const request = window.__TAURI_INTERNALS__.invoke(cmd, args)
-    if (!signal) return request
-    if (signal.aborted) throw Object.assign(new Error('操作已取消'), { code: 'CANCELLED', name: 'AbortError' })
-    return Promise.race([
-      request,
-      new Promise((_, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('操作已取消'), { code: 'CANCELLED', name: 'AbortError' })), { once: true }))
-    ])
+    return window.__TAURI_INTERNALS__.invoke(cmd, args)
   },
   async storageGet(key) { return this.invoke('storage_get', { key }) },
   async storageSet(key, value) { return this.invoke('storage_set', { key, value }) },
@@ -43,7 +37,6 @@ export const tauriAPI = {
   },
   async coreDrawExecute(request) { return this.invokeStrict('core_draw_execute', { request }) },
   async coreCardCommit(request) { return this.invokeStrict('core_card_commit', { request }) },
-  async corePrizeExecute(request) { return this.invokeStrict('core_prize_execute', { request }) },
   async coreMaintenanceExecute(action, fields = {}) {
     const principal = 'core-ui'
     return this.invokeStrict('core_maintenance_execute', { request: { grantToken: await this.coreGrantTokenFor(principal), principal, action, ...fields } })
@@ -56,11 +49,6 @@ export const tauriAPI = {
   async pluginSelectFile(extensions = []) { return this.invokeStrict('plugin_select_file', { extensions }) },
   async pluginSelectDirectory() { return this.invokeStrict('plugin_select_directory', {}) },
   async pluginExecuteOperation(program, args = [], timeoutMs = 10000) { return this.invokeStrict('plugin_execute_operation', { program, args, timeoutMs }) },
-  async pluginRunnerStage(pluginId, files) { return this.invokeStrict('plugin_runner_stage', { pluginId, files }) },
-  async pluginRunnerStart(request) { return this.invokeStrict('plugin_runner_start', request) },
-  async pluginRunnerSend(sessionId, bytes) { return this.invokeStrict('plugin_runner_send', { sessionId, bytes: Array.from(bytes) }) },
-  async pluginRunnerStop(sessionId) { return this.invokeStrict('plugin_runner_stop', { sessionId }) },
-  async pluginRunnerStopAll() { return this.invokeStrict('plugin_runner_stop_all', {}) },
   async showDataLocation() { return this.invoke('show_data_location', {}) },
   async setAutoStart(enabled, mode = 'scheduled', previousMode = mode) { return this.invoke('set_auto_start', { enabled, mode, previousMode }) },
   async restartElevatedForAutoStart(enabled, mode = 'scheduled', previousMode = mode) { return this.invoke('restart_elevated_for_auto_start', { enabled, mode, previousMode }) },

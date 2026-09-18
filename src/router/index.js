@@ -30,8 +30,7 @@ const routes = [
       { path: 'draw', redirect: '/settings/features' },
       { path: 'balance', redirect: '/settings/features' },
       { path: 'management', redirect: '/settings/data' },
-      { path: 'changelog', redirect: '/settings/data' },
-      { path: 'plugin/:pluginId/:pageId', name: 'SettingsPluginPage', component: () => import('../views/PluginPageView.vue'), props: true, meta: { order: 781 } }
+      { path: 'changelog', redirect: '/settings/data' }
     ]
   },
   { path: '/settings/balance-curve', redirect: '/settings/features', meta: { order: 802 } },

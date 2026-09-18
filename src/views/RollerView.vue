@@ -18,7 +18,7 @@
         :key="i"
         :ref="element => setNameDisplayRef(element, i)"
         class="name-display"
-        :class="{ rainbow: settings.nameColorMode === 'gradient', final: display.animating }"
+        :class="{ rainbow: settings.nameColorMode === 'gradient', final: display.animating, [`final-${settings.finishAnimation || 'spotlight'}`]: display.animating }"
         :style="getNameStyle(display, i)"
       >
         <VerifiedResult v-if="currentReceipt && revealed[i]" :receipt="currentReceipt" :index="i" :presentation="resultPresentation" />
@@ -91,9 +91,6 @@ import VerifiedResult from '../components/roller/VerifiedResult.vue'
 import { dataBridge } from '../utils/dataBridge'
 import { consumePendingUriNavigation } from '../utils/uriNavigation'
 import { getAutoStopProgress, normalizeAutoStopDuration } from '../utils/autoStop.mjs'
-import { gsap } from 'gsap'
-import { createRollScheduler } from '../utils/rollSchedule.mjs'
-import { runFinishAnimation } from '../utils/animation.js'
 import {
   pickCyreneBalanced,
   DEFAULT_CYRENE_BALANCE_SETTINGS,
@@ -185,6 +182,7 @@ const currentReceipt = ref(null)
 const resultPresentation = computed(() => pluginsStore.resultPresentationForTarget('roller.result'))
 const lastPickedNames = ref([])
 const sessionCounts = ref({})
+let intervalId = null
 let autoStopTimer = null
 let autoStopInterval = null
 const autoStopRemaining = ref(0)
@@ -341,12 +339,7 @@ function emphasize(index) {
     return
   }
   nameDisplays[index].animating = true
-  runFinishAnimation(
-    nameDisplayRefs[index],
-    settings.value.finishAnimation || 'spotlight',
-    'roller',
-    () => { nameDisplays[index].animating = false }
-  )
+  setTimeout(() => { nameDisplays[index].animating = false }, 900)
 }
 
 function getDisplayName(person) {
@@ -388,7 +381,8 @@ function doPick(excludeList = []) {
   )
 }
 
-function swapOnce() {
+function animationLoop() {
+  if (!isRunning.value) return
   const count = settings.value.multiMode ? (settings.value.peopleCount || 2) : 1
   for (let i = 0; i < count; i++) {
     const pick = doPick([])
@@ -404,28 +398,7 @@ function swapOnce() {
   }
   // 只更新文字内容的位置，不重新计算网格参数（避免抖动）
   updateNamePositionsOnly()
-}
-
-const rollScheduler = createRollScheduler()
-let rollTickerActive = false
-
-function rollTickerTick(_time, deltaTimeMs) {
-  if (!isRunning.value) return
-  if (rollScheduler.decelerationComplete()) { concludeRoll(); return }
-  if (rollScheduler.tick(Math.min(deltaTimeMs, 100))) swapOnce()
-}
-
-function startRollTicker() {
-  if (rollTickerActive) return
-  rollTickerActive = true
-  rollScheduler.reset()
-  gsap.ticker.add(rollTickerTick)
-}
-
-function stopRollTicker() {
-  if (!rollTickerActive) return
-  rollTickerActive = false
-  gsap.ticker.remove(rollTickerTick)
+  intervalId = setTimeout(animationLoop, 50)
 }
 
 function updateNamePositionsOnly() {
@@ -436,20 +409,11 @@ function updateNamePositionsOnly() {
 }
 
 function stopRoll() {
-  if (rollScheduler.isDecelerating()) return
+  clearTimeout(intervalId)
   clearTimeout(autoStopTimer)
   clearInterval(autoStopInterval)
   autoStopInterval = null
   autoStopRemaining.value = 0
-  if (settings.value.decelerateFinish) {
-    rollScheduler.beginDeceleration()
-    return
-  }
-  concludeRoll()
-}
-
-function concludeRoll() {
-  stopRollTicker()
   isRunning.value = false
   void finishRoll()
 }
@@ -494,8 +458,7 @@ function toggleRoll() {
   nextTick(() => {
     computeGridParams()
     computeNameLayout()
-    startRollTicker()
-    swapOnce()
+    animationLoop()
     if (settings.value.autoStop && !suppressAutoStopOnce) startAutoStopCountdown()
     else autoStopRemaining.value = 0
     suppressAutoStopOnce = false
@@ -511,7 +474,7 @@ async function applyUriNavigation(event) {
     return
   }
   if (isRunning.value) {
-    stopRollTicker()
+    clearTimeout(intervalId)
     clearTimeout(autoStopTimer)
     clearInterval(autoStopInterval)
     autoStopInterval = null
@@ -897,7 +860,7 @@ onMounted(() => {
   if (controlsCenterRef.value) layoutObserver.observe(controlsCenterRef.value)
   window.addEventListener('resize', onResize)
 })
-onBeforeUnmount(() => { stopRollTicker(); clearTimeout(autoStopTimer); clearInterval(autoStopInterval); pendingTimers.forEach(id => clearTimeout(id)); gsap.killTweensOf(nameDisplayRefs.filter(Boolean)); layoutObserver?.disconnect(); window.removeEventListener('resize', onResize); window.removeEventListener('cyrene-uri-navigation', applyUriNavigation) })
+onBeforeUnmount(() => { if (intervalId) clearTimeout(intervalId); clearTimeout(autoStopTimer); clearInterval(autoStopInterval); pendingTimers.forEach(id => clearTimeout(id)); layoutObserver?.disconnect(); window.removeEventListener('resize', onResize); window.removeEventListener('cyrene-uri-navigation', applyUriNavigation) })
 </script>
 
 <style scoped>
@@ -937,10 +900,21 @@ onBeforeUnmount(() => { stopRollTicker(); clearTimeout(autoStopTimer); clearInte
   animation: gradient-shift 32s linear infinite;
 }
 
+.name-display.rainbow.final-spotlight { animation: gradient-shift 32s linear infinite, final-reveal 0.5s cubic-bezier(0.1, 0.9, 0.2, 1); }
+.name-display.rainbow.final-lift { animation: gradient-shift 32s linear infinite, final-lift 0.68s cubic-bezier(0.12, 0.85, 0.2, 1.15); }
+.name-display.rainbow.final-glow { animation: gradient-shift 32s linear infinite, final-glow 0.8s cubic-bezier(0.16, 0.84, 0.3, 1); }
+
 @keyframes gradient-shift {
   0% { background-position: 0% 50%; }
   100% { background-position: 800% 50%; }
 }
+
+.name-display:not(.rainbow).final-spotlight { animation: final-reveal 0.5s cubic-bezier(0.1, 0.9, 0.2, 1); }
+.name-display:not(.rainbow).final-lift { animation: final-lift 0.68s cubic-bezier(0.12, 0.85, 0.2, 1.15); }
+.name-display:not(.rainbow).final-glow { animation: final-glow 0.8s cubic-bezier(0.16, 0.84, 0.3, 1); }
+@keyframes final-reveal { 0% { transform: scale(var(--reveal-scale, 1)); opacity: 0; filter: brightness(2); } 72% { transform: scale(0.97); opacity: 1; filter: brightness(1.08); } 100% { transform: scale(1); filter: brightness(1); } }
+@keyframes final-lift { 0% { transform: translateY(18px) scale(0.88); opacity: 0; filter: blur(5px); } 58% { transform: translateY(-6px) scale(1.05); opacity: 1; filter: brightness(1.3); } 100% { transform: translateY(0) scale(1); filter: brightness(1); } }
+@keyframes final-glow { 0% { transform: scale(0.92); opacity: 0; text-shadow: 0 0 0 var(--accent); } 50% { transform: scale(1.06); opacity: 1; text-shadow: 0 0 32px var(--accent); } 100% { transform: scale(1); text-shadow: 0 4px 20px rgba(234, 94, 193, 0.15); } }
 
 /* 隐藏的文字测量探针 */
 .fit-probe {

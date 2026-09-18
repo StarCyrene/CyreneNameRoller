@@ -1,5 +1,5 @@
 <template>
-  <div class="app-layout" data-plugin-style-surface="main" :class="[themeClass, { dark: settingsStore.darkMode, 'perf-no-blur': !settingsStore.settings.perfBlur, 'perf-no-shadow': !settingsStore.settings.perfShadows, 'perf-no-anim': !settingsStore.settings.perfAnimations }]" :style="themeStyle" @contextmenu.prevent>
+  <div class="app-layout" :class="[themeClass, { dark: settingsStore.darkMode, 'perf-no-blur': !settingsStore.settings.perfBlur, 'perf-no-shadow': !settingsStore.settings.perfShadows, 'perf-no-anim': !settingsStore.settings.perfAnimations }]" :style="themeStyle" @contextmenu.prevent>
     <PluginVisualLayers />
     <div ref="globalAnimationSurfaceRef" class="plugin-global-animation-surface" aria-hidden="true" />
     <TitleBar class="app-foreground-layer" />
@@ -36,7 +36,7 @@
     </Transition>
 
     <!-- Banner Notification System -->
-    <TransitionGroup :css="false" tag="div" class="banner-container" @enter="onBannerTransitionEnter" @leave="onBannerTransitionLeave" @enter-cancelled="killBannerTransition" @leave-cancelled="killBannerTransition">
+    <TransitionGroup name="banner-enter" tag="div" class="banner-container">
       <div
         v-for="b in banners"
         :key="b.id"
@@ -45,7 +45,7 @@
         @mouseenter="onBannerEnter(b)"
         @mouseleave="onBannerLeave(b)"
       >
-        <div class="banner-progress-bg" :ref="el => setBannerProgressEl(b, el)" :style="b.duration > 0 ? null : (b.type === 'download' ? { width: b.progress + '%', transition: 'width 0.1s linear' } : { width: '0%' })"></div>
+        <div class="banner-progress-bg" :style="b.duration > 0 ? { animation: `banner-countdown ${b.duration}ms linear forwards`, animationPlayState: b.hovered ? 'paused' : 'running' } : (b.type === 'download' ? { width: b.progress + '%', transition: 'width 0.1s linear' } : { width: '0%' })"></div>
         <div class="banner-scanline"></div>
         <div class="banner-content">
           <span class="banner-icon" v-if="b.icon">
@@ -123,7 +123,6 @@
 import { onMounted, onBeforeUnmount, watch, provide, ref, computed, nextTick, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { gsap } from 'gsap'
-import { animationEnabled } from '../../utils/animation'
 import TitleBar from './TitleBar.vue'
 import NavigationDock from './NavigationDock.vue'
 import FullscreenToggle from '../FullscreenToggle.vue'
@@ -282,70 +281,23 @@ function pauseBannerTimer(banner) {
   banner._remaining = Math.max(0, banner._remaining - elapsed)
 }
 
-function setBannerProgressEl(banner, element) {
-  if (banner._progressEl === element) return
-  if (banner._tween) { banner._tween.kill(); banner._tween = null }
-  banner._progressEl = element
-  if (!element || !(banner.duration > 0)) return
-  if (!animationEnabled()) {
-    try { gsap.set(element, { scaleX: 0 }) } catch {}
-    return
-  }
-  try {
-    const tween = gsap.fromTo(element, { scaleX: 1 }, { scaleX: 0, duration: banner._remaining / 1000, ease: 'none' })
-    if (banner.hovered) tween.pause()
-    banner._tween = tween
-  } catch {}
-}
-
-function onBannerTransitionEnter(element, done) {
-  if (!animationEnabled()) { done(); return }
-  try {
-    gsap.timeline({ defaults: { ease: 'cnr-deal' }, onComplete: done })
-      .set(element, { opacity: 0, yPercent: -100, y: 0, scaleX: 0.8, filter: 'blur(8px) brightness(2)', maxHeight: 0 })
-      .to(element, { yPercent: 0, y: 4, scaleX: 1.01, duration: 0.36 }, 0)
-      .to(element, { opacity: 0.6, filter: 'blur(3px) brightness(1.5)', maxHeight: 40, duration: 0.18 }, 0)
-      .to(element, { opacity: 1, filter: 'blur(0px) brightness(1.1)', duration: 0.18 }, 0.18)
-      .to(element, { y: 0, scaleX: 1, filter: 'blur(0px) brightness(1)', duration: 0.24 }, 0.36)
-  } catch { done() }
-}
-
-function onBannerTransitionLeave(element, done) {
-  if (!animationEnabled()) { done(); return }
-  try {
-    gsap.timeline({ onComplete: done })
-      .to(element, { opacity: 0, x: 60, maxHeight: 0, duration: 0.35, ease: 'cnr-out' })
-  } catch { done() }
-}
-
-function killBannerTransition(element) {
-  try { gsap.killTweensOf(element) } catch {}
-}
-
 function dismissBanner(id) {
   const idx = banners.value.findIndex(b => b.id === id)
   if (idx !== -1) {
     const b = banners.value[idx]
     if (b._timer) clearTimeout(b._timer)
-    if (b._tween) { b._tween.kill(); b._tween = null }
     banners.value.splice(idx, 1)
   }
 }
 
 function onBannerEnter(b) {
   b.hovered = true
-  if (b.duration > 0) {
-    pauseBannerTimer(b)
-    b._tween?.pause()
-  }
+  if (b.duration > 0) pauseBannerTimer(b)
 }
 
 function onBannerLeave(b) {
   b.hovered = false
-  if (b.duration > 0) {
-    startBannerTimer(b, b.id)
-    b._tween?.play()
-  }
+  if (b.duration > 0) startBannerTimer(b, b.id)
 }
 
 provide('banner', showBanner)
@@ -1084,6 +1036,11 @@ watch(() => settingsStore.settings.fontFamily, (val) => {
   transform-origin: left center;
 }
 
+@keyframes banner-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
 /* Scanline effect */
 .banner-scanline {
   position: absolute;
@@ -1187,6 +1144,53 @@ watch(() => settingsStore.settings.fontFamily, (val) => {
 
 .banner-undo:hover {
   background: rgba(255,255,255,0.25);
+}
+
+/* Banner entrance animation */
+.banner-enter-enter-active {
+  animation: banner-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.banner-enter-leave-active {
+  animation: banner-out 0.35s cubic-bezier(0.55, 0, 1, 0.45) both;
+}
+
+@keyframes banner-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-100%) scaleX(0.8);
+    filter: blur(8px) brightness(2);
+    max-height: 0;
+  }
+  30% {
+    opacity: 0.6;
+    filter: blur(3px) brightness(1.5);
+    max-height: 40px;
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(4px) scaleX(1.01);
+    filter: blur(0) brightness(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scaleX(1);
+    filter: blur(0) brightness(1);
+    max-height: 40px;
+  }
+}
+
+@keyframes banner-out {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+    max-height: 40px;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(60px);
+    max-height: 0;
+  }
 }
 
 /* Page transitions */

@@ -1,18 +1,5 @@
 const SAFE_MODE_STORAGE_KEY = 'cyrene.host.safe-mode.last-known.v1'
 
-export async function cleanupPluginSessions({ sessions = [], resetOrdinaryState = null } = {}) {
-  for (const session of sessions) {
-    await session?.revoke?.()
-    await session?.terminate?.()
-    await session?.cancel?.()
-    await session?.styles?.()
-    await session?.routes?.()
-    await session?.dom?.()
-    await session?.reload?.()
-  }
-  await resetOrdinaryState?.()
-}
-
 function frozenStatus(value) {
   return Object.freeze({
     enabled: value.enabled === true,
