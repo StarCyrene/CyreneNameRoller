@@ -32,7 +32,6 @@
   },
   "bundle": {
     "active": true,
-    "resources": ["resources/plugin-runner", "../src/plugins/rpc/runner.config.json"],
     "targets": ["nsis", "deb", "appimage"],
     "icon": [
       "icons/32x32.png",

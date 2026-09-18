@@ -12,10 +12,8 @@ import SplashScreen from './components/SplashScreen.vue'
 import { useSettingsStore } from './stores/settings'
 import { isTauri, tauriAPI } from './utils/tauriAPI'
 import { dispatchUriNavigation, parseCyreneUri, parseWebHash } from './utils/uriNavigation'
-import { usePluginsStore } from './plugins/store'
 
 const settingsStore = useSettingsStore()
-const pluginsStore = usePluginsStore()
 const route = useRoute()
 const router = useRouter()
 const isFloatingRoute = computed(() => route.path === '/floating')
@@ -73,7 +71,6 @@ async function listenForMainWindowShow() {
 }
 
 onMounted(async () => {
-  if (typeof window !== 'undefined' && window.__CYRENE_SAFE_MODE__) pluginsStore.configureSafeMode(window.__CYRENE_SAFE_MODE__)
   await nextTick()
   if (isFloatingRoute.value) return
   if (isTauri()) {

@@ -19,15 +19,14 @@ test('primary navigation follows the approved secondary-menu order', () => {
   assert.ok(match, 'mainItems block is missing')
   assert.deepEqual(
     [...match[1].matchAll(/id: '([^']+)'/g)].map(item => item[1]),
-    ['roller', 'card', 'lottery', 'statistics', 'records']
+    ['roller', 'card', 'lottery', 'statistics', 'records', 'lists']
   )
 })
 
 test('overlay menus own the approved child routes', () => {
   assert.match(navigationDock, /lottery:\s*\{[\s\S]*?to: '\/lottery\/draw'[\s\S]*?to: '\/lottery\/assign'/)
   assert.match(navigationDock, /records:\s*\{[\s\S]*?to: '\/records'[\s\S]*?to: '\/lottery\/records'/)
-  assert.doesNotMatch(navigationDock, /menu: 'lists'/)
-  assert.match(navigationDock, /settingsMenuItems = computed\(\(\) => \[[\s\S]*?to: '\/lists'[\s\S]*?to: '\/group-manage'[\s\S]*?to: '\/lottery\/prizes'/)
+  assert.match(navigationDock, /lists:\s*\{[\s\S]*?to: '\/lists'[\s\S]*?to: '\/group-manage'[\s\S]*?to: '\/lottery\/prizes'/)
   assert.match(navigationDock, /settings:\s*\{[\s\S]*?items:\s*settingsMenuItems\.value/)
 })
 

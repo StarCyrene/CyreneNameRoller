@@ -1,4 +1,4 @@
-export declare const PLUGIN_API_VERSION: '1.5.0'
+export declare const PLUGIN_API_VERSION: '1.4.0'
 export declare const PluginEvents: {
   readonly APP_READY: 'app:ready'
   readonly APP_ROUTE_CHANGED: 'app:route-changed'
@@ -320,47 +320,6 @@ export interface PluginAnimationSelectControl extends PluginNativeControlBase {
   packId?: string
 }
 
-export interface PluginPageApi {
-  read<T = unknown>(context: PluginContext, field: string): Promise<T>
-  write<T = unknown>(context: PluginContext, field: string, value: unknown, options?: Record<string, unknown>): Promise<T>
-}
-export interface PluginWindowApi {
-  create<T = unknown>(context: PluginContext, options?: Record<string, unknown>): Promise<T>
-  close<T = unknown>(context: PluginContext, handle: string): Promise<T>
-}
-export interface PluginFilesApi {
-  read<T = unknown>(context: PluginContext, args?: Record<string, unknown>): Promise<T>
-  write<T = unknown>(context: PluginContext, args?: Record<string, unknown>): Promise<T>
-}
-export interface PluginNetApi {
-  request<T = unknown>(context: PluginContext, args?: Record<string, unknown>): Promise<T>
-}
-export interface PluginDomApi {
-  query<T = unknown>(context: PluginContext, args?: Record<string, unknown>): Promise<T>
-  read<T = unknown>(context: PluginContext, args?: Record<string, unknown>): Promise<T>
-  write<T = unknown>(context: PluginContext, args?: Record<string, unknown>): Promise<T>
-  insert<T = unknown>(context: PluginContext, args?: Record<string, unknown>): Promise<T>
-}
-export interface PluginCoreApi {
-  names: { read<T = ReadonlyNamesSnapshot>(context: PluginContext): Promise<T> }
-  records: { read<T = ReadonlyRecordsSnapshot>(context: PluginContext): Promise<T> }
-  statistics: { read<T = ReadonlyStatisticsSnapshot>(context: PluginContext): Promise<T> }
-  balance: { read<T = ReadonlyBalanceSnapshot>(context: PluginContext): Promise<T> }
-  hook: {
-    before<T = unknown>(context: PluginContext, operation: string, input?: Record<string, unknown>): Promise<T>
-    after<T = unknown>(context: PluginContext, operation: string, input?: Record<string, unknown>): Promise<T>
-  }
-}
-export interface PluginApiGroups {
-  page: PluginPageApi
-  window: PluginWindowApi
-  files: PluginFilesApi
-  net: PluginNetApi
-  state: PluginPageApi
-  dom: PluginDomApi
-  core: PluginCoreApi
-}
-
 export interface PluginComponentStyleSelectControl extends PluginNativeControlBase {
   type: 'component-style-select'
   target: string
@@ -563,14 +522,6 @@ export interface ReadonlyBalanceSnapshot {
 export declare function definePlugin<T extends PluginModule>(plugin: T): T
 export declare function defineVisualSurface<T extends VisualSurfaceModule>(surface: T): T
 export declare function createRequest(context: PluginContext): PluginContext['request']
-export declare const page: PluginPageApi
-export declare const window: PluginWindowApi
-export declare const files: PluginFilesApi
-export declare const net: PluginNetApi
-export declare const state: PluginPageApi
-export declare const dom: PluginDomApi
-export declare const core: PluginCoreApi
-export declare const groups: PluginApiGroups
 export declare function getPlatform(context: PluginContext): Promise<PluginPlatform>
 export declare function getCapabilities(context: PluginContext): Promise<Record<string, CapabilityStatus>>
 export declare function describeHost(context: PluginContext): Promise<HostExtensionDescriptor>

@@ -1,7 +1,5 @@
 import { isTauri, tauriAPI } from '../utils/tauriAPI.js'
 import { PLUGIN_API_VERSION } from './constants.js'
-import { resolveApi15Capabilities } from './api15/permissions.js'
-import { AuditLog, NetworkLimiter, requireNetworkAddressBinding, validateExecutableDeclaration, validateNetworkUrlResolved } from './api15/permissions.js'
 
 const MAX_SELECTED_FILE_SIZE = 32 * 1024 * 1024
 const MAX_CLIPBOARD_TEXT_LENGTH = 100000
@@ -100,8 +98,7 @@ export function getManifestCompatibility(manifest, platform = getCurrentPlatform
     }
   }
   const hasWorker = !!resolvePlatformEntry(manifest, platform)
-  const declaredPages = manifest?.api === '1.5' ? manifest.pages || [] : manifest?.contributes?.pages || []
-  const hasPage = declaredPages.some(page => !!page.native || !!resolvePlatformEntry(page, platform))
+  const hasPage = (manifest?.contributes?.pages || []).some(page => !!page.native || !!resolvePlatformEntry(page, platform))
   const hasVisualSurface = (manifest?.contributes?.visualSurfaces || []).some(surface => !!resolvePlatformEntry(surface, platform))
   if (!hasWorker && !hasPage && !hasVisualSurface) {
     return {
@@ -174,10 +171,6 @@ function failed(capability, platform, error, code = 'OPERATION_FAILED') {
   })
 }
 
-function api15CapabilityForMethod(method) {
-  return { 'files.read': 'files:app:read', 'files.write': 'files:app:write', 'net.request': 'net:internet' }[method] || method.replace(/^system\./, 'system:')
-}
-
 function mimeForFile(name = '') {
   const extension = String(name).split('.').pop()?.toLowerCase()
   return {
@@ -245,11 +238,8 @@ function validExternalUrl(value) {
 }
 
 export class PluginPlatformBridge {
-  constructor({ platform = getCurrentPlatform(), handlers = {}, auditLog = new AuditLog() } = {}) {
-    this.platform = platform
-    this.handlers = handlers
-    this.networkLimiter = handlers.networkLimiter || new NetworkLimiter()
-    this.auditLog = auditLog
+  constructor() {
+    this.platform = getCurrentPlatform()
     this.grantedPaths = new Map()
   }
 
@@ -267,38 +257,21 @@ export class PluginPlatformBridge {
 
   forgetPlugin(pluginId) { this.grantedPaths.delete(pluginId) }
 
-  auditDecision(plugin, method, args, instanceId, result, started, decision = result?.ok ? 'allow' : 'deny') {
-    this.auditLog.append({ pluginId: plugin?.manifest?.id, instanceId, method, resource: method === 'net.request' ? args.url : args.path, decision, resultCode: result?.code || 'OK', bytes: result?.value?.bodyBytes ?? result?.value?.bytes ?? result?.value?.size ?? 0, durationMs: Date.now() - started })
-    return result
-  }
-
-  async request(plugin, method, args = {}, instanceId = '', signal) {
-    const started = Date.now()
-    const audit = (result, decision = result.ok ? 'allow' : 'deny') => {
-      audited = true
-      this.auditDecision(plugin, method, args, instanceId, result, started, decision)
-      return result
-    }
-    let audited = false
-    const respond = result => audit(result)
-    const capability = api15CapabilityForMethod(method)
-    const declared = plugin?.manifest?.permissions?.some(item => (item?.id || item) === capability)
-    const handlerName = { 'files.read': 'filesRead', 'files.write': 'filesWrite', 'net.request': 'netRequest' }[method]
-    const status = declared
-      ? resolveApi15Capabilities(plugin.manifest, this.platform).capabilities[capability] || capabilityStatus(capability, this.platform)
-      : capabilityStatus(capability, this.platform)
-    if (!status.available) return respond(unsupported(capability, this.platform))
+  async request(plugin, method, args = {}) {
+    const capability = method.replace(/^system\./, 'system:')
+    const status = capabilityStatus(capability, this.platform)
+    if (!status.available) return unsupported(capability, this.platform)
     try {
       switch (method) {
         case 'system.open-url': {
           const url = validExternalUrl(args.url)
-           if (!url) return respond(failed(capability, this.platform, '仅允许打开 HTTP、HTTPS 或 mailto 链接', 'INVALID_ARGUMENT'))
+          if (!url) return failed(capability, this.platform, '仅允许打开 HTTP、HTTPS 或 mailto 链接', 'INVALID_ARGUMENT')
           if (this.platform.runtime === 'tauri') await tauriAPI.invokeStrict('open_external', { url })
           else {
             const opened = window.open(url, '_blank', 'noopener,noreferrer')
-            if (!opened) return respond(failed(capability, this.platform, '浏览器阻止了新窗口，请允许弹出窗口后重试', 'POPUP_BLOCKED'))
+            if (!opened) return failed(capability, this.platform, '浏览器阻止了新窗口，请允许弹出窗口后重试', 'POPUP_BLOCKED')
           }
-           return respond(bridgeResult(true, capability, this.platform, true))
+          return bridgeResult(true, capability, this.platform, true)
         }
         case 'system.select-file': {
           let selected
@@ -315,77 +288,52 @@ export class PluginPlatformBridge {
               }
             } else if (selected?.cancelled) selected = null
           } else selected = await selectBrowserFile(args.accept)
-          return respond(bridgeResult(true, capability, this.platform, selected, { cancelled: !selected }))
+          return bridgeResult(true, capability, this.platform, selected, { cancelled: !selected })
         }
         case 'system.select-directory': {
           const selected = await tauriAPI.invokeStrict('plugin_select_directory', {})
           if (selected?.success && selected.path) this.rememberPath(plugin.manifest.id, selected.path)
           const value = selected?.success ? { name: selected.name, path: selected.path } : null
-          return respond(bridgeResult(true, capability, this.platform, value, { cancelled: !value }))
+          return bridgeResult(true, capability, this.platform, value, { cancelled: !value })
         }
         case 'system.clipboard-read': {
           const value = await navigator.clipboard.readText()
-          return respond(bridgeResult(true, capability, this.platform, String(value).slice(0, MAX_CLIPBOARD_TEXT_LENGTH)))
+          return bridgeResult(true, capability, this.platform, String(value).slice(0, MAX_CLIPBOARD_TEXT_LENGTH))
         }
         case 'system.clipboard-write': {
           const value = String(args.text ?? '')
-          if (value.length > MAX_CLIPBOARD_TEXT_LENGTH) return respond(failed(capability, this.platform, '剪贴板文本不能超过 100000 字符', 'INVALID_ARGUMENT'))
+          if (value.length > MAX_CLIPBOARD_TEXT_LENGTH) return failed(capability, this.platform, '剪贴板文本不能超过 100000 字符', 'INVALID_ARGUMENT')
           await navigator.clipboard.writeText(value)
-          return respond(bridgeResult(true, capability, this.platform, true))
+          return bridgeResult(true, capability, this.platform, true)
         }
         case 'system.reveal-file': {
           const path = String(args.path || '')
           if (!path || !this.grantedPaths.get(plugin.manifest.id)?.has(path)) {
-            return respond(failed(capability, this.platform, '只能定位本次运行中由用户授权给插件的文件或目录', 'PATH_NOT_GRANTED'))
+            return failed(capability, this.platform, '只能定位本次运行中由用户授权给插件的文件或目录', 'PATH_NOT_GRANTED')
           }
           const value = await tauriAPI.invokeStrict('reveal_file', { path })
-          return respond(value ? bridgeResult(true, capability, this.platform, true) : failed(capability, this.platform, '无法定位文件'))
+          return value ? bridgeResult(true, capability, this.platform, true) : failed(capability, this.platform, '无法定位文件')
         }
         case 'system.execute': {
           const operationId = String(args.operation || '')
           const operation = (plugin.manifest.systemOperations || []).find(item => item.id === operationId)
-            if (!operation) return respond(failed(capability, this.platform, '插件未在清单中声明该系统操作', 'OPERATION_NOT_DECLARED'))
-            if (!platformMatches(operation.platforms, this.platform)) return respond(unsupported(capability, this.platform, '该系统操作不适用于当前操作系统，已安全跳过'))
-          const declaration = (plugin.manifest.files?.external || []).find(item => item.executables?.includes(operation.command?.program)) || { executables: [] }
-          const executable = validateExecutableDeclaration({ path: operation.command?.program, args: operation.command?.args || [] }, declaration)
-            if (!executable.ok) return respond(failed(capability, this.platform, executable.code, executable.code))
-            if (typeof this.handlers.execute === 'function') return respond(bridgeResult(true, capability, this.platform, await this.handlers.execute({ ...executable, timeoutMs: operation.timeoutMs || 10000 })))
+          if (!operation) return failed(capability, this.platform, '插件未在清单中声明该系统操作', 'OPERATION_NOT_DECLARED')
+          if (!platformMatches(operation.platforms, this.platform)) return unsupported(capability, this.platform, '该系统操作不适用于当前操作系统，已安全跳过')
           const result = await tauriAPI.invokeStrict('plugin_execute_operation', {
             program: operation.command.program,
             args: operation.command.args || [],
             timeoutMs: operation.timeoutMs || 10000
           })
-          return respond(bridgeResult(!!result?.success, capability, this.platform, result, result?.success ? {} : {
+          return bridgeResult(!!result?.success, capability, this.platform, result, result?.success ? {} : {
             code: result?.timedOut ? 'OPERATION_TIMEOUT' : 'OPERATION_FAILED',
             message: result?.error || '系统操作执行失败'
-          }))
-        }
-        case 'files.read':
-        case 'files.write':
-        case 'net.request': {
-          const handler = this.handlers[{ 'files.read': 'filesRead', 'files.write': 'filesWrite', 'net.request': 'netRequest' }[method]]
-           if (typeof handler !== 'function') return respond(failed(capability, this.platform, '平台 Broker 未注入', 'HANDLER_UNAVAILABLE'))
-           if (method.startsWith('files.') && this.platform.runtime === 'web') return respond(unsupported(capability, this.platform, 'Web 环境不支持访问应用文件'))
-           if (method === 'net.request') {
-             NetworkLimiter.validateRequest(args)
-             const checked = await validateNetworkUrlResolved(args.url, { resolver: this.handlers.resolveHost })
-             if (!checked.ok) return respond(failed(capability, this.platform, checked.code, checked.code))
-             if (this.platform.runtime === 'web') {
-               const binding = requireNetworkAddressBinding(handler)
-               if (!binding.ok) return respond(failed(capability, this.platform, binding.code, binding.code))
-             }
-           }
-           const requestArgs = method === 'net.request' ? { ...args, sessionId: instanceId } : args
-            const value = method === 'net.request' ? await this.networkLimiter.run(requestSignal => handler(requestArgs, plugin, requestSignal), signal) : await handler(requestArgs, plugin, signal)
-           return respond(bridgeResult(true, capability, this.platform, value))
+          })
         }
         default:
-           return respond(failed(capability, this.platform, `不支持的平台请求：${method}`, 'UNKNOWN_CAPABILITY'))
+          return failed(capability, this.platform, `不支持的平台请求：${method}`, 'UNKNOWN_CAPABILITY')
       }
     } catch (error) {
-      return respond(failed(capability, this.platform, error, error?.code || 'OPERATION_FAILED'))
-    } finally {
-       if (!audited) this.auditDecision(plugin, method, args, instanceId, null, started, 'deny')
+      return failed(capability, this.platform, error)
     }
   }
 }

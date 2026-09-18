@@ -497,29 +497,32 @@ test('CLI and host normalize API 1.2 page, native and dependency metadata consis
   }
 })
 
-test('legacy manifests remain display-only while canonical API 1.5 manifests activate', async t => {
+test('host and CLI load older plugin APIs in compatibility mode but reject newer minimum APIs', async t => {
   const temporary = await createTestDirectory('cyrene-plugin-api-compatibility-')
   t.after(() => fs.rm(temporary, { recursive: true, force: true }))
   const source = path.join(temporary, 'plugin')
   await createTemplate(source, 'basic')
   const manifestPath = path.join(source, 'manifest.json')
+  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
   const parser = await loadApplicationParser(temporary)
-  const legacy = { schemaVersion: 1, id: 'cn.example.legacy', name: 'Legacy', version: '1.0.0', author: 'Legacy' }
-  const legacyManifest = parser.normalizePluginManifest(legacy)
-  assert.equal(legacyManifest.displayOnly, true)
-  assert.equal(legacyManifest.activatable, false)
+  const { getManifestCompatibility } = await loadPlatformBridge(temporary)
+  const platform = { runtime: 'web', os: 'unknown', desktop: false }
 
-  const canonicalSource = path.join(temporary, 'api15-plugin')
-  await createTemplate(canonicalSource, 'api15')
-  const canonicalManifestPath = path.join(canonicalSource, 'manifest.json')
-  const canonical = JSON.parse(await fs.readFile(canonicalManifestPath, 'utf8'))
-  canonical.engine = { min: '9.9.9', max: '9.9.9' }
-  await fs.writeFile(canonicalManifestPath, JSON.stringify(canonical, null, 2))
-  const validation = await validateDirectory(canonicalSource)
-  const canonicalManifest = parser.normalizePluginManifest(canonical)
-  assert.equal(validation.manifest.api, '1.5')
-  assert.deepEqual(canonicalManifest.engine, { min: '9.9.9', max: '9.9.9' })
-  assert.equal(canonicalManifest.api, '1.5')
+  manifest.engine = { min: '1.0.0', max: '1.0.0' }
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2))
+  const cli = await validateDirectory(source)
+  const host = parser.normalizePluginManifest(manifest)
+  assert.equal(cli.manifest.engine.max, '1.0.0')
+  assert.equal(host.engine.max, '1.0.0')
+  const compatibility = getManifestCompatibility(host, platform)
+  assert.equal(compatibility.compatible, true)
+  assert.equal(compatibility.degraded, true)
+  assert.match(compatibility.reason, /旧版 API|older API/i)
+
+  manifest.engine = { min: '1.5.0', max: '2.0.0' }
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2))
+  assert.throws(() => parser.normalizePluginManifest(manifest), /需要 API/)
+  await assert.rejects(() => validateDirectory(source), /requires API/i)
 })
 
 test('core plugin data exposes read-only snapshots and no write RPCs', async t => {

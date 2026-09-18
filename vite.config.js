@@ -80,7 +80,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           'vue-vendor': ['vue', 'vue-router', 'pinia', 'vue-fluent-widgets'],
-          gsap: ['gsap', 'gsap/CustomEase']
+          gsap: ['gsap']
         }
       }
     }

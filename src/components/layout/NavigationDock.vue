@@ -190,7 +190,7 @@ function secondaryMenuForRoute(path) {
   if (path.startsWith('/settings')) return 'settings'
   if (path === '/lottery/draw' || path === '/lottery/assign') return 'lottery'
   if (path === '/records' || path === '/lottery/records') return 'records'
-  if (path === '/lists' || path.startsWith('/lists/') || path === '/group-manage' || path.startsWith('/lottery/prizes')) return 'settings'
+  if (path === '/lists' || path.startsWith('/lists/') || path === '/group-manage' || path.startsWith('/lottery/prizes')) return 'lists'
   return null
 }
 
@@ -345,17 +345,15 @@ const mainItems = [
   { id: 'card', to: '/card', icon: 'fluent:card-ui-portrait-flip-24-regular', label: { zh: '翻牌点名', en: 'Card Mode' } },
   { id: 'lottery', menu: 'lottery', icon: 'fluent:gift-24-regular', label: { zh: '抽奖模式', en: 'Lottery' } },
   { id: 'statistics', to: '/statistics', icon: 'fluent:chart-multiple-24-regular', label: { zh: '统计', en: 'Statistics' } },
-  { id: 'records', menu: 'records', icon: 'fluent:history-24-regular', label: { zh: '抽取记录', en: 'Records' } }
+  { id: 'records', menu: 'records', icon: 'fluent:history-24-regular', label: { zh: '抽取记录', en: 'Records' } },
+  { id: 'lists', menu: 'lists', icon: 'fluent:people-list-24-regular', label: { zh: '名单管理', en: 'List Management' } }
 ]
 
 const settingsMenuItems = computed(() => [
   { id: 'general', label: lang.value === 'en' ? 'General' : '基本', icon: 'options-20-regular', to: '/settings/general' },
   { id: 'appearance', label: lang.value === 'en' ? 'Appearance' : '外观', icon: 'color-20-regular', to: '/settings/appearance' },
   { id: 'features', label: lang.value === 'en' ? 'Features' : '功能', icon: 'play-20-regular', to: '/settings/features' },
-  { id: 'data', label: lang.value === 'en' ? 'Data' : '数据', icon: 'database-20-regular', to: '/settings/data' },
-  { id: 'people', label: t('personnelList', lang.value), icon: 'person-20-regular', to: '/lists' },
-  { id: 'groups', label: lang.value === 'en' ? 'Groups' : '小组名单', icon: 'people-team-20-regular', to: '/group-manage' },
-  { id: 'prizes', label: lang.value === 'en' ? 'Prizes' : '奖品管理', icon: 'clipboard-bullet-list-20-regular', to: '/lottery/prizes' }
+  { id: 'data', label: lang.value === 'en' ? 'Data' : '数据', icon: 'database-20-regular', to: '/settings/data' }
 ])
 
 const secondaryMenus = computed(() => ({
@@ -371,6 +369,14 @@ const secondaryMenus = computed(() => ({
     items: [
       { id: 'roll-records', label: lang.value === 'en' ? 'Name records' : '点名记录', icon: 'history-20-regular', to: '/records' },
       { id: 'lottery-records', label: lang.value === 'en' ? 'Lottery records' : '抽奖记录', icon: 'gift-20-regular', to: '/lottery/records' }
+    ]
+  },
+  lists: {
+    navigateOnOpen: true,
+    items: [
+      { id: 'people', label: t('personnelList', lang.value), icon: 'person-20-regular', to: '/lists' },
+      { id: 'groups', label: lang.value === 'en' ? 'Groups' : '小组名单', icon: 'people-team-20-regular', to: '/group-manage' },
+      { id: 'prizes', label: lang.value === 'en' ? 'Prizes' : '奖品管理', icon: 'clipboard-bullet-list-20-regular', to: '/lottery/prizes' }
     ]
   },
   settings: {

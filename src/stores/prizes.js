@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { dataBridge } from '../utils/dataBridge.js'
+import { dataBridge } from '../utils/dataBridge'
 
 const uid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
 const DEFAULT_LIST = { id: 'default', name: '默认奖品单', prizes: [] }
@@ -56,14 +56,6 @@ export const usePrizesStore = defineStore('prizes', () => {
 
   async function saveRecords() {
     await dataBridge.save('prizeRecords', records.value)
-  }
-  function snapshotState() { return { lists: JSON.parse(JSON.stringify(lists.value)), currentId: currentId.value, records: JSON.parse(JSON.stringify(records.value)) } }
-  async function restoreState(snapshot, { persist = true } = {}) {
-    if (!snapshot || typeof snapshot !== 'object' || !snapshot.lists || typeof snapshot.lists !== 'object' || !Array.isArray(snapshot.records)) throw new Error('invalid prize state')
-    lists.value = snapshot.lists
-    currentId.value = snapshot.currentId
-    records.value = snapshot.records.slice(0, 500)
-    return persist ? Promise.all([save(), saveRecords()]) : undefined
   }
 
   function createList(name) {
@@ -193,9 +185,6 @@ export const usePrizesStore = defineStore('prizes', () => {
     isLoaded,
     initialize,
     save,
-    saveRecords,
-    snapshotState,
-    restoreState,
     createList,
     renameList,
     switchList,

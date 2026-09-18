@@ -2,7 +2,7 @@
   "packageManager": "bun@1.3.14",
   
   "name": "@starcyrene/cyrene-name-roller",
-  "version": "1.5.0",
+  "version": "1.4.0",
   "description": "CyreneNameRoller plugin SDK and CNRP package tool",
   "type": "module",
   "main": "./src/plugin-sdk.mjs",

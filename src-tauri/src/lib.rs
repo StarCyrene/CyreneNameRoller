@@ -8,9 +8,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddrV4, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -50,239 +50,6 @@ const FLOATING_WINDOW_SIZE: i32 = 64;
 const MIN_FLOATING_WINDOW_SIZE: i32 = 40;
 const MAX_FLOATING_WINDOW_SIZE: i32 = 256;
 const FLOATING_WINDOW_SIZE_STEP: i32 = 4;
-
-struct PluginRunnerProcess {
-    child: Child,
-    stdin: ChildStdin,
-    package_root: PathBuf,
-    plugin_id: String,
-}
-
-struct PluginRunnerState {
-    processes: Arc<Mutex<HashMap<String, PluginRunnerProcess>>>,
-}
-
-struct PluginAuditState {
-    records: Mutex<Vec<Value>>,
-}
-
-#[tauri::command]
-fn plugin_audit_append(audit: State<'_, PluginAuditState>, record: Value) -> Result<(), String> {
-    if !record.is_object() || serde_json::to_vec(&record).map_err(|_| "审计记录无效")?.len() > 4096 {
-        return Err("审计记录无效".into());
-    }
-    audit.append(record);
-    Ok(())
-}
-
-impl PluginAuditState {
-    fn append(&self, record: Value) {
-        if let Ok(mut records) = self.records.lock() {
-            records.push(record);
-            if records.len() > 1000 { records.remove(0); }
-        }
-    }
-}
-
-impl PluginRunnerState {
-    fn new() -> Self {
-        Self { processes: Arc::new(Mutex::new(HashMap::new())) }
-    }
-}
-
-impl Drop for PluginRunnerState {
-    fn drop(&mut self) {
-        if let Ok(mut processes) = self.processes.lock() {
-            for (_, mut process) in processes.drain() { stop_plugin_runner_process(&mut process); }
-        }
-    }
-}
-
-fn valid_runner_value(value: &str, max: usize) -> bool {
-    !value.is_empty() && value.len() <= max && !value.contains(['\0', '\r', '\n'])
-}
-
-fn valid_plugin_runner_id(value: &str) -> bool {
-    valid_runner_value(value, 128)
-        && value.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_'))
-        && !value.contains("..")
-}
-
-fn validate_staged_runner_path(cache_dir: &Path, plugin_id: &str, package_path: &str, entry: &str) -> Result<PathBuf, String> {
-    if !valid_plugin_runner_id(plugin_id) || !valid_runner_value(package_path, 4096) || !valid_runner_value(entry, 256) {
-        return Err("invalid plugin runner path".into());
-    }
-    let expected = cache_dir.join("plugin-runner").join(plugin_id).canonicalize().map_err(|_| "staged plugin package missing")?;
-    let supplied = PathBuf::from(package_path).canonicalize().map_err(|_| "staged plugin package missing")?;
-    if supplied != expected { return Err("plugin runner package is not host staged".into()); }
-    let relative = Path::new(entry);
-    if relative.is_absolute() || relative.components().any(|part| !matches!(part, std::path::Component::Normal(_))) {
-        return Err("invalid plugin runner entry".into());
-    }
-    let target = expected.join(relative).canonicalize().map_err(|_| "plugin runner entry missing")?;
-    if !target.is_file() || !target.starts_with(&expected) { return Err("plugin runner entry escaped staged package".into()); }
-    Ok(expected)
-}
-
-#[tauri::command]
-fn plugin_runner_stage(app: tauri::AppHandle, state: State<'_, PluginRunnerState>, plugin_id: String, files: HashMap<String, String>) -> Result<String, String> {
-    if !valid_plugin_runner_id(&plugin_id) || files.is_empty() || files.len() > 256 {
-        return Err("invalid plugin runner package".into());
-    }
-    let root = app.path().app_cache_dir().map_err(|error| error.to_string())?.join("plugin-runner").join(&plugin_id);
-    if state.processes.lock().map_err(|_| "plugin runner state poisoned")?.values().any(|process| process.plugin_id == plugin_id) {
-        return Err("plugin runner package is active".into());
-    }
-    if root.exists() { fs::remove_dir_all(&root).map_err(|error| error.to_string())?; }
-    fs::create_dir_all(&root).map_err(|error| error.to_string())?;
-    let mut total = 0usize;
-    let stage_result = (|| -> Result<(), String> { for (name, encoded) in files {
-        let relative = Path::new(&name);
-        if relative.is_absolute() || relative.components().any(|part| !matches!(part, std::path::Component::Normal(_))) {
-            return Err("invalid plugin runner file path".into());
-        }
-        let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).map_err(|_| "invalid plugin runner file")?;
-        total = total.saturating_add(bytes.len());
-        if total > 64 * 1024 * 1024 { return Err("plugin runner package exceeds limit".into()); }
-        let target = root.join(relative);
-        if let Some(parent) = target.parent() { fs::create_dir_all(parent).map_err(|error| error.to_string())?; }
-        fs::write(target, bytes).map_err(|error| error.to_string())?;
-    } Ok(()) })();
-    if let Err(error) = stage_result { let _ = fs::remove_dir_all(&root); return Err(error); }
-    Ok(root.to_string_lossy().into_owned())
-}
-
-fn stop_plugin_runner_process(process: &mut PluginRunnerProcess) {
-    let pid = process.child.id();
-    #[cfg(target_os = "windows")]
-    {
-        let _ = background_command("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
-    #[cfg(not(target_os = "windows"))]
-    let _ = process.child.kill();
-    let _ = process.child.wait();
-    let _ = fs::remove_dir_all(&process.package_root);
-}
-
-fn plugin_runner_command(runner: &Path, package_path: &str, entry: &str, args: &[String]) -> Command {
-    let mut command = background_command(runner);
-    command.env_clear().args([package_path, entry]).args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
-    command
-}
-
-#[tauri::command]
-fn plugin_runner_start(
-    app: tauri::AppHandle,
-    state: State<'_, PluginRunnerState>,
-    session_id: String,
-    plugin_id: String,
-    package_path: String,
-    entry: String,
-    args: Vec<String>,
-) -> Result<serde_json::Value, String> {
-    if !valid_runner_value(&session_id, 128)
-        || !valid_plugin_runner_id(&plugin_id)
-        || !valid_runner_value(&package_path, 4096)
-        || !valid_runner_value(&entry, 256)
-        || args.len() > 32
-        || args.iter().any(|value| !valid_runner_value(value, 2048))
-    {
-        return Err("invalid plugin runner launch request".into());
-    }
-    let mut processes = state.processes.lock().map_err(|_| "plugin runner state poisoned")?;
-    if processes.contains_key(&session_id) {
-        return Err("plugin runner session already exists".into());
-    }
-    let cache_dir = app.path().app_cache_dir().map_err(|error| error.to_string())?;
-    let package_root = validate_staged_runner_path(&cache_dir, &plugin_id, &package_path, &entry)?;
-    let runner_name = if cfg!(target_os = "windows") { "cnrp-runner.exe" } else { "cnrp-runner" };
-    let resource_dir = match app.path().resource_dir() {
-        Ok(path) => path,
-        Err(error) => { let _ = fs::remove_dir_all(&package_root); return Err(error.to_string()); }
-    };
-    let runner = resource_dir.join("plugin-runner").join(runner_name);
-    if !runner.is_file() {
-        let _ = fs::remove_dir_all(&package_root);
-        return Err(format!("bundled plugin runner missing: {}", runner.display()));
-    }
-    let mut command = plugin_runner_command(&runner, &package_path, &entry, &args);
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) => { let _ = fs::remove_dir_all(&package_root); return Err(error.to_string()); }
-    };
-    let setup = (|| -> Result<(ChildStdin, _), String> {
-        let stdin = child.stdin.take().ok_or("runner stdin unavailable")?;
-        let stdout = child.stdout.take().ok_or("runner stdout unavailable")?;
-        Ok((stdin, stdout))
-    })();
-    let (mut stdin, mut stdout) = match setup {
-        Ok(value) => value,
-        Err(error) => { let _ = child.kill(); let _ = child.wait(); let _ = fs::remove_dir_all(&package_root); return Err(error); }
-    };
-    let mut credential_bytes = [0u8; 32];
-    OsRng.fill_bytes(&mut credential_bytes);
-    let credential = hex::encode(credential_bytes);
-    let credential_proof = hex::encode(Sha256::digest(format!("{}\0{}\0{}", credential, plugin_id, session_id).as_bytes()));
-    // Windows has no inherited FD 3 here; use a bounded prelude before framed RPC stdin.
-    let mut prelude = b"CNRP-CREDENTIAL\0".to_vec();
-    prelude.extend_from_slice(&(credential.len() as u32).to_le_bytes());
-    prelude.extend_from_slice(credential.as_bytes());
-    if let Err(error) = stdin.write_all(&prelude).and_then(|_| stdin.flush()) {
-        let _ = child.kill(); let _ = child.wait(); let _ = fs::remove_dir_all(&package_root); return Err(error.to_string());
-    }
-    let pid = child.id();
-    processes.insert(session_id.clone(), PluginRunnerProcess { child, stdin, package_root, plugin_id });
-    drop(processes);
-    let event_app = app.clone();
-    let event_session = session_id.clone();
-    let process_state = state.processes.clone();
-    std::thread::spawn(move || {
-        let mut bytes = [0u8; 16 * 1024];
-        loop {
-            match stdout.read(&mut bytes) {
-                Ok(0) | Err(_) => break,
-                Ok(count) => {
-                    let _ = event_app.emit("cyrene-plugin-rpc", json!({ "sessionId": event_session, "bytes": &bytes[..count] }));
-                }
-            }
-        }
-        let _ = event_app.emit("cyrene-plugin-rpc", json!({ "sessionId": event_session, "closed": true }));
-        if let Ok(mut processes) = process_state.lock() {
-            if let Some(mut process) = processes.remove(&event_session) { stop_plugin_runner_process(&mut process); }
-        }
-    });
-    Ok(json!({ "sessionId": session_id, "pid": pid, "event": "cyrene-plugin-rpc", "credentialProof": credential_proof }))
-}
-
-#[tauri::command]
-fn plugin_runner_send(state: State<'_, PluginRunnerState>, session_id: String, bytes: Vec<u8>) -> Result<(), String> {
-    if bytes.is_empty() || bytes.len() > 1024 * 1024 + 4 {
-        return Err("invalid plugin runner frame".into());
-    }
-    let mut processes = state.processes.lock().map_err(|_| "plugin runner state poisoned")?;
-    let process = processes.get_mut(&session_id).ok_or("plugin runner session not found")?;
-    process.stdin.write_all(&bytes).and_then(|_| process.stdin.flush()).map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn plugin_runner_stop(state: State<'_, PluginRunnerState>, session_id: String) -> Result<bool, String> {
-    let mut processes = state.processes.lock().map_err(|_| "plugin runner state poisoned")?;
-    let Some(mut process) = processes.remove(&session_id) else { return Ok(false) };
-    stop_plugin_runner_process(&mut process);
-    Ok(true)
-}
-
-#[tauri::command]
-fn plugin_runner_stop_all(state: State<'_, PluginRunnerState>) -> Result<usize, String> {
-    let mut processes = state.processes.lock().map_err(|_| "plugin runner state poisoned")?;
-    let count = processes.len();
-    for (_, mut process) in processes.drain() { stop_plugin_runner_process(&mut process); }
-    Ok(count)
-}
 
 fn normalize_floating_window_size(value: Option<f64>) -> i32 {
     let Some(value) = value.filter(|value| value.is_finite()) else {
@@ -895,11 +662,6 @@ fn apply_core_state_update(
             next_values["balance"] = balance.clone();
             envelope.state.balance = balance;
         }
-        "prizes" => {
-            if !value.is_object() || value.get("lists").and_then(Value::as_object).is_none() || value.get("records").and_then(Value::as_array).is_none() { return Err("CORE_TRANSACTION_REJECTED".into()); }
-            next_values["prizes"] = value.clone();
-            envelope.state.prizes = value;
-        }
         _ => return Err("PLUGIN_PERMISSION_DENIED".into()),
     }
     let envelope = core_state::seal(envelope, mac_key)?;
@@ -961,10 +723,6 @@ fn core_draw_execute(
             return Err(error);
         }
     };
-    if let Err(error) = core_state::verify_bound_values(&old_values, &envelope) {
-        authority.readonly.store(true, Ordering::Release);
-        return Err(error);
-    }
     envelope.state.names = json!({
         "currentListId": old_values.get("currentListId").cloned().unwrap_or_else(|| json!("default")),
         "lists": old_values.get("lists").cloned().unwrap_or_else(|| json!({}))
@@ -1040,7 +798,7 @@ fn core_draw_execute(
         records.insert(0, json!({ "personId": if result["isGroup"].as_bool().unwrap_or(false) { Value::Null } else { result["id"].clone() }, "listId": receipt["listId"], "groupId": if result["isGroup"].as_bool().unwrap_or(false) { result["id"].clone() } else { Value::Null }, "source": if request.caller_kind == "plugin" { format!("plugin:{}", request.plugin_id) } else { "roller".into() }, "pluginId": if request.caller_kind == "plugin" { request.plugin_id.clone() } else { String::new() }, "operationId": receipt["operationId"], "time": committed_at }));
     }
     records.truncate(500);
-    let next_state = core_state::CoreState { schema_version: core_state::CORE_SCHEMA_VERSION, sequence: envelope.state.sequence + 1, previous_hash, receipt_hash: receipt_hash.clone(), algorithm: core_state::ALGORITHM_NAME.into(), algorithm_version: core_state::ALGORITHM_VERSION.into(), names: envelope.state.names.clone(), balance: envelope.state.balance.clone(), statistics: statistics.clone(), records: Value::Array(records.clone()), prizes: envelope.state.prizes.clone() };
+    let next_state = core_state::CoreState { schema_version: core_state::CORE_SCHEMA_VERSION, sequence: envelope.state.sequence + 1, previous_hash, receipt_hash: receipt_hash.clone(), algorithm: core_state::ALGORITHM_NAME.into(), algorithm_version: core_state::ALGORITHM_VERSION.into(), names: envelope.state.names.clone(), balance: envelope.state.balance.clone(), statistics: statistics.clone(), records: Value::Array(records.clone()) };
     let next_envelope = core_state::seal(core_state::CoreStateEnvelope { schema_version: core_state::CORE_SCHEMA_VERSION, state: next_state, state_mac: String::new() }, &key)?;
     receipt["receiptHash"] = json!(receipt_hash);
     let mut next_values = old_values.clone();
@@ -1089,10 +847,6 @@ fn core_card_commit(
             return Err(error);
         }
     };
-    if let Err(error) = core_state::verify_bound_values(&old_values, &envelope) {
-        authority.readonly.store(true, Ordering::Release);
-        return Err(error);
-    }
     envelope.state.names = json!({
         "currentListId": old_values.get("currentListId").cloned().unwrap_or_else(|| json!("default")),
         "lists": old_values.get("lists").cloned().unwrap_or_else(|| json!({}))
@@ -1164,7 +918,6 @@ fn core_card_commit(
         balance: envelope.state.balance.clone(),
         statistics: envelope.state.statistics.clone(),
         records: Value::Array(records.clone()),
-        prizes: envelope.state.prizes.clone(),
     };
     let next_envelope = core_state::seal(core_state::CoreStateEnvelope {
         schema_version: core_state::CORE_SCHEMA_VERSION,
@@ -1290,7 +1043,6 @@ fn apply_core_maintenance(
         balance: balance.clone(),
         statistics: statistics.clone(),
         records: Value::Array(records.clone()),
-        prizes: envelope.state.prizes.clone(),
     };
     let next_envelope = core_state::seal(core_state::CoreStateEnvelope {
         schema_version: core_state::CORE_SCHEMA_VERSION,
@@ -1697,10 +1449,6 @@ fn decrypt_data(bytes: &[u8]) -> Result<serde_json::Value, String> {
 // 保存主窗口的尺寸、位置与最大化状态，供下次启动恢复
 fn save_window_state(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        // 最小化期间 outer_size() 返回幻影尺寸（约 160x31），绝不能存盘
-        if window.is_minimized().unwrap_or(false) {
-            return;
-        }
         if let Ok(size) = window.outer_size() {
             let store = app.state::<EncryptedStore>();
             if store.is_healthy().is_ok() {
@@ -1715,26 +1463,6 @@ fn save_window_state(app: &tauri::AppHandle) {
             }
         }
     }
-}
-
-// 与 tauri.conf.json 的 minWidth/minHeight 保持一致
-const MAIN_WINDOW_MIN_LOGICAL_WIDTH: f64 = 900.0;
-const MAIN_WINDOW_MIN_LOGICAL_HEIGHT: f64 = 600.0;
-
-// 恢复尺寸时钳制范围：上限防超出显示器，下限兜底自愈历史脏数据（最小化幻影尺寸等）
-fn clamp_main_window_size(
-    mut width: u32,
-    mut height: u32,
-    monitor_size: Option<(u32, u32)>,
-    scale_factor: f64,
-) -> (u32, u32) {
-    if let Some((monitor_width, monitor_height)) = monitor_size {
-        width = width.min((monitor_width as f64 * 0.9) as u32);
-        height = height.min((monitor_height as f64 * 0.86) as u32);
-    }
-    let min_width = (MAIN_WINDOW_MIN_LOGICAL_WIDTH * scale_factor) as u32;
-    let min_height = (MAIN_WINDOW_MIN_LOGICAL_HEIGHT * scale_factor) as u32;
-    (width.max(min_width), height.max(min_height))
 }
 
 // 恢复尺寸后重新居中，并限制在当前显示器内，避免高 DPI 下窗口被挤到屏幕边缘。
@@ -1765,15 +1493,12 @@ fn restore_window_state(app: &tauri::AppHandle) {
             .outer_size()
             .ok()
             .map(|size| (size.width, size.height));
-        if let Some((width, height)) = saved_size.or(current_size) {
-            let monitor_size = window
-                .current_monitor()
-                .ok()
-                .flatten()
-                .map(|monitor| (monitor.size().width, monitor.size().height));
-            let scale_factor = window.scale_factor().unwrap_or(1.0);
-            let (width, height) =
-                clamp_main_window_size(width, height, monitor_size, scale_factor);
+        if let Some((mut width, mut height)) = saved_size.or(current_size) {
+            if let Ok(Some(monitor)) = window.current_monitor() {
+                let monitor_size = monitor.size();
+                width = width.min((monitor_size.width as f64 * 0.9) as u32);
+                height = height.min((monitor_size.height as f64 * 0.86) as u32);
+            }
             let _ = window.set_size(tauri::PhysicalSize::new(width, height));
         }
         let _ = window.center();
@@ -2554,219 +2279,6 @@ async fn plugin_select_directory(app: tauri::AppHandle) -> Result<serde_json::Va
         "name": path.file_name().and_then(OsStr::to_str).unwrap_or("directory"),
         "path": path.to_string_lossy()
     }))
-}
-
-#[tauri::command]
-fn core_prize_execute(
-    store: State<'_, EncryptedStore>,
-    authority: State<'_, CoreAuthorityState>,
-    request: RustPrizeRequest,
-) -> Result<Value, String> {
-    if request.caller_kind != "core-ui" || request.principal != "core-ui" || request.plugin_id != "core" { return Err("PLUGIN_PERMISSION_DENIED".into()); }
-    if request.operation != "lottery-draw" && request.operation != "prize-assignment" { return Err("CORE_TRANSACTION_REJECTED".into()); }
-    authority.authorize(&request.grant_token, &request.principal)?;
-    let _transaction = authority.transaction.lock().map_err(|_| "CORE_TRANSACTION_REJECTED".to_string())?;
-    let key = core_data_key()?;
-    let old_values = store.values.lock().map_err(|_| "CORE_TRANSACTION_REJECTED".to_string())?.clone();
-    let mut envelope = core_state::parse(&old_values, &key)?;
-    if let Err(error) = core_state::verify_bound_values(&old_values, &envelope) {
-        authority.readonly.store(true, Ordering::Release);
-        return Err(error);
-    }
-    let input = request.input.as_object().ok_or_else(|| "CORE_TRANSACTION_REJECTED".to_string())?;
-    if input.keys().any(|field| !matches!(field.as_str(), "listId" | "count" | "peopleListId" | "gender")) { return Err("CORE_TRANSACTION_REJECTED".into()); }
-    let list_id = input.get("listId").and_then(Value::as_str).unwrap_or("");
-    let count = input.get("count").and_then(Value::as_u64).unwrap_or(1).clamp(1, 100) as usize;
-    let people_list_id = input.get("peopleListId").and_then(Value::as_str).unwrap_or("");
-    let gender = match input.get("gender").and_then(Value::as_str) { Some("male") => "male", Some("female") => "female", _ => "all" };
-    let mut people = if request.operation == "prize-assignment" {
-        envelope.state.names.get("lists").and_then(|lists| lists.get(people_list_id)).and_then(|list| list.get("names")).and_then(Value::as_array).map(|names| names.iter().filter(|person| person["id"].as_str().is_some_and(|id| !id.is_empty()) && person["cn"].as_str().is_some_and(|name| !name.is_empty()) && !person["isWhiteList"].as_bool().unwrap_or(false) && (gender == "all" || person["gender"].as_str() == Some(gender))).cloned().collect::<Vec<_>>()).unwrap_or_default()
-    } else { Vec::new() };
-    for index in (1..people.len()).rev() {
-        let mut random = [0u8; 8];
-        OsRng.fill_bytes(&mut random);
-        let selected = (u64::from_le_bytes(random) as usize) % (index + 1);
-        people.swap(index, selected);
-    }
-    if request.operation == "prize-assignment" && people.len() < count { return Err("CORE_TRANSACTION_REJECTED".into()); }
-    let mut prizes_state = envelope.state.prizes.clone();
-    let mut records = prizes_state.get("records").and_then(Value::as_array).cloned().unwrap_or_default();
-    let list = prizes_state.get_mut("lists").and_then(Value::as_object_mut).and_then(|lists| lists.get_mut(list_id)).and_then(Value::as_object_mut).ok_or_else(|| "CORE_TRANSACTION_REJECTED".to_string())?;
-    let prize_items = list.get_mut("prizes").and_then(Value::as_array_mut).ok_or_else(|| "CORE_TRANSACTION_REJECTED".to_string())?;
-    let mut results = Vec::new();
-    for index in 0..count {
-        let available: Vec<usize> = prize_items.iter().enumerate().filter(|(_, prize)| prize.get("quantity").and_then(Value::as_u64).unwrap_or(0) > 0).map(|(index, _)| index).collect();
-        if available.is_empty() { return Err("CORE_TRANSACTION_REJECTED".into()); }
-        let mut random = [0u8; 8]; OsRng.fill_bytes(&mut random);
-        let total_weight: f64 = available.iter().map(|index| prize_items[*index].get("weight").and_then(Value::as_f64).unwrap_or(1.0).max(0.01)).sum();
-        let mut cursor = (u64::from_le_bytes(random) as f64 / (u64::MAX as f64 + 1.0)) * total_weight;
-        let selected_index = available.iter().copied().find(|index| { cursor -= prize_items[*index].get("weight").and_then(Value::as_f64).unwrap_or(1.0).max(0.01); cursor < 0.0 }).unwrap_or(*available.last().unwrap());
-        let selected = &mut prize_items[selected_index];
-        selected["quantity"] = json!(selected["quantity"].as_u64().unwrap_or(0) - 1);
-        let person = if request.operation == "prize-assignment" { people[index].clone() } else { Value::Null };
-        let mut result = json!({ "id": selected["id"], "name": selected["name"], "quality": selected["quality"].as_str().unwrap_or("") });
-        if request.operation == "prize-assignment" { result["person"] = json!({ "id": person["id"], "name": person["cn"].as_str().unwrap_or(""), "englishName": person["en"].as_str().unwrap_or("") }); }
-         records.insert(0, json!({ "id": format!("core-prize-{}-{}", chrono_like_now(), index), "prizeId": selected["id"], "prizeListId": list_id, "personId": person.get("id").cloned().unwrap_or(Value::Null), "peopleListId": input.get("peopleListId").cloned().unwrap_or(Value::Null), "mode": if request.operation == "prize-assignment" { "assign" } else { "draw" }, "time": chrono_like_now() }));
-        results.push(result);
-    }
-    records.truncate(500);
-    prizes_state["records"] = Value::Array(records.clone());
-    envelope.state.prizes = prizes_state.clone();
-    let committed_at = chrono_like_now();
-    let operation_id = if request.operation_id.is_empty() { format!("prize-{}", committed_at) } else { request.operation_id.clone() };
-    let mut receipt = json!({ "kind": request.operation, "operationId": operation_id, "pluginId": "core", "listId": list_id, "count": results.len(), "committedAt": committed_at, "results": results });
-    let previous_hash = core_state::hash_state(&core_state::parse(&old_values, &key)?)?;
-    receipt["sequence"] = json!(envelope.state.sequence + 1);
-    receipt["previousHash"] = json!(previous_hash.clone());
-    let receipt_hash = core_state::receipt_hash(&receipt)?;
-    envelope.state.sequence += 1;
-    envelope.state.previous_hash = previous_hash;
-    envelope.state.receipt_hash = receipt_hash.clone();
-    let next_envelope = core_state::seal(envelope, &key)?;
-    receipt["receiptHash"] = json!(receipt_hash);
-    let mut next_values = old_values.clone();
-    next_values["prizes"] = prizes_state;
-    next_values[core_state::CORE_STATE_KEY] = core_state::to_value(&next_envelope)?;
-    *store.values.lock().map_err(|_| "CORE_TRANSACTION_REJECTED".to_string())? = next_values;
-    if let Err(error) = store.persist() { *store.values.lock().map_err(|_| "CORE_TRANSACTION_ROLLED_BACK".to_string())? = old_values; let _ = store.persist(); return Err(format!("CORE_TRANSACTION_ROLLED_BACK: {}", error)); }
-    Ok(json!({ "receipt": receipt, "prizes": next_envelope.state.prizes, "sequence": next_envelope.state.sequence }))
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RustPrizeRequest { grant_token: String, principal: String, caller_kind: String, plugin_id: String, operation_id: String, operation: String, input: Value }
-
-fn reject_reparse_components(root: &Path, target: &Path) -> Result<(), String> {
-    let relative = target.strip_prefix(root).map_err(|_| "插件文件路径越界")?;
-    let mut current = root.to_path_buf();
-    for component in relative.components() {
-        current.push(component);
-        let metadata = fs::symlink_metadata(&current).map_err(|_| "插件文件不存在")?;
-        if metadata.file_type().is_symlink() {
-            return Err("插件文件路径包含符号链接或重解析点".into());
-        }
-    }
-    Ok(())
-}
-
-fn open_plugin_file(path: &Path, write: bool) -> Result<fs::File, String> {
-    let mut options = OpenOptions::new();
-    options.read(!write).write(write).truncate(write);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(0x20000);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        options.custom_flags(0x00200000);
-    }
-    let file = options.open(path).map_err(|error| error.to_string())?;
-    let metadata = file.metadata().map_err(|error| error.to_string())?;
-    let is_reparse = metadata.file_type().is_symlink()
-        || {
-            #[cfg(target_os = "windows")]
-            { use std::os::windows::fs::MetadataExt; metadata.file_attributes() & 0x400 != 0 }
-            #[cfg(not(target_os = "windows"))]
-            { false }
-        };
-    if !metadata.is_file() || is_reparse { return Err("插件文件不是普通文件".into()); }
-    Ok(file)
-}
-
-fn plugin_package_path(package_root: &Path, relative: &str) -> Result<PathBuf, String> {
-    if relative.is_empty() {
-        return Err("插件文件路径无效".into());
-    }
-    let root = package_root.canonicalize().map_err(|_| "插件包不存在")?;
-    let relative = Path::new(relative);
-    if relative.is_absolute() || relative.components().any(|part| !matches!(part, std::path::Component::Normal(_))) {
-        return Err("插件文件路径无效".into());
-    }
-    let lexical = root.join(relative);
-    reject_reparse_components(&root, &lexical)?;
-    let target = lexical.canonicalize().map_err(|_| "插件文件不存在")?;
-    if !target.starts_with(&root) { return Err("插件文件路径越界".into()); }
-    Ok(target)
-}
-
-fn plugin_session_root<'a>(state: &'a PluginRunnerState, session_id: &str, plugin_id: &str) -> Result<PathBuf, String> {
-    if !valid_runner_value(session_id, 128) || !valid_plugin_runner_id(plugin_id) { return Err("插件会话身份无效".into()); }
-    let processes = state.processes.lock().map_err(|_| "plugin runner state poisoned")?;
-    let process = processes.get(session_id).ok_or("plugin runner session not found")?;
-    if process.plugin_id != plugin_id { return Err("plugin runner session identity mismatch".into()); }
-    Ok(process.package_root.clone())
-}
-
-#[tauri::command]
-fn plugin_files_read(state: State<'_, PluginRunnerState>, audit: State<'_, PluginAuditState>, plugin_id: String, session_id: String, path: String) -> Result<serde_json::Value, String> {
-    let root = plugin_session_root(&state, &session_id, &plugin_id)?;
-    let target = plugin_package_path(&root, &path)?;
-    let file = open_plugin_file(&target, false)?;
-    let metadata = file.metadata().map_err(|error| error.to_string())?;
-    if !metadata.is_file() || metadata.len() > 32 * 1024 * 1024 { return Err("插件文件大小或类型无效".into()); }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    file.take(32 * 1024 * 1024 + 1).read_to_end(&mut bytes).map_err(|error| error.to_string())?;
-    if bytes.len() > 32 * 1024 * 1024 { return Err("插件文件大小或类型无效".into()); }
-    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
-    audit.append(json!({ "pluginId": plugin_id, "sessionId": session_id, "method": "files.read", "resource": path, "decision": "allow", "bytes": metadata.len() }));
-    Ok(json!({ "path": path, "data": data, "size": metadata.len() }))
-}
-
-#[tauri::command]
-fn plugin_files_write(state: State<'_, PluginRunnerState>, audit: State<'_, PluginAuditState>, plugin_id: String, session_id: String, path: String, data: String) -> Result<serde_json::Value, String> {
-    let root = plugin_session_root(&state, &session_id, &plugin_id)?;
-    if data.len() > 32 * 1024 * 1024 { return Err("插件写入请求无效".into()); }
-    let target = plugin_package_path(&root, &path)?;
-    let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|_| "插件文件数据无效")?;
-    if bytes.len() > 32 * 1024 * 1024 { return Err("插件文件大小超限".into()); }
-    reject_reparse_components(&root, &target)?;
-    let mut file = open_plugin_file(&target, true)?;
-    file.write_all(&bytes).map_err(|error| error.to_string())?;
-    let size = fs::metadata(&target).map_err(|error| error.to_string())?.len();
-    audit.append(json!({ "pluginId": plugin_id, "sessionId": session_id, "method": "files.write", "resource": path, "decision": "allow", "bytes": size }));
-    Ok(json!({ "path": path, "size": size }))
-}
-
-fn public_socket(host: &str, port: u16) -> Result<std::net::SocketAddr, String> {
-    let mut addresses = (host, port).to_socket_addrs().map_err(|_| "网络地址解析失败")?;
-    addresses.find(|address| match address.ip() { IpAddr::V4(ip) => !(ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified()), IpAddr::V6(ip) => !(ip.is_loopback() || ip.is_unique_local() || ip.is_unicast_link_local() || ip.is_unspecified()) }).ok_or_else(|| "网络地址被拒绝".into())
-}
-
-#[tauri::command]
-async fn plugin_net_request(state: State<'_, PluginRunnerState>, audit: State<'_, PluginAuditState>, plugin_id: String, session_id: String, url: String, method: Option<String>, headers: Option<HashMap<String, String>>, body: Option<String>) -> Result<serde_json::Value, String> {
-    let _ = plugin_session_root(&state, &session_id, &plugin_id)?;
-    if body.as_ref().is_some_and(|value| value.len() > 1024 * 1024) || headers.as_ref().is_some_and(|values| values.len() > 64 || values.iter().any(|(key, value)| key.len() > 256 || value.len() > 8192)) {
-        return Err("网络请求大小超限".into());
-    }
-    let parsed = reqwest::Url::parse(&url).map_err(|_| "网络地址无效")?;
-    let audit_host = parsed.host_str().unwrap_or_default().to_string();
-    if !matches!(parsed.scheme(), "http" | "https") { return Err("网络协议被拒绝".into()); }
-    let host = parsed.host_str().ok_or("网络主机无效")?;
-    let address = public_socket(host, parsed.port_or_known_default().ok_or("网络端口无效")?)?;
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(15)).redirect(reqwest::redirect::Policy::none()).resolve(host, address).build().map_err(|error| error.to_string())?;
-    let request = client.request(method.as_deref().unwrap_or("GET").parse().map_err(|_| "网络方法无效")?, parsed).headers(headers.unwrap_or_default().into_iter().filter_map(|(key, value)| Some((key.parse().ok()?, value.parse().ok()?))).collect()).body(body.unwrap_or_default());
-    let result = tokio::time::timeout(Duration::from_secs(15), async {
-        let response = request.send().await.map_err(|error| error.to_string())?;
-        let status = response.status().as_u16();
-        let response_headers = response.headers().iter().filter_map(|(key, value)| {
-            let value = value.to_str().ok()?;
-            (value.len() <= 8192).then(|| (key.to_string(), value.to_string()))
-        }).take(64).collect::<HashMap<_, _>>();
-        let mut bytes = Vec::new();
-        let mut response = response;
-        while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
-            if bytes.len().saturating_add(chunk.len()) > 1024 * 1024 { return Err("网络响应大小超限".to_string()); }
-            bytes.extend_from_slice(&chunk);
-        }
-        Ok(json!({ "status": status, "headers": response_headers, "body": bytes, "bodyBytes": bytes.len() }))
-    }).await.map_err(|_| "网络请求超时")??;
-    if result["status"].as_u64().is_some_and(|status| (300..400).contains(&status)) {
-        return Err("网络重定向被拒绝".into());
-    }
-    audit.append(json!({ "pluginId": plugin_id, "sessionId": session_id, "method": "net.request", "resource": audit_host, "decision": "allow", "bytes": result["bodyBytes"] }));
-    Ok(result)
 }
 
 #[tauri::command]
@@ -3876,8 +3388,6 @@ pub fn run() {
             app.manage(encrypted_store);
             app.manage(MainWindowRevealState::new());
             app.manage(UriRequestState::new());
-            app.manage(PluginRunnerState::new());
-            app.manage(PluginAuditState { records: Mutex::new(Vec::new()) });
             let handle = app.handle().clone();
             start_instance_listener(instance_listener, handle.clone());
             if let Some(uri) = launch_uri.clone() {
@@ -3933,7 +3443,6 @@ pub fn run() {
             core_revoke_principal,
             core_state_set,
             core_draw_execute,
-            core_prize_execute,
             core_card_commit,
             core_maintenance_execute,
             export_encrypted_data,
@@ -3944,16 +3453,7 @@ pub fn run() {
             open_text_file,
             plugin_select_file,
             plugin_select_directory,
-            plugin_audit_append,
-            plugin_files_read,
-            plugin_files_write,
-            plugin_net_request,
             plugin_execute_operation,
-            plugin_runner_stage,
-            plugin_runner_start,
-            plugin_runner_send,
-            plugin_runner_stop,
-            plugin_runner_stop_all,
             read_dropped_file,
             load_names,
             load_changelog,
@@ -3988,72 +3488,17 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_core_maintenance, apply_core_state_update, center_floating_window, clear_non_core_values, clamp_main_window_size, constrain_floating_window_position,
+        apply_core_maintenance, apply_core_state_update, center_floating_window, clear_non_core_values, constrain_floating_window_position,
         floating_window_position_visible, floating_window_region_geometry, is_cyrene_uri,
         launch_uri_from_arguments,
         normalize_floating_window_size, read_safe_mode_status, resize_floating_window_position,
         configured_data_path, core_data_key_for, data_key, data_path_for_mode, is_core_storage_key,
         portable_marker_path, valid_core_principal,
-        plugin_runner_command, validate_staged_runner_path, valid_plugin_runner_id, valid_runner_value,
-        plugin_package_path,
         validate_core_card_caller, validate_core_caller, validate_core_maintenance_request,
         CoreMaintenanceRequest, EncryptedStore, RustCardCommitRequest, RustCardInput,
         RustDrawInput, RustDrawRequest,
     };
     use serde_json::json;
-
-    #[test]
-    fn plugin_runner_command_keeps_credential_off_argv_and_environment() {
-        let command = plugin_runner_command(
-            std::path::Path::new("cnrp-runner"),
-            "package-root",
-            "plugin.mjs",
-            &["--safe".into()],
-        );
-        let args: Vec<String> = command.get_args().map(|value| value.to_string_lossy().into_owned()).collect();
-        assert_eq!(args, ["package-root", "plugin.mjs", "--safe"]);
-        assert!(!args.iter().any(|value| value.contains("credential")));
-        assert!(!command.get_envs().any(|(key, _)| key.to_string_lossy().contains("CREDENTIAL")));
-        assert_eq!(command.get_envs().count(), 0);
-        assert!(valid_runner_value("instance-1", 128));
-        assert!(!valid_runner_value("bad\ninstance", 128));
-        assert!(valid_plugin_runner_id("cn.example.plugin"));
-        assert!(!valid_plugin_runner_id("../escape"));
-    }
-
-    #[test]
-    fn plugin_runner_start_accepts_only_host_staged_package_and_confined_entry() {
-        let root = std::env::temp_dir().join(format!("cyrene-runner-path-{}", std::process::id()));
-        let staged = root.join("plugin-runner").join("cn.example.plugin");
-        let other = root.join("other");
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&staged).unwrap();
-        std::fs::create_dir_all(&other).unwrap();
-        std::fs::write(staged.join("plugin.js"), b"plugin").unwrap();
-        std::fs::write(other.join("plugin.js"), b"plugin").unwrap();
-        assert_eq!(validate_staged_runner_path(&root, "cn.example.plugin", staged.to_str().unwrap(), "plugin.js").unwrap(), staged.canonicalize().unwrap());
-        assert!(validate_staged_runner_path(&root, "cn.example.plugin", other.to_str().unwrap(), "plugin.js").is_err());
-        assert!(validate_staged_runner_path(&root, "cn.example.plugin", staged.to_str().unwrap(), "../other/plugin.js").is_err());
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn plugin_package_path_rejects_symlinked_components() {
-        let root = std::env::temp_dir().join(format!("cyrene-package-path-{}", std::process::id()));
-        let outside = root.join("outside");
-        let package = root.join("package");
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&package).unwrap();
-        std::fs::create_dir_all(&outside).unwrap();
-        std::fs::write(outside.join("secret.txt"), b"secret").unwrap();
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&outside, package.join("link")).unwrap();
-        #[cfg(windows)]
-        std::os::windows::fs::symlink_dir(&outside, package.join("link")).unwrap();
-        #[cfg(any(unix, windows))]
-        assert!(plugin_package_path(&package, "link/secret.txt").is_err());
-        let _ = std::fs::remove_dir_all(root);
-    }
 
     #[test]
     fn portable_marker_selects_installation_data_path() {
@@ -4137,35 +3582,6 @@ mod tests {
         assert_eq!(normalize_floating_window_size(Some(66.0)), 68);
         assert_eq!(normalize_floating_window_size(Some(200.0)), 200);
         assert_eq!(normalize_floating_window_size(Some(300.0)), 256);
-    }
-
-    #[test]
-    fn main_window_restore_heals_minimized_phantom_size() {
-        // 最小化幻影尺寸约 160x31，恢复时必须被钳制到最小可用尺寸
-        assert_eq!(
-            clamp_main_window_size(160, 31, Some((1920, 1080)), 1.0),
-            (900, 600)
-        );
-    }
-
-    #[test]
-    fn main_window_restore_clamps_oversized_to_monitor() {
-        assert_eq!(
-            clamp_main_window_size(4000, 3000, Some((1920, 1080)), 1.0),
-            (1728, 928)
-        );
-    }
-
-    #[test]
-    fn main_window_restore_keeps_normal_size_and_scales_min() {
-        assert_eq!(
-            clamp_main_window_size(1200, 900, Some((1920, 1080)), 1.0),
-            (1200, 900)
-        );
-        assert_eq!(
-            clamp_main_window_size(160, 31, Some((2560, 1440)), 1.5),
-            (1350, 900)
-        );
     }
 
     #[test]

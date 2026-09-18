@@ -27,7 +27,6 @@ const DEFAULT_SETTINGS = {
   autoStop: false,
   autoStopDuration: 3,
   finishAnimation: 'spotlight',
-  decelerateFinish: false,
   stepStopInterval: 0.15,
   theme: 'default',
   colorTheme: 'peach',

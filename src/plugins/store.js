@@ -4,14 +4,12 @@ import { dataBridge } from '../utils/dataBridge'
 import { useNamesStore } from '../stores/names'
 import { useRecordsStore } from '../stores/records'
 import { useStatisticsStore } from '../stores/statistics'
-import { useSettingsStore } from '../stores/settings'
 import { ALGORITHM_NAME, ALGORITHM_VERSION, DEFAULT_CYRENE_BALANCE_SETTINGS, TARGET_GAP, normalizeCyreneBalanceSettings } from '../utils/cyrene-balance'
 import { getCoreClient } from '../core/client'
 import { emitPluginEvent } from './eventBus'
 import {
   parsePluginPackage,
-  satisfiesPluginVersion,
-  isPluginActivatable
+  satisfiesPluginVersion
 } from './package'
 import {
   PLUGIN_DOWNLOAD_SOURCES,
@@ -21,16 +19,12 @@ import {
 import { PluginRuntime } from './runtime'
 import { PluginAnimationRegistry } from './animationRegistry'
 import { PluginPlatformBridge } from './platform'
-import { AuditLog } from './api15/permissions.js'
-import { isTauri, tauriAPI } from '../utils/tauriAPI.js'
 import { repositorySlug, resolveCatalogRelease, fetchRepositoryOwner } from './catalog'
 import { validateCoreDrawArgs } from './coreDraw'
 import { getComponentTarget } from './ui/componentRegistry'
 import { styleVarsForTarget } from './ui/stylePolicy'
 import { PluginFontRegistry } from './ui/fontRegistry'
 import { overrideStateForTarget } from './ui/overridePolicy'
-import { createTauriRunner } from './rpc/desktopHost.js'
-import { CoreHookCoordinator } from './api15/coreHooks.js'
 
 const STATE_KEY = 'pluginState'
 const PLUGIN_DATA_KEY = 'pluginData'
@@ -88,38 +82,8 @@ export const usePluginsStore = defineStore('plugins', () => {
   const safeModeStatus = ref(Object.freeze({ enabled: false, source: 'default', stale: false, errorCode: '', diagnostic: '', path: '' }))
   const fontRegistry = new PluginFontRegistry()
   const animationRegistry = new PluginAnimationRegistry()
-  const auditLog = new AuditLog({ onRecord: record => {
-    if (isTauri()) tauriAPI.invoke('plugin_audit_append', { record }).catch(() => {})
-  } })
-  const platformBridge = new PluginPlatformBridge({ auditLog, handlers: {
-    filesRead: async (args, plugin) => {
-      if (plugin.manifest.files?.app?.scopes?.includes('read') !== true) throw Object.assign(new Error('插件未声明应用文件读取范围'), { code: 'FILE_SCOPE_DENIED' })
-      if (isTauri()) return tauriAPI.invokeStrict('plugin_files_read', { pluginId: plugin.manifest.id, sessionId: args.sessionId, path: args.path })
-      throw Object.assign(new Error('Web 环境不支持访问应用文件'), { code: 'UNSUPPORTED_PLATFORM' })
-    },
-    filesWrite: async (args, plugin) => {
-      if (plugin.manifest.files?.app?.scopes?.includes('write') !== true) throw Object.assign(new Error('插件未声明应用文件写入范围'), { code: 'FILE_SCOPE_DENIED' })
-      if (isTauri()) return tauriAPI.invokeStrict('plugin_files_write', { pluginId: plugin.manifest.id, sessionId: args.sessionId, path: args.path, data: args.data })
-      throw Object.assign(new Error('Web 环境不支持插件写入应用文件'), { code: 'UNSUPPORTED_PLATFORM' })
-    },
-    resolveHost: async hostname => {
-      const responses = await Promise.all(['A', 'AAAA'].map(type => fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=${type}`, { headers: { accept: 'application/dns-json' } })))
-      if (responses.some(response => !response.ok)) throw new Error('DNS resolution failed')
-      const records = await Promise.all(responses.map(response => response.json()))
-      return records.flatMap(data => (data.Answer || []).map(answer => answer.data).filter(Boolean))
-    },
-    netRequest: async (args, plugin, signal) => {
-      if (isTauri()) return tauriAPI.invokeStrict('plugin_net_request', { pluginId: plugin.manifest.id, sessionId: args.sessionId, url: args.url, method: args.method, headers: args.headers, body: args.body }, signal)
-      const response = await fetch(args.url, { method: args.method || 'GET', headers: args.headers, body: args.body, signal, redirect: 'manual' })
-      if (response.status >= 300 && response.status < 400) throw Object.assign(new Error('Web 环境不支持网络重定向'), { code: 'NETWORK_REDIRECT_DENIED' })
-      const body = await response.arrayBuffer()
-      return { status: response.status, headers: Object.fromEntries(response.headers), body: new Uint8Array(body), bodyBytes: body.byteLength }
-    },
-    addressBinding: false
-  }})
+  const platformBridge = new PluginPlatformBridge()
   const coreClient = getCoreClient()
-  const coreHooks = new CoreHookCoordinator({ onDisable: pluginId => { void disableFromHook(pluginId) } })
-  coreClient.setHookCoordinator(coreHooks)
 
   const runtime = new PluginRuntime({
     getPlugin: pluginId => installed.value[pluginId],
@@ -150,40 +114,7 @@ export const usePluginsStore = defineStore('plugins', () => {
     selectFile,
     playAudio,
     platformBridge,
-    onFault: handleRuntimeFault,
-    coreHooks,
-    pageStateAdapter: {
-      read(field) {
-        const settings = useSettingsStore().settings
-        if (field === 'language') return settings.language
-        if (field === 'theme') return settings.colorTheme || settings.theme
-        if (field === 'animation') return settings.finishAnimation
-        if (field === 'display') return settings.englishMode ? 'english' : 'native'
-        if (field === 'drawFilter') return { listId: useNamesStore().currentListId, target: settings.groupMode ? 'groups' : 'people', count: settings.multiMode ? settings.peopleCount : 1, gender: 'all', allowDuplicates: !settings.forbidDuplicates }
-      },
-      write(field, value) {
-        const settings = useSettingsStore()
-        if (field === 'language') return settings.update('language', value)
-        if (field === 'theme') return settings.update('colorTheme', value)
-        if (field === 'animation') return settings.update('finishAnimation', value)
-        if (field === 'display') return settings.update('englishMode', value === 'english')
-        if (field === 'drawFilter' && value && typeof value === 'object') return Promise.all([
-          value.listId ? useNamesStore().switchList(value.listId) : true,
-          settings.update('groupMode', value.target === 'groups'),
-          settings.update('multiMode', Number(value.count) > 1),
-          settings.update('peopleCount', Math.max(1, Number(value.count) || 1)),
-          settings.update('forbidDuplicates', value.allowDuplicates === false)
-        ])
-        throw new Error('state field is not writable')
-      }
-    },
-    runnerFactory: (plugin, instanceId) => platformBridge.info().runtime === 'tauri'
-      ? createTauriRunner({ pluginId: plugin.manifest.id, instanceId, files: plugin.files })
-      : null,
-    onApi15Message: (pluginId, message) => {
-      if (message.type === 'event') emitPluginEvent(message.event, { pluginId, payload: clone(message.payload) })
-      else if (message.type === 'fault') handleRuntimeFault(pluginId, new Error(message.error || 'Plugin runner fault'))
-    }
+    onFault: handleRuntimeFault
   })
 
   const enabledPlugins = computed(() => safeModeStatus.value.enabled ? [] : Object.values(installed.value).filter(plugin => plugin.enabled))
@@ -240,17 +171,6 @@ export const usePluginsStore = defineStore('plugins', () => {
   async function deactivatePluginRuntime(pluginId) {
     await runtime.deactivate(pluginId)
     await coreClient.revokePlugin(pluginId).catch(() => {})
-  }
-
-  async function disableFromHook(pluginId) {
-    const plugin = installed.value[pluginId]
-    if (!plugin || plugin.enabled === false) return
-    await deactivatePluginRuntime(pluginId).catch(() => {})
-    animationRegistry.unregisterPlugin(pluginId)
-    plugin.enabled = false
-    plugin.runtimeError = '插件钩子连续失败，已自动禁用'
-    await saveState(false).catch(() => {})
-    refreshPages()
   }
 
   async function executeCoreDraw(plugin, rawArgs = {}) {
@@ -323,17 +243,7 @@ export const usePluginsStore = defineStore('plugins', () => {
 
   function configureSafeMode(status) {
     safeModeStatus.value = Object.freeze({ ...status })
-    if (safeModeStatus.value.enabled) {
-      void runtime.deactivateAll()
-      installed.value = {}
-      animationSelections.value = {}
-      animationDurationScales.value = {}
-      componentStyleSelections.value = {}
-      componentOverrideSelections.value = {}
-      resultPresentationSelections.value = {}
-      fontRegistry.clear()
-      refreshPages()
-    }
+    if (safeModeStatus.value.enabled) refreshPages()
     return safeModeStatus.value
   }
 
@@ -409,11 +319,6 @@ export const usePluginsStore = defineStore('plugins', () => {
     if (safeModeStatus.value.enabled) return false
     const plugins = []
     for (const plugin of Object.values(installed.value).filter(item => item.enabled)) {
-      if (!isPluginActivatable(plugin.manifest)) {
-        plugin.enabled = false
-        plugin.runtimeError = '该插件需要迁移到 API 1.5，旧版本仅可查看'
-        continue
-      }
       const compatibility = compatibilityFor(plugin)
       plugin.platformCompatibility = compatibility
       if (!compatibility.compatible) {
@@ -492,7 +397,6 @@ export const usePluginsStore = defineStore('plugins', () => {
       runtimeError: '',
       recoveryDisabled: false
     }
-    if (!isPluginActivatable(candidate.manifest)) candidate.enabled = false
     const compatibility = compatibilityFor(candidate)
     candidate.platformCompatibility = compatibility
     if (!compatibility.compatible) {
@@ -574,7 +478,6 @@ export const usePluginsStore = defineStore('plugins', () => {
       await saveState(false)
       return true
     }
-    if (!isPluginActivatable(plugin.manifest)) throw Object.assign(new Error('旧版插件仅可查看，不能启用；请迁移到 API 1.5'), { code: 'PLUGIN_MIGRATION_REQUIRED' })
     try {
       assertPlatformCompatibility(plugin)
       assertDependencies(plugin)
@@ -677,7 +580,7 @@ export const usePluginsStore = defineStore('plugins', () => {
     }
     const expectedHash = String(item.sha256 || item.packageHash || '').toLowerCase()
     if (expectedHash && parsed.packageHash !== expectedHash) throw new Error('插件包哈希与目录登记不一致')
-    if (authorize && await authorize({ ...parsed.manifest, signed: parsed.publisherVerified }, item) === false) throw new Error('用户取消了插件安装')
+    if (authorize && await authorize(parsed.manifest, item) === false) throw new Error('用户取消了插件安装')
 
     for (const dependency of parsed.manifest.dependencies || []) {
       const range = dependency.range || dependency.version || '*'
@@ -941,7 +844,6 @@ export const usePluginsStore = defineStore('plugins', () => {
   function unregisterAnimationSurface(target, element) { animationRegistry.unregisterSurface(target, element) }
 
   function mountPageFrame(frame, pluginId, pageId) { runtime.mountFrame(frame, pluginId, pageId) }
-  function setPageSurface(surface, pluginId, pageId) { runtime.setPageSurface(pluginId, pageId, surface, globalThis.document) }
   function unmountPageFrame(pluginId, pageId) { runtime.unmountFrame(pluginId, pageId) }
   function connectPageFrame(frame, pluginId, pageId) { return runtime.connectFrame(frame, pluginId, pageId) }
   function mountVisualSurface(canvas, pluginId, surfaceId, viewport) { return runtime.mountVisualSurface(canvas, pluginId, surfaceId, viewport) }
@@ -960,7 +862,7 @@ export const usePluginsStore = defineStore('plugins', () => {
     if (!message.pluginId || message.type !== 'rpc-request') return
     if (!runtime.ownsFrameSource(event.source, message.pluginId)) return
     try {
-      const result = await runtime.handleRpc(runtime.principalForFrameSource(event.source, message.pluginId) || message.pluginId, message.method, message.args)
+      const result = await runtime.handleRpc(message.pluginId, message.method, message.args)
       event.source?.postMessage({ type: 'rpc-response', id: message.id, result: clone(result) }, '*')
     } catch (error) {
       event.source?.postMessage({ type: 'rpc-response', id: message.id, code: error.code, error: error.message || String(error) }, '*')
@@ -985,7 +887,6 @@ export const usePluginsStore = defineStore('plugins', () => {
   }
 
   function markCleanShutdown() {
-    if (platformBridge.info().runtime === 'tauri') tauriAPI.pluginRunnerStopAll().catch(() => {})
     clearActivationMarker()
   }
 
@@ -993,7 +894,7 @@ export const usePluginsStore = defineStore('plugins', () => {
     installed, list, source, initialized, recovering, lastError, enabledPlugins, contributedPages, contributedCommands, contributedVisualSurfaces, contributedAppearancePacks, contributedComponentStylePacks, contributedComponentOverridePacks, contributedNativeViews, contributedResultPresentations, animationSelections, animationDurationScales, componentStyleSelections, componentOverrideSelections, resultPresentationSelections, safeModeStatus,
     initialize, configureSafeMode, setBannerHandler, saveState, activateEnabled, inspectPackage, installPackage, uninstall, setEnabled,
     setSource, fetchList, downloadPlugin, loadCatalogDetails, pageById, appearanceByValue, appearanceOptions, resolveAppearance, componentStyleByValue, componentStyleOptions, componentStyleStyle, setComponentStyleSelection, componentOverrideByValue, componentOverrideOptions, nativeViewsForSlot, resultPresentationByValue, resultPresentationOptions, resultPresentationForTarget, setResultPresentationSelection, componentOverrideState, setComponentOverrideSelection, resetComponentOverrides, pluginById, pluginAssetUrl,
-     pluginPageSource, requestPlugin, invokePluginCommand, executeRollerDraw, mountPageFrame, setPageSurface, connectPageFrame, unmountPageFrame, mountVisualSurface, resizeVisualSurface, unmountVisualSurface,
+    pluginPageSource, requestPlugin, invokePluginCommand, executeRollerDraw, mountPageFrame, connectPageFrame, unmountPageFrame, mountVisualSurface, resizeVisualSurface, unmountVisualSurface,
     animationOptions, animationSelectionValue, setAnimationSelection, hasAnimation, startAnimation, animationDurationScale, setAnimationDurationScale, registerAnimationSurface, unregisterAnimationSurface,
     dispatchEvent, handlePluginMessage, markCleanShutdown,
     compatibilityFor, platform: platformBridge.info(), platformCapabilities: platformBridge.capabilities()

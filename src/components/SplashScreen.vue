@@ -47,7 +47,6 @@
 import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import { useSettingsStore } from '../stores/settings'
 import { t } from '../utils/i18n'
-import { runSplashPop } from '../utils/animation.js'
 
 const emit = defineEmits(['done'])
 
@@ -100,7 +99,7 @@ onMounted(() => {
 
   watch(lang, () => nextTick(measure))
 
-  at(48, () => runSplashPop(brand.value?.querySelector('.logo-wrap')))
+  at(48, () => brand.value.classList.add('enter-pop'))
   at(760, () => brand.value.classList.add('expanded'))
   at(1840, () => {
     fading.value = true
@@ -289,5 +288,18 @@ onBeforeUnmount(() => {
   opacity: 0.58;
   letter-spacing: 0.06em;
   font-weight: 500;
+}
+@keyframes enter-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.15);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.brand.enter-pop .logo-wrap {
+  animation: enter-pop 640ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 </style>
