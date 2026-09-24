@@ -10,14 +10,14 @@ import { build } from 'esbuild'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = relative => fs.readFile(path.join(root, relative), 'utf8')
 
-test('API 1.5 release metadata is synchronized', async () => {
+test('plugin API 1.4 release metadata is synchronized', async () => {
   const packageJson = JSON.parse(await read('packages/cyrene-name-roller/package.json'))
-  assert.equal(packageJson.version, '1.5.0')
+  assert.equal(packageJson.version, '1.4.0')
   assert.equal(packageJson.bin.cnrp, 'bin/cnrp.mjs')
-  assert.match(await read('src/plugins/constants.js'), /PLUGIN_API_VERSION = '1\.5\.0'/)
-  assert.match(await read('packages/cyrene-name-roller/src/plugin-sdk.mjs'), /PLUGIN_API_VERSION = '1\.5\.0'/)
-  assert.match(await read('packages/cyrene-name-roller/src/plugin-sdk.d.ts'), /PLUGIN_API_VERSION: '1\.5\.0'/)
-  assert.match(await read('packages/cyrene-name-roller/bin/cnrp.mjs'), /const API_VERSION = '1\.5\.0'/)
+  assert.match(await read('src/plugins/constants.js'), /PLUGIN_API_VERSION = '1\.4\.0'/)
+  assert.match(await read('packages/cyrene-name-roller/src/plugin-sdk.mjs'), /PLUGIN_API_VERSION = '1\.4\.0'/)
+  assert.match(await read('packages/cyrene-name-roller/src/plugin-sdk.d.ts'), /PLUGIN_API_VERSION: '1\.4\.0'/)
+  assert.match(await read('packages/cyrene-name-roller/bin/cnrp.mjs'), /const API_VERSION = '1\.4\.0'/)
 })
 
 test('API 1.4 UI template validates, packs and parses through host parser', async () => {

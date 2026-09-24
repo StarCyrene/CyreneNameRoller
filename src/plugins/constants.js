@@ -1,4 +1,4 @@
-export const PLUGIN_API_VERSION = '1.5.0'
+export const PLUGIN_API_VERSION = '1.4.0'
 export const PLUGIN_LIST_REPOSITORY = 'StarCyrene/CyreneNameRoller'
 export const PLUGIN_LIST_PATH = 'plugins/list.json'
 
@@ -114,11 +114,6 @@ export const PLUGIN_API15_PERMISSIONS = new Set([
   'core:fairness:read', 'core:before-operation', 'system:execute'
 ])
 
-function githubRawAlternative(url) {
-  const match = String(url || '').match(/^https:\/\/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/i)
-  return match ? `https://github.com/${match[1]}/${match[2]}/raw/${match[3]}/${match[4]}` : ''
-}
-
 export function pluginSourceCandidates(originalUrl, source = 'cyrene') {
   const original = String(originalUrl || '').trim()
   if (!original) return []
@@ -129,16 +124,16 @@ export function pluginSourceCandidates(originalUrl, source = 'cyrene') {
   }
   if (source === 'github') {
     add(original)
-    return candidates
+  } else {
+    const preferred = source === 'ghproxy' ? 'https://v4.gh-proxy.com/' : 'https://gh.昔涟.cn/'
+    add(`${preferred}${original}`)
   }
 
-  const proxy = source === 'ghproxy' ? 'https://v4.gh-proxy.com/' : 'https://gh.昔涟.cn/'
-  add(`${proxy}${original}`)
-  const rawAlternative = githubRawAlternative(original)
-  if (rawAlternative) add(`${proxy}${rawAlternative}`)
-
-  // A selected mirror is a preference, not a single point of failure. Direct
-  // GitHub remains the final fallback so Web users can still load the catalog.
+  // 镜像只是偏好，不是单点故障：任一代理失败后继续试其余代理，最后才直连 GitHub。
+  const proxies = source === 'ghproxy'
+    ? ['https://gh.昔涟.cn/', 'https://v4.gh-proxy.com/']
+    : ['https://v4.gh-proxy.com/', 'https://gh.昔涟.cn/']
+  for (const proxy of proxies) add(`${proxy}${original}`)
   add(original)
   return candidates
 }

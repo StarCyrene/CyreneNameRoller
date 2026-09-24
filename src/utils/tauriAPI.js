@@ -56,6 +56,7 @@ export const tauriAPI = {
   async pluginSelectFile(extensions = []) { return this.invokeStrict('plugin_select_file', { extensions }) },
   async pluginSelectDirectory() { return this.invokeStrict('plugin_select_directory', {}) },
   async pluginExecuteOperation(program, args = [], timeoutMs = 10000) { return this.invokeStrict('plugin_execute_operation', { program, args, timeoutMs }) },
+  async fetchPluginBytes(urls) { return this.invokeStrict('fetch_plugin_bytes', { urls }) },
   async showDataLocation() { return this.invoke('show_data_location', {}) },
   async setAutoStart(enabled, mode = 'scheduled', previousMode = mode) { return this.invoke('set_auto_start', { enabled, mode, previousMode }) },
   async restartElevatedForAutoStart(enabled, mode = 'scheduled', previousMode = mode) { return this.invoke('restart_elevated_for_auto_start', { enabled, mode, previousMode }) },

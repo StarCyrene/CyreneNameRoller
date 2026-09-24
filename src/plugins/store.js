@@ -630,8 +630,17 @@ export const usePluginsStore = defineStore('plugins', () => {
   async function fetchPackage(item) {
     const original = item.downloadUrl || item.packageUrl
     if (!original) throw new Error(`${item.name || item.id} 没有可下载地址`)
+    const urls = pluginSourceCandidates(original, source.value)
+    // 桌面端走原生 HTTP，避免 WebView CORS 拦下 GitHub Release 二进制
+    if (isTauri()) {
+      const result = await tauriAPI.fetchPluginBytes(urls)
+      const binary = atob(String(result.bytes || '').replace(/\s/g, ''))
+      const bytes = new Uint8Array(binary.length)
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+      return bytes
+    }
     const response = await fetchFirstSuccessful(
-      pluginSourceCandidates(original, source.value),
+      urls,
       { cache: 'no-store' },
       `${item.name || item.id} 插件包`
     )

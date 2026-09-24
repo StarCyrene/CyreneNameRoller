@@ -11,7 +11,7 @@ import JavaScriptObfuscator from 'javascript-obfuscator'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const packageRoot = path.resolve(__dirname, '..')
 const MAGIC = Buffer.from('CNRP1\n', 'utf8')
-const API_VERSION = '1.5.0'
+const API_VERSION = '1.4.0'
 const MAX_FILE_COUNT = 256
 const MAX_PACKAGE_SIZE = 32 * 1024 * 1024
 const ID_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)+$/

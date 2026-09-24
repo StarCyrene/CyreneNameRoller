@@ -2549,6 +2549,51 @@ fn reject_reparse_components(root: &Path, target: &Path) -> Result<(), String> {
     Ok(())
 }
 
+// 插件包等二进制资源：WebView fetch 会因 CORS 拦下 GitHub Release，这里用原生 HTTP 逐个镜像尝试。
+#[tauri::command]
+async fn fetch_plugin_bytes(urls: Vec<String>) -> Result<serde_json::Value, String> {
+    if urls.is_empty() || urls.len() > 8 {
+        return Err("插件下载地址无效".into());
+    }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let mut failures = Vec::new();
+    for url in urls {
+        let parsed = match reqwest::Url::parse(&url) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                failures.push(format!("{} → {}", url, error));
+                continue;
+            }
+        };
+        if !matches!(parsed.scheme(), "http" | "https") {
+            failures.push(format!("{} → 协议被拒绝", url));
+            continue;
+        }
+        match client.get(parsed).send().await {
+            Ok(response) if response.status().is_success() => {
+                match response.bytes().await {
+                    Ok(bytes) if !bytes.is_empty() && bytes.len() <= 48 * 1024 * 1024 => {
+                        return Ok(json!({
+                            "url": url,
+                            "bytes": base64::engine::general_purpose::STANDARD.encode(&bytes),
+                            "size": bytes.len()
+                        }));
+                    }
+                    Ok(_) => failures.push(format!("{} → 响应为空或超过 48MB", url)),
+                    Err(error) => failures.push(format!("{} → {}", url, error)),
+                }
+            }
+            Ok(response) => failures.push(format!("{} → HTTP {}", url, response.status().as_u16())),
+            Err(error) => failures.push(format!("{} → {}", url, error)),
+        }
+    }
+    Err(format!("插件包获取失败：{}", failures.join("；")))
+}
+
 fn open_plugin_file(path: &Path, write: bool) -> Result<fs::File, String> {
     let mut options = OpenOptions::new();
     options.read(!write).write(write).truncate(write);
@@ -3797,6 +3842,7 @@ pub fn run() {
             plugin_select_file,
             plugin_select_directory,
             plugin_execute_operation,
+            fetch_plugin_bytes,
             read_dropped_file,
             load_names,
             load_changelog,
