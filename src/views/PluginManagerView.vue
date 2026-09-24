@@ -37,43 +37,6 @@
       <div v-else class="empty-state"><FluentIcon icon="plug-disconnected-24-regular" :width="28" /><span>{{ lang === 'en' ? 'No plugins installed.' : '尚未安装插件。' }}</span></div>
     </section>
 
-    <section v-if="styleTargets.length" class="plugin-section component-style-section">
-      <div class="section-heading"><h2>{{ lang === 'en' ? 'Component styles' : '组件样式' }}</h2><span>{{ styleTargets.length }}</span></div>
-      <div class="style-pack-list">
-        <article v-for="target in styleTargets" :key="target" class="style-pack-row">
-          <div class="style-pack-copy"><strong>{{ target }}</strong><small>{{ lang === 'en' ? 'Global fallback selector' : '全局兜底选择器' }}</small></div>
-          <div class="style-pack-controls">
-            <FluentSelect :model-value="plugins.componentStyleSelections[target] || ''" :options="[{ value: '', label: lang === 'en' ? `Default: ${target}` : `默认：${target}` }, ...plugins.componentStyleOptions(target, lang)]" width="280px" @update:model-value="value => chooseStyle(target, value)" />
-            <div v-if="target === 'roller.result'" class="style-pack-preview" :style="plugins.componentStyleStyle(target)">Aa</div>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section v-if="overrideTargets.length" class="plugin-section">
-      <div class="section-heading"><h2>{{ lang === 'en' ? 'Component overrides' : '组件覆盖' }}</h2><FluentButton variant="subtle" size="sm" @click="resetOverrides">{{ lang === 'en' ? 'Restore defaults' : '恢复默认界面' }}</FluentButton></div>
-      <div class="style-pack-list">
-        <article v-for="target in overrideTargets" :key="target" class="style-pack-row">
-          <div class="style-pack-copy"><strong>{{ target }}</strong><small>{{ lang === 'en' ? 'Global fallback selector' : '全局兜底选择器' }}</small></div>
-          <div class="style-pack-controls">
-            <FluentSelect :model-value="plugins.componentOverrideSelections[target] || ''" :options="[{ value: '', label: lang === 'en' ? `Default: ${target}` : `默认：${target}` }, ...plugins.componentOverrideOptions(target, lang)]" width="280px" @update:model-value="value => chooseOverride(target, value)" />
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section v-if="resultPresentations.length && !nativeSelectorTargets.has('result-presentation-select:roller.result')" class="plugin-section">
-      <div class="section-heading"><h2>{{ lang === 'en' ? 'Verified result presentation' : '权威结果呈现' }}</h2><span>{{ resultPresentations.length }}</span></div>
-      <div class="style-pack-controls">
-        <FluentSelect
-          :model-value="plugins.resultPresentationSelections['roller.result'] || ''"
-          :options="[{ value: '', label: lang === 'en' ? 'Default Roller result' : '默认点名结果' }, ...plugins.resultPresentationOptions('roller.result', lang)]"
-          width="280px"
-          @update:model-value="chooseResultPresentation"
-        />
-      </div>
-    </section>
-
     <section class="plugin-section">
       <div class="section-heading"><h2>{{ lang === 'en' ? 'Plugin catalog' : '插件列表' }}</h2><span v-if="listUpdated">{{ listUpdated }}</span></div>
       <div v-if="plugins.list.length" class="plugin-grid">
@@ -146,20 +109,6 @@ const confirmPlugin = ref(null)
 let confirmResolver = null
 const installedPlugins = computed(() => Object.values(plugins.installed))
 const contributedPages = computed(() => plugins.contributedPages)
-const nativeSelectorTargets = computed(() => new Set(contributedPages.value.flatMap(page =>
-  (page.native?.controls || [])
-    .filter(control => ['component-style-select', 'component-override-select', 'component-override-toggle', 'result-presentation-select'].includes(control.type))
-    .map(control => `${control.type}:${control.target}`)
-)))
-const stylePacks = computed(() => plugins.contributedComponentStylePacks)
-const styleTargets = computed(() => [...new Set(stylePacks.value.flatMap(pack => Object.keys(pack.targets || {})))]
-  .filter(target => !nativeSelectorTargets.value.has(`component-style-select:${target}`))
-  .sort())
-const overridePacks = computed(() => plugins.contributedComponentOverridePacks)
-const overrideTargets = computed(() => [...new Set(overridePacks.value.flatMap(pack => Object.keys(pack.targets || {})))]
-  .filter(target => !nativeSelectorTargets.value.has(`component-override-select:${target}`))
-  .sort())
-const resultPresentations = computed(() => plugins.contributedResultPresentations)
 const permissionDescriptions = {
   'draw:execute': { zh: '通过宿主 CAF 公平事务追加抽取结果', en: 'Run host-controlled CAF draws and append records', risk: 'elevated' },
   'ui:animations': { zh: '为宿主提供受控动画方案', en: 'Provide controlled host animations', risk: 'normal' },
@@ -185,30 +134,6 @@ function permissionInfo(permission) {
 }
 
 function installedVersion(id) { return plugins.installed[id]?.manifest?.version || '' }
-async function chooseStyle(target, value) {
-  try {
-    await plugins.setComponentStyleSelection(target, value)
-  } catch (error) {
-    showBanner?.({ message: error.message || String(error), icon: 'warning-16-regular', type: 'warning', duration: 6000 })
-  }
-}
-async function chooseOverride(target, value) {
-  try {
-    await plugins.setComponentOverrideSelection(target, value)
-  } catch (error) {
-    showBanner?.({ message: error.message || String(error), icon: 'warning-16-regular', type: 'warning', duration: 6000 })
-  }
-}
-async function chooseResultPresentation(value) {
-  try {
-    await plugins.setResultPresentationSelection('roller.result', value)
-  } catch (error) {
-    showBanner?.({ message: error.message || String(error), icon: 'warning-16-regular', type: 'warning', duration: 6000 })
-  }
-}
-async function resetOverrides() {
-  await plugins.resetComponentOverrides()
-}
 function compareVersion(left, right) {
   const a = String(left || '0').split('.').map(value => Number(value) || 0)
   const b = String(right || '0').split('.').map(value => Number(value) || 0)
@@ -232,7 +157,7 @@ function catalogButtonLabel(item) {
   if (compareVersion(item.version, installed) > 0) return lang.value === 'en' ? 'Update' : '更新'
   return lang.value === 'en' ? 'Installed' : '已安装'
 }
-function pagesFor(plugin) { return contributedPages.value.filter(page => page.pluginId === plugin.manifest.id && page.location === 'plugins') }
+function pagesFor(plugin) { return contributedPages.value.filter(page => page.pluginId === plugin.manifest.id && ['plugins', 'dock'].includes(page.location)) }
 function pluginIcon(plugin) { return plugins.pluginAssetUrl(plugin) || plugin.manifest.iconDataUrl || '' }
 function pluginCompatibility(plugin) { return plugins.compatibilityFor(plugin) }
 function pluginProvenance(plugin) {
@@ -319,13 +244,6 @@ onMounted(async () => { await plugins.initialize(); plugins.setBannerHandler(sho
 .plugin-pages { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 -4px; padding: 10px 4px 0; border-top: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border-subtle)); color: var(--text-secondary); font-size: 12px; font-weight: 600; }
 .plugin-page-links { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .plugin-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; }
-.style-pack-list { display: grid; gap: 10px; }
-.style-pack-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--bg-card); }
-.style-pack-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.style-pack-copy strong { color: var(--text-primary); font-size: 13px; }
-.style-pack-copy small, .style-pack-copy span { color: var(--text-muted); font-size: 11px; }
-.style-pack-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.style-pack-preview { width: 42px; height: 32px; display: grid; place-items: center; border: 1px solid var(--border-default); border-radius: var(--radius-sm); color: var(--plugin-component-roller-result-foreground, var(--text-primary)); background: var(--plugin-component-roller-result-background, var(--bg-hover)); font-family: var(--plugin-component-roller-result-font-family, var(--font-display)); }
 .empty-state { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 120px; color: var(--text-muted); border: 1px dashed var(--border-default); border-radius: var(--radius-md); }
 .details-body { max-height: 62vh; overflow-y: auto; color: var(--text-secondary); line-height: 1.65; font-size: 13px; }
 .readme :deep(h1), .readme :deep(h2), .readme :deep(h3) { color: var(--text-primary); margin: 10px 0 6px; }
@@ -359,5 +277,5 @@ onMounted(async () => { await plugins.initialize(); plugins.setBannerHandler(sho
 .confirm-list li .risk-high { color: var(--danger); background: color-mix(in srgb, var(--danger) 11%, transparent); }
 .confirm-warning { padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border-default)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--danger) 7%, var(--bg-card)); }
 .confirm-warning.limited { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 35%, var(--border-default)); background: color-mix(in srgb, var(--warning) 7%, var(--bg-card)); }
-@media (max-width: 760px) { .page-header { flex-direction: column; } .header-actions { justify-content: flex-start; } .plugins-view { padding: 20px 14px; } .style-pack-row { align-items: flex-start; flex-direction: column; } .style-pack-controls { justify-content: flex-start; } }
+@media (max-width: 760px) { .page-header { flex-direction: column; } .header-actions { justify-content: flex-start; } .plugins-view { padding: 20px 14px; } }
 </style>
