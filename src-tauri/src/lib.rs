@@ -50,239 +50,6 @@ const MIN_FLOATING_WINDOW_SIZE: i32 = 40;
 const MAX_FLOATING_WINDOW_SIZE: i32 = 256;
 const FLOATING_WINDOW_SIZE_STEP: i32 = 4;
 
-struct PluginRunnerProcess {
-    child: Child,
-    stdin: ChildStdin,
-    package_root: PathBuf,
-    plugin_id: String,
-}
-
-struct PluginRunnerState {
-    processes: Arc<Mutex<HashMap<String, PluginRunnerProcess>>>,
-}
-
-struct PluginAuditState {
-    records: Mutex<Vec<Value>>,
-}
-
-#[tauri::command]
-fn plugin_audit_append(audit: State<'_, PluginAuditState>, record: Value) -> Result<(), String> {
-    if !record.is_object() || serde_json::to_vec(&record).map_err(|_| "审计记录无效")?.len() > 4096 {
-        return Err("审计记录无效".into());
-    }
-    audit.append(record);
-    Ok(())
-}
-
-impl PluginAuditState {
-    fn append(&self, record: Value) {
-        if let Ok(mut records) = self.records.lock() {
-            records.push(record);
-            if records.len() > 1000 { records.remove(0); }
-        }
-    }
-}
-
-impl PluginRunnerState {
-    fn new() -> Self {
-        Self { processes: Arc::new(Mutex::new(HashMap::new())) }
-    }
-}
-
-impl Drop for PluginRunnerState {
-    fn drop(&mut self) {
-        if let Ok(mut processes) = self.processes.lock() {
-            for (_, mut process) in processes.drain() { stop_plugin_runner_process(&mut process); }
-        }
-    }
-}
-
-fn valid_runner_value(value: &str, max: usize) -> bool {
-    !value.is_empty() && value.len() <= max && !value.contains(['\0', '\r', '\n'])
-}
-
-fn valid_plugin_runner_id(value: &str) -> bool {
-    valid_runner_value(value, 128)
-        && value.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_'))
-        && !value.contains("..")
-}
-
-fn validate_staged_runner_path(cache_dir: &Path, plugin_id: &str, package_path: &str, entry: &str) -> Result<PathBuf, String> {
-    if !valid_plugin_runner_id(plugin_id) || !valid_runner_value(package_path, 4096) || !valid_runner_value(entry, 256) {
-        return Err("invalid plugin runner path".into());
-    }
-    let expected = cache_dir.join("plugin-runner").join(plugin_id).canonicalize().map_err(|_| "staged plugin package missing")?;
-    let supplied = PathBuf::from(package_path).canonicalize().map_err(|_| "staged plugin package missing")?;
-    if supplied != expected { return Err("plugin runner package is not host staged".into()); }
-    let relative = Path::new(entry);
-    if relative.is_absolute() || relative.components().any(|part| !matches!(part, std::path::Component::Normal(_))) {
-        return Err("invalid plugin runner entry".into());
-    }
-    let target = expected.join(relative).canonicalize().map_err(|_| "plugin runner entry missing")?;
-    if !target.is_file() || !target.starts_with(&expected) { return Err("plugin runner entry escaped staged package".into()); }
-    Ok(expected)
-}
-
-#[tauri::command]
-fn plugin_runner_stage(app: tauri::AppHandle, state: State<'_, PluginRunnerState>, plugin_id: String, files: HashMap<String, String>) -> Result<String, String> {
-    if !valid_plugin_runner_id(&plugin_id) || files.is_empty() || files.len() > 256 {
-        return Err("invalid plugin runner package".into());
-    }
-    let root = app.path().app_cache_dir().map_err(|error| error.to_string())?.join("plugin-runner").join(&plugin_id);
-    if state.processes.lock().map_err(|_| "plugin runner state poisoned")?.values().any(|process| process.plugin_id == plugin_id) {
-        return Err("plugin runner package is active".into());
-    }
-    if root.exists() { fs::remove_dir_all(&root).map_err(|error| error.to_string())?; }
-    fs::create_dir_all(&root).map_err(|error| error.to_string())?;
-    let mut total = 0usize;
-    let stage_result = (|| -> Result<(), String> { for (name, encoded) in files {
-        let relative = Path::new(&name);
-        if relative.is_absolute() || relative.components().any(|part| !matches!(part, std::path::Component::Normal(_))) {
-            return Err("invalid plugin runner file path".into());
-        }
-        let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).map_err(|_| "invalid plugin runner file")?;
-        total = total.saturating_add(bytes.len());
-        if total > 64 * 1024 * 1024 { return Err("plugin runner package exceeds limit".into()); }
-        let target = root.join(relative);
-        if let Some(parent) = target.parent() { fs::create_dir_all(parent).map_err(|error| error.to_string())?; }
-        fs::write(target, bytes).map_err(|error| error.to_string())?;
-    } Ok(()) })();
-    if let Err(error) = stage_result { let _ = fs::remove_dir_all(&root); return Err(error); }
-    Ok(root.to_string_lossy().into_owned())
-}
-
-fn stop_plugin_runner_process(process: &mut PluginRunnerProcess) {
-    let pid = process.child.id();
-    #[cfg(target_os = "windows")]
-    {
-        let _ = background_command("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
-    #[cfg(not(target_os = "windows"))]
-    let _ = process.child.kill();
-    let _ = process.child.wait();
-    let _ = fs::remove_dir_all(&process.package_root);
-}
-
-fn plugin_runner_command(runner: &Path, package_path: &str, entry: &str, args: &[String]) -> Command {
-    let mut command = background_command(runner);
-    command.env_clear().args([package_path, entry]).args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
-    command
-}
-
-#[tauri::command]
-fn plugin_runner_start(
-    app: tauri::AppHandle,
-    state: State<'_, PluginRunnerState>,
-    session_id: String,
-    plugin_id: String,
-    package_path: String,
-    entry: String,
-    args: Vec<String>,
-) -> Result<serde_json::Value, String> {
-    if !valid_runner_value(&session_id, 128)
-        || !valid_plugin_runner_id(&plugin_id)
-        || !valid_runner_value(&package_path, 4096)
-        || !valid_runner_value(&entry, 256)
-        || args.len() > 32
-        || args.iter().any(|value| !valid_runner_value(value, 2048))
-    {
-        return Err("invalid plugin runner launch request".into());
-    }
-    let mut processes = state.processes.lock().map_err(|_| "plugin runner state poisoned")?;
-    if processes.contains_key(&session_id) {
-        return Err("plugin runner session already exists".into());
-    }
-    let cache_dir = app.path().app_cache_dir().map_err(|error| error.to_string())?;
-    let package_root = validate_staged_runner_path(&cache_dir, &plugin_id, &package_path, &entry)?;
-    let runner_name = if cfg!(target_os = "windows") { "cnrp-runner.exe" } else { "cnrp-runner" };
-    let resource_dir = match app.path().resource_dir() {
-        Ok(path) => path,
-        Err(error) => { let _ = fs::remove_dir_all(&package_root); return Err(error.to_string()); }
-    };
-    let runner = resource_dir.join("plugin-runner").join(runner_name);
-    if !runner.is_file() {
-        let _ = fs::remove_dir_all(&package_root);
-        return Err(format!("bundled plugin runner missing: {}", runner.display()));
-    }
-    let mut command = plugin_runner_command(&runner, &package_path, &entry, &args);
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) => { let _ = fs::remove_dir_all(&package_root); return Err(error.to_string()); }
-    };
-    let setup = (|| -> Result<(ChildStdin, _), String> {
-        let stdin = child.stdin.take().ok_or("runner stdin unavailable")?;
-        let stdout = child.stdout.take().ok_or("runner stdout unavailable")?;
-        Ok((stdin, stdout))
-    })();
-    let (mut stdin, mut stdout) = match setup {
-        Ok(value) => value,
-        Err(error) => { let _ = child.kill(); let _ = child.wait(); let _ = fs::remove_dir_all(&package_root); return Err(error); }
-    };
-    let mut credential_bytes = [0u8; 32];
-    OsRng.fill_bytes(&mut credential_bytes);
-    let credential = hex::encode(credential_bytes);
-    let credential_proof = hex::encode(Sha256::digest(format!("{}\0{}\0{}", credential, plugin_id, session_id).as_bytes()));
-    // Windows has no inherited FD 3 here; use a bounded prelude before framed RPC stdin.
-    let mut prelude = b"CNRP-CREDENTIAL\0".to_vec();
-    prelude.extend_from_slice(&(credential.len() as u32).to_le_bytes());
-    prelude.extend_from_slice(credential.as_bytes());
-    if let Err(error) = stdin.write_all(&prelude).and_then(|_| stdin.flush()) {
-        let _ = child.kill(); let _ = child.wait(); let _ = fs::remove_dir_all(&package_root); return Err(error.to_string());
-    }
-    let pid = child.id();
-    processes.insert(session_id.clone(), PluginRunnerProcess { child, stdin, package_root, plugin_id });
-    drop(processes);
-    let event_app = app.clone();
-    let event_session = session_id.clone();
-    let process_state = state.processes.clone();
-    std::thread::spawn(move || {
-        let mut bytes = [0u8; 16 * 1024];
-        loop {
-            match stdout.read(&mut bytes) {
-                Ok(0) | Err(_) => break,
-                Ok(count) => {
-                    let _ = event_app.emit("cyrene-plugin-rpc", json!({ "sessionId": event_session, "bytes": &bytes[..count] }));
-                }
-            }
-        }
-        let _ = event_app.emit("cyrene-plugin-rpc", json!({ "sessionId": event_session, "closed": true }));
-        if let Ok(mut processes) = process_state.lock() {
-            if let Some(mut process) = processes.remove(&event_session) { stop_plugin_runner_process(&mut process); }
-        }
-    });
-    Ok(json!({ "sessionId": session_id, "pid": pid, "event": "cyrene-plugin-rpc", "credentialProof": credential_proof }))
-}
-
-#[tauri::command]
-fn plugin_runner_send(state: State<'_, PluginRunnerState>, session_id: String, bytes: Vec<u8>) -> Result<(), String> {
-    if bytes.is_empty() || bytes.len() > 1024 * 1024 + 4 {
-        return Err("invalid plugin runner frame".into());
-    }
-    let mut processes = state.processes.lock().map_err(|_| "plugin runner state poisoned")?;
-    let process = processes.get_mut(&session_id).ok_or("plugin runner session not found")?;
-    process.stdin.write_all(&bytes).and_then(|_| process.stdin.flush()).map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn plugin_runner_stop(state: State<'_, PluginRunnerState>, session_id: String) -> Result<bool, String> {
-    let mut processes = state.processes.lock().map_err(|_| "plugin runner state poisoned")?;
-    let Some(mut process) = processes.remove(&session_id) else { return Ok(false) };
-    stop_plugin_runner_process(&mut process);
-    Ok(true)
-}
-
-#[tauri::command]
-fn plugin_runner_stop_all(state: State<'_, PluginRunnerState>) -> Result<usize, String> {
-    let mut processes = state.processes.lock().map_err(|_| "plugin runner state poisoned")?;
-    let count = processes.len();
-    for (_, mut process) in processes.drain() { stop_plugin_runner_process(&mut process); }
-    Ok(count)
-}
-
 fn normalize_floating_window_size(value: Option<f64>) -> i32 {
     let Some(value) = value.filter(|value| value.is_finite()) else {
         return FLOATING_WINDOW_SIZE;
@@ -2824,84 +2591,6 @@ fn plugin_package_path(package_root: &Path, relative: &str) -> Result<PathBuf, S
     Ok(target)
 }
 
-fn plugin_session_root<'a>(state: &'a PluginRunnerState, session_id: &str, plugin_id: &str) -> Result<PathBuf, String> {
-    if !valid_runner_value(session_id, 128) || !valid_plugin_runner_id(plugin_id) { return Err("插件会话身份无效".into()); }
-    let processes = state.processes.lock().map_err(|_| "plugin runner state poisoned")?;
-    let process = processes.get(session_id).ok_or("plugin runner session not found")?;
-    if process.plugin_id != plugin_id { return Err("plugin runner session identity mismatch".into()); }
-    Ok(process.package_root.clone())
-}
-
-#[tauri::command]
-fn plugin_files_read(state: State<'_, PluginRunnerState>, audit: State<'_, PluginAuditState>, plugin_id: String, session_id: String, path: String) -> Result<serde_json::Value, String> {
-    let root = plugin_session_root(&state, &session_id, &plugin_id)?;
-    let target = plugin_package_path(&root, &path)?;
-    let file = open_plugin_file(&target, false)?;
-    let metadata = file.metadata().map_err(|error| error.to_string())?;
-    if !metadata.is_file() || metadata.len() > 32 * 1024 * 1024 { return Err("插件文件大小或类型无效".into()); }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    file.take(32 * 1024 * 1024 + 1).read_to_end(&mut bytes).map_err(|error| error.to_string())?;
-    if bytes.len() > 32 * 1024 * 1024 { return Err("插件文件大小或类型无效".into()); }
-    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
-    audit.append(json!({ "pluginId": plugin_id, "sessionId": session_id, "method": "files.read", "resource": path, "decision": "allow", "bytes": metadata.len() }));
-    Ok(json!({ "path": path, "data": data, "size": metadata.len() }))
-}
-
-#[tauri::command]
-fn plugin_files_write(state: State<'_, PluginRunnerState>, audit: State<'_, PluginAuditState>, plugin_id: String, session_id: String, path: String, data: String) -> Result<serde_json::Value, String> {
-    let root = plugin_session_root(&state, &session_id, &plugin_id)?;
-    if data.len() > 32 * 1024 * 1024 { return Err("插件写入请求无效".into()); }
-    let target = plugin_package_path(&root, &path)?;
-    let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|_| "插件文件数据无效")?;
-    if bytes.len() > 32 * 1024 * 1024 { return Err("插件文件大小超限".into()); }
-    reject_reparse_components(&root, &target)?;
-    let mut file = open_plugin_file(&target, true)?;
-    file.write_all(&bytes).map_err(|error| error.to_string())?;
-    let size = fs::metadata(&target).map_err(|error| error.to_string())?.len();
-    audit.append(json!({ "pluginId": plugin_id, "sessionId": session_id, "method": "files.write", "resource": path, "decision": "allow", "bytes": size }));
-    Ok(json!({ "path": path, "size": size }))
-}
-
-fn public_socket(host: &str, port: u16) -> Result<std::net::SocketAddr, String> {
-    let mut addresses = (host, port).to_socket_addrs().map_err(|_| "网络地址解析失败")?;
-    addresses.find(|address| match address.ip() { IpAddr::V4(ip) => !(ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified()), IpAddr::V6(ip) => !(ip.is_loopback() || ip.is_unique_local() || ip.is_unicast_link_local() || ip.is_unspecified()) }).ok_or_else(|| "网络地址被拒绝".into())
-}
-
-#[tauri::command]
-async fn plugin_net_request(state: State<'_, PluginRunnerState>, audit: State<'_, PluginAuditState>, plugin_id: String, session_id: String, url: String, method: Option<String>, headers: Option<HashMap<String, String>>, body: Option<String>) -> Result<serde_json::Value, String> {
-    let _ = plugin_session_root(&state, &session_id, &plugin_id)?;
-    if body.as_ref().is_some_and(|value| value.len() > 1024 * 1024) || headers.as_ref().is_some_and(|values| values.len() > 64 || values.iter().any(|(key, value)| key.len() > 256 || value.len() > 8192)) {
-        return Err("网络请求大小超限".into());
-    }
-    let parsed = reqwest::Url::parse(&url).map_err(|_| "网络地址无效")?;
-    let audit_host = parsed.host_str().unwrap_or_default().to_string();
-    if !matches!(parsed.scheme(), "http" | "https") { return Err("网络协议被拒绝".into()); }
-    let host = parsed.host_str().ok_or("网络主机无效")?;
-    let address = public_socket(host, parsed.port_or_known_default().ok_or("网络端口无效")?)?;
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(15)).redirect(reqwest::redirect::Policy::none()).resolve(host, address).build().map_err(|error| error.to_string())?;
-    let request = client.request(method.as_deref().unwrap_or("GET").parse().map_err(|_| "网络方法无效")?, parsed).headers(headers.unwrap_or_default().into_iter().filter_map(|(key, value)| Some((key.parse().ok()?, value.parse().ok()?))).collect()).body(body.unwrap_or_default());
-    let result = tokio::time::timeout(Duration::from_secs(15), async {
-        let response = request.send().await.map_err(|error| error.to_string())?;
-        let status = response.status().as_u16();
-        let response_headers = response.headers().iter().filter_map(|(key, value)| {
-            let value = value.to_str().ok()?;
-            (value.len() <= 8192).then(|| (key.to_string(), value.to_string()))
-        }).take(64).collect::<HashMap<_, _>>();
-        let mut bytes = Vec::new();
-        let mut response = response;
-        while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
-            if bytes.len().saturating_add(chunk.len()) > 1024 * 1024 { return Err("网络响应大小超限".to_string()); }
-            bytes.extend_from_slice(&chunk);
-        }
-        Ok(json!({ "status": status, "headers": response_headers, "body": bytes, "bodyBytes": bytes.len() }))
-    }).await.map_err(|_| "网络请求超时")??;
-    if result["status"].as_u64().is_some_and(|status| (300..400).contains(&status)) {
-        return Err("网络重定向被拒绝".into());
-    }
-    audit.append(json!({ "pluginId": plugin_id, "sessionId": session_id, "method": "net.request", "resource": audit_host, "decision": "allow", "bytes": result["bodyBytes"] }));
-    Ok(result)
-}
-
 #[tauri::command]
 async fn plugin_execute_operation(
     program: String,
@@ -4022,8 +3711,6 @@ pub fn run() {
             app.manage(encrypted_store);
             app.manage(MainWindowRevealState::new());
             app.manage(UriRequestState::new());
-            app.manage(PluginRunnerState::new());
-            app.manage(PluginAuditState { records: Mutex::new(Vec::new()) });
             let handle = app.handle().clone();
             start_instance_listener(instance_listener, handle.clone());
             if let Some(uri) = launch_uri.clone() {
@@ -4109,16 +3796,7 @@ pub fn run() {
             open_text_file,
             plugin_select_file,
             plugin_select_directory,
-            plugin_audit_append,
-            plugin_files_read,
-            plugin_files_write,
-            plugin_net_request,
             plugin_execute_operation,
-            plugin_runner_stage,
-            plugin_runner_start,
-            plugin_runner_send,
-            plugin_runner_stop,
-            plugin_runner_stop_all,
             read_dropped_file,
             load_names,
             load_changelog,
@@ -4159,48 +3837,12 @@ mod tests {
         normalize_floating_window_size, read_safe_mode_status, resize_floating_window_position,
         configured_data_path, core_data_key_for, data_key, installation_data_path, app_data_path,
         is_core_storage_key, valid_core_principal, WINDOW_HABIT_LIMIT,
-        plugin_runner_command, validate_staged_runner_path, valid_plugin_runner_id, valid_runner_value,
         plugin_package_path,
         validate_core_card_caller, validate_core_caller, validate_core_maintenance_request,
         CoreMaintenanceRequest, EncryptedStore, RustCardCommitRequest, RustCardInput,
         RustDrawInput, RustDrawRequest,
     };
     use serde_json::json;
-
-    #[test]
-    fn plugin_runner_command_keeps_credential_off_argv_and_environment() {
-        let command = plugin_runner_command(
-            std::path::Path::new("cnrp-runner"),
-            "package-root",
-            "plugin.mjs",
-            &["--safe".into()],
-        );
-        let args: Vec<String> = command.get_args().map(|value| value.to_string_lossy().into_owned()).collect();
-        assert_eq!(args, ["package-root", "plugin.mjs", "--safe"]);
-        assert!(!args.iter().any(|value| value.contains("credential")));
-        assert!(!command.get_envs().any(|(key, _)| key.to_string_lossy().contains("CREDENTIAL")));
-        assert_eq!(command.get_envs().count(), 0);
-        assert!(valid_runner_value("instance-1", 128));
-        assert!(!valid_runner_value("bad\ninstance", 128));
-        assert!(valid_plugin_runner_id("cn.example.plugin"));
-        assert!(!valid_plugin_runner_id("../escape"));
-    }
-
-    #[test]
-    fn plugin_runner_start_accepts_only_host_staged_package_and_confined_entry() {
-        let root = std::env::temp_dir().join(format!("cyrene-runner-path-{}", std::process::id()));
-        let staged = root.join("plugin-runner").join("cn.example.plugin");
-        let other = root.join("other");
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&staged).unwrap();
-        std::fs::create_dir_all(&other).unwrap();
-        std::fs::write(staged.join("plugin.js"), b"plugin").unwrap();
-        std::fs::write(other.join("plugin.js"), b"plugin").unwrap();
-        assert_eq!(validate_staged_runner_path(&root, "cn.example.plugin", staged.to_str().unwrap(), "plugin.js").unwrap(), staged.canonicalize().unwrap());
-        assert!(validate_staged_runner_path(&root, "cn.example.plugin", other.to_str().unwrap(), "plugin.js").is_err());
-        assert!(validate_staged_runner_path(&root, "cn.example.plugin", staged.to_str().unwrap(), "../other/plugin.js").is_err());
-        let _ = std::fs::remove_dir_all(root);
-    }
 
     #[test]
     fn plugin_package_path_rejects_symlinked_components() {

@@ -497,7 +497,7 @@ test('CLI and host normalize API 1.2 page, native and dependency metadata consis
   }
 })
 
-test('legacy manifests remain display-only while canonical API 1.5 manifests activate', async t => {
+test('legacy manifests remain display-only while API 1.5 process runtime is unavailable', async t => {
   const temporary = await createTestDirectory('cyrene-plugin-api-compatibility-')
   t.after(() => fs.rm(temporary, { recursive: true, force: true }))
   const source = path.join(temporary, 'plugin')
@@ -520,6 +520,7 @@ test('legacy manifests remain display-only while canonical API 1.5 manifests act
   assert.equal(validation.manifest.api, '1.5')
   assert.deepEqual(canonicalManifest.engine, { min: '9.9.9', max: '9.9.9' })
   assert.equal(canonicalManifest.api, '1.5')
+  assert.equal(parser.isPluginActivatable(canonicalManifest), false)
 })
 
 test('core plugin data exposes read-only snapshots and no write RPCs', async t => {

@@ -29,8 +29,6 @@ import { getComponentTarget } from './ui/componentRegistry'
 import { styleVarsForTarget } from './ui/stylePolicy'
 import { PluginFontRegistry } from './ui/fontRegistry'
 import { overrideStateForTarget } from './ui/overridePolicy'
-import { createTauriRunner } from './rpc/desktopHost.js'
-import { CoreHookCoordinator } from './api15/coreHooks.js'
 
 const STATE_KEY = 'pluginState'
 const PLUGIN_DATA_KEY = 'pluginData'
@@ -94,13 +92,11 @@ export const usePluginsStore = defineStore('plugins', () => {
   const platformBridge = new PluginPlatformBridge({ auditLog, handlers: {
     filesRead: async (args, plugin) => {
       if (plugin.manifest.files?.app?.scopes?.includes('read') !== true) throw Object.assign(new Error('插件未声明应用文件读取范围'), { code: 'FILE_SCOPE_DENIED' })
-      if (isTauri()) return tauriAPI.invokeStrict('plugin_files_read', { pluginId: plugin.manifest.id, sessionId: args.sessionId, path: args.path })
-      throw Object.assign(new Error('Web 环境不支持访问应用文件'), { code: 'UNSUPPORTED_PLATFORM' })
+      throw Object.assign(new Error('应用文件读取需要 API 1.5 进程运行时，当前版本已撤销'), { code: 'UNSUPPORTED_PLATFORM' })
     },
     filesWrite: async (args, plugin) => {
       if (plugin.manifest.files?.app?.scopes?.includes('write') !== true) throw Object.assign(new Error('插件未声明应用文件写入范围'), { code: 'FILE_SCOPE_DENIED' })
-      if (isTauri()) return tauriAPI.invokeStrict('plugin_files_write', { pluginId: plugin.manifest.id, sessionId: args.sessionId, path: args.path, data: args.data })
-      throw Object.assign(new Error('Web 环境不支持插件写入应用文件'), { code: 'UNSUPPORTED_PLATFORM' })
+      throw Object.assign(new Error('应用文件写入需要 API 1.5 进程运行时，当前版本已撤销'), { code: 'UNSUPPORTED_PLATFORM' })
     },
     resolveHost: async hostname => {
       const responses = await Promise.all(['A', 'AAAA'].map(type => fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=${type}`, { headers: { accept: 'application/dns-json' } })))
@@ -109,17 +105,11 @@ export const usePluginsStore = defineStore('plugins', () => {
       return records.flatMap(data => (data.Answer || []).map(answer => answer.data).filter(Boolean))
     },
     netRequest: async (args, plugin, signal) => {
-      if (isTauri()) return tauriAPI.invokeStrict('plugin_net_request', { pluginId: plugin.manifest.id, sessionId: args.sessionId, url: args.url, method: args.method, headers: args.headers, body: args.body }, signal)
-      const response = await fetch(args.url, { method: args.method || 'GET', headers: args.headers, body: args.body, signal, redirect: 'manual' })
-      if (response.status >= 300 && response.status < 400) throw Object.assign(new Error('Web 环境不支持网络重定向'), { code: 'NETWORK_REDIRECT_DENIED' })
-      const body = await response.arrayBuffer()
-      return { status: response.status, headers: Object.fromEntries(response.headers), body: new Uint8Array(body), bodyBytes: body.byteLength }
+      throw Object.assign(new Error('插件网络代理需要 API 1.5 进程运行时，当前版本已撤销'), { code: 'UNSUPPORTED_PLATFORM' })
     },
     addressBinding: false
   }})
   const coreClient = getCoreClient()
-  const coreHooks = new CoreHookCoordinator({ onDisable: pluginId => { void disableFromHook(pluginId) } })
-  coreClient.setHookCoordinator(coreHooks)
 
   const runtime = new PluginRuntime({
     getPlugin: pluginId => installed.value[pluginId],
@@ -151,7 +141,6 @@ export const usePluginsStore = defineStore('plugins', () => {
     playAudio,
     platformBridge,
     onFault: handleRuntimeFault,
-    coreHooks,
     pageStateAdapter: {
       read(field) {
         const settings = useSettingsStore().settings
@@ -176,13 +165,6 @@ export const usePluginsStore = defineStore('plugins', () => {
         ])
         throw new Error('state field is not writable')
       }
-    },
-    runnerFactory: (plugin, instanceId) => platformBridge.info().runtime === 'tauri'
-      ? createTauriRunner({ pluginId: plugin.manifest.id, instanceId, files: plugin.files })
-      : null,
-    onApi15Message: (pluginId, message) => {
-      if (message.type === 'event') emitPluginEvent(message.event, { pluginId, payload: clone(message.payload) })
-      else if (message.type === 'fault') handleRuntimeFault(pluginId, new Error(message.error || 'Plugin runner fault'))
     }
   })
 
@@ -411,7 +393,7 @@ export const usePluginsStore = defineStore('plugins', () => {
     for (const plugin of Object.values(installed.value).filter(item => item.enabled)) {
       if (!isPluginActivatable(plugin.manifest)) {
         plugin.enabled = false
-        plugin.runtimeError = '该插件需要迁移到 API 1.5，旧版本仅可查看'
+        plugin.runtimeError = '该插件需要 API 1.5 进程运行时，当前版本已撤销'
         continue
       }
       const compatibility = compatibilityFor(plugin)
@@ -574,7 +556,7 @@ export const usePluginsStore = defineStore('plugins', () => {
       await saveState(false)
       return true
     }
-    if (!isPluginActivatable(plugin.manifest)) throw Object.assign(new Error('旧版插件仅可查看，不能启用；请迁移到 API 1.5'), { code: 'PLUGIN_MIGRATION_REQUIRED' })
+    if (!isPluginActivatable(plugin.manifest)) throw Object.assign(new Error('该插件需要 API 1.5 进程运行时，当前版本已撤销，仅可查看'), { code: 'PLUGIN_MIGRATION_REQUIRED' })
     try {
       assertPlatformCompatibility(plugin)
       assertDependencies(plugin)
@@ -985,7 +967,6 @@ export const usePluginsStore = defineStore('plugins', () => {
   }
 
   function markCleanShutdown() {
-    if (platformBridge.info().runtime === 'tauri') tauriAPI.pluginRunnerStopAll().catch(() => {})
     clearActivationMarker()
   }
 

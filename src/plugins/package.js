@@ -167,7 +167,9 @@ export function manifestMigrationMetadata(raw) {
 }
 
 export function isPluginActivatable(manifest) {
-  return manifest?.api === '1.5' && manifest.displayOnly !== true && manifest.activatable !== false
+  if (!manifest || manifest.displayOnly === true || manifest.activatable === false) return false
+  // API 1.5 进程运行时已撤销；旧版 Worker 插件（1.2–1.4）继续可启用
+  return manifest.api !== '1.5'
 }
 
 export function summarizeInstallationRisk(manifest = {}) {

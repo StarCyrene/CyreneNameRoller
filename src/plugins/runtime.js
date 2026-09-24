@@ -11,9 +11,6 @@ import {
 } from './ui/principal.js'
 import { listComponentTargets } from './ui/componentRegistry.js'
 import { NATIVE_VIEW_SLOTS } from './ui/nativeViewPolicy.js'
-import { DesktopPluginHost } from './rpc/desktopHost.js'
-import { WebPluginRuntime } from './rpc/webRuntime.js'
-import { resolveApi15Capabilities } from './api15/permissions.js'
 import { PageRegistry } from './api15/pageRegistry.js'
 import { DomBridge, createPluginPageSource } from './api15/domBridge.js'
 import { PageStateBridge } from './api15/pageState.js'
@@ -95,7 +92,7 @@ function wait(milliseconds) {
 }
 
 export class PluginRuntime {
-  constructor({ getPlugin, savePluginData, loadPluginData, showBanner, getCoreSnapshot, executeCoreDraw, selectFile, playAudio, platformBridge, onFault, workerFactory, runnerFactory, onApi15Message, coreHooks, pageStateAdapter }) {
+  constructor({ getPlugin, savePluginData, loadPluginData, showBanner, getCoreSnapshot, executeCoreDraw, selectFile, playAudio, platformBridge, onFault, pageStateAdapter }) {
     this.getPlugin = getPlugin
     this.savePluginData = savePluginData
     this.loadPluginData = loadPluginData
@@ -106,10 +103,6 @@ export class PluginRuntime {
     this.playAudio = playAudio
     this.platformBridge = platformBridge
     this.onFault = onFault
-    this.workerFactory = workerFactory
-    this.runnerFactory = runnerFactory
-    this.onApi15Message = onApi15Message
-    this.coreHooks = coreHooks
     this.pageStateAdapter = pageStateAdapter
     this.workers = new Map()
     this.frames = new Map()
@@ -170,19 +163,6 @@ export class PluginRuntime {
     this.windowBridges.get(pluginId)?.styles().setDocument(document)
     this.styleSurface = { surface, document }
     this.pageBridges.delete(`${pluginId}:${pageId}`)
-  }
-
-  createApi15Principal(plugin, instanceId, capabilities) {
-    const principal = createPluginPrincipal({
-      pluginId: plugin.manifest.id,
-      instanceId,
-      kind: 'worker',
-      contributionId: 'api15',
-      grants: Object.entries(capabilities).filter(([, status]) => status?.available).map(([id]) => id),
-      platform: this.platformBridge.info()?.runtime
-    })
-    this.principals.set(instanceId, principal)
-    return principal
   }
 
   getLegacyPrincipal(plugin) {
@@ -378,7 +358,9 @@ export class PluginRuntime {
   }
 
   async activate(plugin) {
-    if (plugin.manifest?.api === '1.5') return this.activateApi15(plugin)
+    if (plugin.manifest?.api === '1.5') {
+      throw Object.assign(new Error('API 1.5 进程运行时已撤销，请使用旧版插件或等待后续版本'), { code: 'UNSUPPORTED_PLATFORM' })
+    }
     const compatibility = this.platformBridge.compatibility(plugin.manifest)
     if (!compatibility.compatible) throw new Error(compatibility.reason)
     const existingRuntime = this.workers.get(plugin.manifest.id)
@@ -529,95 +511,21 @@ export class PluginRuntime {
     }
   }
 
-  async activateApi15(plugin) {
-    const pluginId = plugin.manifest.id
-    const existing = this.workers.get(pluginId)
-    if (existing) return existing.activated
-    const platform = this.platformBridge.info()
-    const declarations = Array.isArray(plugin.manifest.permissions) ? plugin.manifest.permissions : []
-    const capabilities = resolveApi15Capabilities(plugin.manifest, platform)
-    const required = declarations.filter(item => typeof item === 'object' && item.required).map(item => item.id)
-    const missingRequired = required.filter(id => capabilities[id]?.applies !== false && !capabilities[id]?.available)
-    if (missingRequired.length) throw Object.assign(new Error(`required capability unavailable: ${missingRequired.join(', ')}`), { code: 'UNSUPPORTED_PLATFORM' })
-    const instanceId = globalThis.crypto?.randomUUID?.() || `plugin-${Date.now()}-${Math.random()}`
-    const principal = this.createApi15Principal(plugin, instanceId, capabilities)
-    const runtime = platform.runtime === 'tauri'
-       ? new DesktopPluginHost({ pluginId, instanceId, packagePath: plugin.packagePath || pluginId, entry: plugin.manifest.entry.script, args: plugin.manifest.entry.args || [], runner: this.runnerFactory?.(plugin, instanceId) || {}, initialize: capabilities, onMessage: message => this.onApi15Message?.(pluginId, message), onRequest: message => this.handleRpc(principal, message.method, message.params, message.signal) })
-       : new WebPluginRuntime({ pluginId, instanceId, worker: this.workerFactory?.(plugin) || this.createApi15Worker(plugin), requiredCapabilities: required.filter(id => capabilities[id]?.applies !== false), availableCapabilities: Object.fromEntries(Object.entries(capabilities).map(([name, value]) => [name, value.available])), onRequest: message => this.handleRpc(principal, message.method, message.params, message.signal) })
-    const activated = runtime.start().then(() => runtime.ready)
-    this.workers.set(pluginId, { api15: true, runtime, activated, commandRequests: new Map() })
-    try {
-      await activated
-      for (const declaration of plugin.manifest.hooks || []) this.coreHooks?.register({
-         pluginId,
-         operation: declaration.operation,
-          timeoutMs: declaration.timeoutMs,
-          phase: declaration.phase,
-          loadOrder: this.pageLoadOrder++,
-          invoke: context => this.invokeCoreHook(pluginId, declaration.operation, declaration.phase, context, declaration.timeoutMs)
-      })
-      this.registerPages(plugin)
-      return true
-    } catch (error) {
-      this.unregisterPages(pluginId)
-      revokePrincipal(principal)
-      this.principals.delete(instanceId)
-      this.workers.delete(pluginId)
-      await runtime.shutdown().catch(() => {})
-      throw error
-    }
+  async activateApi15() {
+    throw Object.assign(new Error('API 1.5 进程运行时已撤销'), { code: 'UNSUPPORTED_PLATFORM' })
   }
 
-  receiveApi15(pluginId, message) {
-    const record = this.workers.get(pluginId)
-    if (!record?.api15) return false
-    record.runtime.receive(message)
-    return true
+  receiveApi15() {
+    return false
   }
 
-  sendApi15Event(pluginId, event, payload) {
-    const record = this.workers.get(pluginId)
-    if (!record?.api15) return false
-    if (record.runtime.send) record.runtime.send({ type: 'event', role: 'host', pluginId, instanceId: record.runtime.instanceId, event, payload: transferableValue(payload) })
-    return true
+  sendApi15Event() {
+    return false
   }
 
-  createApi15Worker(plugin) {
-    if (typeof Worker !== 'function' || typeof globalThis.URL?.createObjectURL !== 'function' || typeof Blob !== 'function') throw new Error('当前环境不支持 API 1.5 Web Worker')
-    const source = decodePluginFile(plugin, plugin.manifest.entry.script)
-    const bootstrap = `
-      'use strict';
-      for (const key of ['fetch', 'WebSocket', 'EventSource', 'XMLHttpRequest', 'importScripts', 'Worker', 'SharedWorker']) {
-        try { Object.defineProperty(self, key, { value: undefined, writable: false, configurable: false }); } catch {}
-      }
-      ${source}
-      const module = self.CyrenePluginModule || self.cyrenePlugin || self.plugin;
-      let identity = null;
-      self.onmessage = async event => {
-        const message = event.data || {};
-        if (message.api !== '1.5' || message.protocol !== 'cnrp-jsonrpc/1') throw new Error('RPC message API or protocol is invalid');
-        if (message.type === 'hello') {
-          identity = Object.freeze({ pluginId: message.pluginId, instanceId: message.instanceId });
-          return self.postMessage({ type: 'hello.accepted', role: 'plugin', ...identity, api: '1.5', protocol: 'cnrp-jsonrpc/1' });
-        }
-        if (!identity || message.pluginId !== identity.pluginId || message.instanceId !== identity.instanceId) throw new Error('stale or invalid plugin instance identity');
-        if (message.type === 'initialize') {
-          await module?.activate?.(Object.freeze({ plugin: { id: message.pluginId }, capabilities: message.capabilities || {}, request: (method, params) => new Promise((resolve, reject) => {
-            const id = crypto.randomUUID(); self.postMessage({ jsonrpc: '2.0', protocol: 'cnrp-jsonrpc/1', api: '1.5', ...identity, id, method, params });
-            self.addEventListener('message', function receive(response) { const data = response.data || {}; if (data.id !== id) return; self.removeEventListener('message', receive); if (data.api !== '1.5' || data.protocol !== 'cnrp-jsonrpc/1' || data.pluginId !== identity.pluginId || data.instanceId !== identity.instanceId) return reject(new Error('RPC response identity or API is invalid')); data.error ? reject(data.error) : resolve(data.result); });
-          }) }));
-          return self.postMessage({ type: 'ready', role: 'plugin', pluginId: message.pluginId, instanceId: message.instanceId, api: '1.5', protocol: 'cnrp-jsonrpc/1' });
-        }
-        if (message.type === 'shutdown') await module?.deactivate?.();
-      };
-    `
-    const workerUrl = globalThis.URL.createObjectURL(new Blob([bootstrap], { type: 'text/javascript' }))
-    const worker = new Worker(workerUrl)
-    const terminate = worker.terminate.bind(worker)
-    worker.terminate = () => { globalThis.URL.revokeObjectURL(workerUrl); terminate() }
-    return worker
+  createApi15Worker() {
+    throw Object.assign(new Error('API 1.5 进程运行时已撤销'), { code: 'UNSUPPORTED_PLATFORM' })
   }
-
   async deactivate(pluginId) {
     this.deactivatingPlugins.add(pluginId)
     try {
