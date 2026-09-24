@@ -43,6 +43,8 @@ test('settings routes expose four nested pages and legacy redirects', () => {
   assert.match(router, /path: 'changelog'\s*,\s*redirect: '\/settings\/data'/)
   assert.match(settingsLayout, /<router-view\s*\/>/)
   assert.doesNotMatch(settingsLayout, /<Transition/)
+  // 不要给布局容器加 overflow:hidden（会裁掉设置内容，导致 .app-content 滚不动）
+  assert.doesNotMatch(settingsLayout, /\.settings-layout-view\s*\{[^}]*overflow:\s*hidden/)
 })
 
 test('settings sections retain the modern mainline implementations', () => {

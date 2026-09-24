@@ -434,7 +434,6 @@ onBeforeUnmount(() => {
   flex: 1;
   flex-direction: column;
   min-height: 0;
-  will-change: transform;
 }
 
 .dock.secondary-open .dock-primary { pointer-events: none; }
@@ -508,12 +507,13 @@ onBeforeUnmount(() => {
   font-weight: var(--plugin-component-navigation-dock-font-weight, inherit);
   text-decoration: none;
   cursor: pointer;
-  transition: background var(--duration-fast) ease, color var(--duration-fast) ease, transform var(--duration-fast) ease;
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
 }
 
 .dock.collapsed .dock-item { justify-content: flex-start; padding: 9px 10px; }
-.dock-item:hover { background: var(--bg-hover); color: var(--text-primary); transform: translateX(1px); }
-.dock-item.active { background: var(--bg-hover); color: var(--accent); transform: translateX(1px); }
+/* 不用 translateX：位移会和内容层 backdrop-filter 叠成整页抖动 */
+.dock-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+.dock-item.active { background: var(--bg-hover); color: var(--accent); }
 .dark .dock-item.active { background: var(--bg-hover); }
 .dock-item-icon { flex-shrink: 0; transition: transform var(--duration-normal) var(--ease-standard); }
 .dock-item.active .dock-item-icon { transform: scale(1.08); }

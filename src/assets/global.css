@@ -95,6 +95,22 @@ img {
   user-select: none;
 }
 
+/* 覆盖 fluent-card 的 backdrop-filter + transition:all：
+   内容层与毛玻璃卡片一叠加，hover 重绘就会看起来像整页在抖 */
+.fluent-card {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: var(--bg-card-solid);
+  transition: box-shadow var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard);
+}
+.fluent-card.material-solid,
+.fluent-card.material-mica,
+.fluent-card.material-mica-alt {
+  background: var(--bg-card-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 /* Performance Settings - individual toggles */
 .perf-no-blur * {
   backdrop-filter: none !important;

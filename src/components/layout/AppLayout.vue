@@ -959,7 +959,6 @@ watch(() => settingsStore.settings.fontFamily, (val) => {
   isolation: isolate;
   backface-visibility: hidden;
   transform-style: preserve-3d;
-  will-change: transform, clip-path, filter;
 }
 
 .route-page-ghost {
@@ -974,7 +973,6 @@ watch(() => settingsStore.settings.fontFamily, (val) => {
   contain: paint;
   backface-visibility: hidden;
   transform-style: preserve-3d;
-  will-change: transform, clip-path, filter, box-shadow;
   background: var(--bg-base);
 }
 
