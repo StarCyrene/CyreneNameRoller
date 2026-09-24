@@ -1,5 +1,27 @@
 [
   {
+    "version": "26.2.3",
+    "date": "2026-09-24",
+    "logs": {
+      "zh": [
+        "【数据】移除便携模式开关：数据固定保存在程序安装目录，启动时自动把 AppData 中的旧数据迁移到安装目录，减少路径来回切换导致的数据丢失",
+        "【窗口】修复启动后窗口变成细条的问题：非法窗口尺寸拒绝写入；每次呼出主窗口时检测并恢复到习惯尺寸；无习惯数据时回退到 1280×720",
+        "【窗口】记录用户常用窗口大小（启动时与调整后静置 10 秒各记一次，最多 20 条），异常时优先恢复出现次数最多的习惯尺寸",
+        "【兼容】数据向下兼容：能读取的字段正常加载，无法理解的字段原样保留不删除；旧版 MAC 与完整 MAC 双重校验，回退旧版本后仍可读取数据",
+        "【触屏】禁用窗口内上下滑动到底部的浏览器式回弹效果",
+        "【性能】点名滚动热路径改为直接更新 DOM 文本，减少 Vue 重渲染；动效与画面表现保持不变"
+      ],
+      "en": [
+        "[Data] Removed the portable-mode toggle: app data always lives under the install directory, and AppData data is migrated automatically on first launch to avoid path-switch data loss",
+        "[Window] Fixed the thin-strip window on startup: illegal sizes are rejected on save; every main-window reveal validates size and restores the habitual size, falling back to 1280×720 when no history exists",
+        "[Window] Tracks habitual window sizes (once on launch and once after 10s idle resize, max 20 samples) and restores the most frequent size after corruption",
+        "[Compatibility] Downward-compatible data loading: readable fields load normally, unknown fields are preserved instead of deleted; dual MAC verification keeps data readable after rolling back",
+        "[Touch] Disabled browser-style overscroll bounce when swiping to the top/bottom inside the window",
+        "[Performance] Roller hot path updates name text via direct DOM writes to reduce Vue patches while keeping animations unchanged"
+      ]
+    }
+  },
+  {
     "version": "26.2.2",
     "date": "2026-08-22",
     "logs": {

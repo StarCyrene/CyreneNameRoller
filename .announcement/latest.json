@@ -1,5 +1,23 @@
 [
   {
+    "id": 10,
+    "title": {
+      "cn": "v26.2.3 已发布",
+      "en": "v26.2.3 Has released"
+    },
+    "important": true,
+    "pinned": true,
+    "tag": {
+      "cn": "更新",
+      "en": "Update"
+    },
+    "time": "2026/09/24 00:00",
+    "content": {
+      "cn": "v26.2.3 已发布！这次把数据路径、窗口细条恢复和触屏回弹几处涟漪都抚平了。\n\n本次更新重点包括：\n\n- 移除便携模式开关，数据固定安装目录并自动迁移 AppData\n- 修复启动窗口变细条：非法尺寸拒绝写入，呼出时按习惯尺寸自愈（默认 1280×720）\n- 数据向下兼容：能读的正常读，读不懂的先留着，回退旧版也能用\n- 禁用触屏滑到底回弹；点名滚动减少 DOM 重渲染\n\n详细内容可在「设置 → 更新日志」查看。欢迎通过 GitHub Issues 反馈问题与建议。",
+      "en": "v26.2.3 has been released! This update smooths out data-path, thin-strip window restore, and touch overscroll issues.\n\nHighlights include:\n\n- Portable mode removed; data always lives under the install directory with automatic AppData migration\n- Fixed thin-strip windows: illegal sizes are rejected and restored from habitual size (default 1280×720)\n- Downward-compatible data: readable fields load, unknown fields are kept for after upgrade\n- Disabled touch overscroll bounce; roller hot path reduces DOM re-renders\n\nSee Settings → Changelog for details. Use GitHub Issues for feedback."
+    }
+  },
+  {
     "id": 9,
     "title": {
       "cn": "v26.2.2 已发布",
