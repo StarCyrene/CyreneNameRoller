@@ -143,11 +143,11 @@ export function pluginSourceUrl(originalUrl, source = 'cyrene') {
 }
 
 export function pluginListUrl(source = 'cyrene') {
-  const raw = `https://raw.githubusercontent.com/${PLUGIN_LIST_REPOSITORY}/master/${PLUGIN_LIST_PATH}`
+  const raw = `https://raw.githubusercontent.com/${PLUGIN_LIST_REPOSITORY}/master-cyrene2008/${PLUGIN_LIST_PATH}`
   return pluginSourceUrl(raw, source)
 }
 
 export function pluginListCandidates(source = 'cyrene') {
-  const raw = `https://raw.githubusercontent.com/${PLUGIN_LIST_REPOSITORY}/master/${PLUGIN_LIST_PATH}`
+  const raw = `https://raw.githubusercontent.com/${PLUGIN_LIST_REPOSITORY}/master-cyrene2008/${PLUGIN_LIST_PATH}`
   return pluginSourceCandidates(raw, source)
 }

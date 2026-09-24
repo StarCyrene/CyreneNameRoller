@@ -2824,12 +2824,12 @@ fn announcement_cache_path() -> PathBuf {
 #[tauri::command]
 async fn fetch_announcements() -> Result<serde_json::Value, String> {
     let urls = [
-        // 镜像代理（refs/heads/master）—— 你确认可用的主源
-        "https://v4.gh-proxy.com/raw.githubusercontent.com/StarCyrene/CyreneNameRoller/refs/heads/master/.announcement/latest.json",
+        // 镜像代理（refs/heads/master-cyrene2008）—— 你确认可用的主源
+        "https://v4.gh-proxy.com/raw.githubusercontent.com/StarCyrene/CyreneNameRoller/refs/heads/master-cyrene2008/.announcement/latest.json",
         // 自建 nameapi 镜像
         "https://nameapi.cyrene.hi.cn/announcement/latest.json",
         // 直连 raw.githubusercontent 兜底
-        "https://raw.githubusercontent.com/StarCyrene/CyreneNameRoller/master/.announcement/latest.json",
+        "https://raw.githubusercontent.com/StarCyrene/CyreneNameRoller/master-cyrene2008/.announcement/latest.json",
     ];
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
