@@ -497,7 +497,7 @@ test('CLI and host normalize API 1.2 page, native and dependency metadata consis
   }
 })
 
-test('host and CLI load older plugin APIs in compatibility mode but reject newer minimum APIs', async t => {
+test('legacy manifests stay display-only in compatibility mode while newer minimum APIs are rejected', async t => {
   const temporary = await createTestDirectory('cyrene-plugin-api-compatibility-')
   t.after(() => fs.rm(temporary, { recursive: true, force: true }))
   const source = path.join(temporary, 'plugin')
@@ -507,6 +507,19 @@ test('host and CLI load older plugin APIs in compatibility mode but reject newer
   const parser = await loadApplicationParser(temporary)
   const { getManifestCompatibility } = await loadPlatformBridge(temporary)
   const platform = { runtime: 'web', os: 'unknown', desktop: false }
+
+  const canonicalSource = path.join(temporary, 'api15-plugin')
+  await createTemplate(canonicalSource, 'api15')
+  const canonicalManifestPath = path.join(canonicalSource, 'manifest.json')
+  const canonical = JSON.parse(await fs.readFile(canonicalManifestPath, 'utf8'))
+  canonical.engine = { min: '9.9.9', max: '9.9.9' }
+  await fs.writeFile(canonicalManifestPath, JSON.stringify(canonical, null, 2))
+  const validation = await validateDirectory(canonicalSource)
+  const canonicalManifest = parser.normalizePluginManifest(canonical)
+  assert.equal(validation.manifest.api, '1.5')
+  assert.deepEqual(canonicalManifest.engine, { min: '9.9.9', max: '9.9.9' })
+  assert.equal(canonicalManifest.api, '1.5')
+  assert.equal(parser.isPluginActivatable(canonicalManifest), false)
 
   manifest.engine = { min: '1.0.0', max: '1.0.0' }
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2))
@@ -964,6 +977,53 @@ test('plugin catalog resolves the latest GitHub Release asset and digest dynamic
   assert.equal(resolved.release.assetName, 'sound-2.3.4.cnrp')
   assert.equal(resolved.sha256, 'ab'.repeat(32))
   assert.match(resolved.downloadUrl, /releases\/download\/v2\.3\.4/)
+})
+
+test('plugin source candidates prefer CORS-friendly gh-proxy and try bare and full URLs', async t => {
+  const temporary = await createTestDirectory('cyrene-plugin-sources-')
+  t.after(() => fs.rm(temporary, { recursive: true, force: true }))
+  const catalog = await loadPluginCatalog(temporary)
+  const constantsOutput = path.join(temporary, 'plugin-constants.mjs')
+  await build({
+    entryPoints: [path.join(projectRoot, 'src/plugins/constants.js')],
+    bundle: true,
+    write: true,
+    outfile: constantsOutput,
+    platform: 'browser',
+    format: 'esm',
+    target: ['es2022'],
+    legalComments: 'none'
+  })
+  const { pluginSourceCandidates } = await import(`${pathToFileURL(constantsOutput).href}?v=${Date.now()}`)
+  const apiUrl = 'https://api.github.com/repos/example/plugin/releases/latest'
+  const ghproxy = pluginSourceCandidates(apiUrl, 'ghproxy')
+  assert.equal(ghproxy[0], `https://gh-proxy.com/${apiUrl}`)
+  assert.ok(ghproxy.includes('https://gh-proxy.com/api.github.com/repos/example/plugin/releases/latest'))
+  assert.ok(ghproxy[ghproxy.length - 1] === apiUrl, 'direct GitHub is the last fallback')
+  const cyrene = pluginSourceCandidates(apiUrl, 'cyrene')
+  assert.equal(cyrene[0], `https://gh.昔涟.cn/${apiUrl}`)
+  assert.ok(catalog.resolveCatalogRelease)
+})
+
+test('catalog release resolve falls back to pinned version and download URL', async t => {
+  const temporary = await createTestDirectory('cyrene-plugin-pin-fallback-')
+  t.after(() => fs.rm(temporary, { recursive: true, force: true }))
+  const { resolveCatalogRelease } = await loadPluginCatalog(temporary)
+  const pinned = await resolveCatalogRelease({
+    id: 'cn.cyrene2008.sound-effects',
+    name: '来点音效',
+    repository: 'Cyrene2008/CyreneNameRoller-SoundEffects',
+    version: '1.2.0',
+    downloadUrl: 'https://github.com/Cyrene2008/CyreneNameRoller-SoundEffects/releases/download/v1.2.0/sound-effects-1.2.0.cnrp',
+    release: { provider: 'github', channel: 'latest', assetPattern: 'sound-effects-*.cnrp' }
+  }, {
+    source: 'ghproxy',
+    fetchImpl: async () => { throw new Error('simulated CORS failure') }
+  })
+  assert.equal(pinned.version, '1.2.0')
+  assert.match(pinned.downloadUrl, /sound-effects-1\.2\.0\.cnrp/)
+  assert.equal(pinned.releaseError, '')
+  assert.equal(pinned.release.pinned, true)
 })
 
 test('repository catalog uses dynamic GitHub Release metadata instead of pinned asset URLs', async () => {

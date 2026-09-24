@@ -22,7 +22,7 @@
         :style="getNameStyle(display, i)"
       >
         <VerifiedResult v-if="currentReceipt && revealed[i]" :receipt="currentReceipt" :index="i" :presentation="resultPresentation" />
-        <template v-else>{{ display.text }}</template>
+        <span v-else :ref="element => setNameTextRef(element, i)" class="name-text"></span>
       </div>
     </div>
 
@@ -209,12 +209,15 @@ onMounted(async () => {
 
 function initializeDisplays(count) {
   nameDisplays.splice(0); lastPickedNames.value = []
+  nameTextRefs.length = 0
+  nameTextCache.length = 0
   const pool = settings.value.groupMode ? getCurrentPool() : availableNames.value
   for (let i = 0; i < count; i++) {
     const src = pool.length ? pool[Math.floor(Math.random() * pool.length)] : { cn: '...', en: '' }
     const txt = getDisplayName(src)
     nameDisplays.push({ text: txt, opacity: 0, animating: false, isWhiteList: false })
     lastPickedNames.value.push('')
+    setRollText(i, txt)
   }
   nextTick(() => { computeGridParams(); computeNameLayout() })
 }
@@ -331,7 +334,26 @@ function switchToSingleFromCount() {
 }
 
 const nameDisplayRefs = []
+const nameTextRefs = []
+const nameTextCache = []
 function setNameDisplayRef(element, index) { nameDisplayRefs[index] = element || null }
+function setNameTextRef(element, index) {
+  nameTextRefs[index] = element || null
+  // Vue 因 opacity/layout 重渲染时把缓存文本写回，避免热路径文本被冲掉
+  if (element) {
+    const cached = nameTextCache[index]
+    if (cached != null && element.textContent !== cached) element.textContent = cached
+    else if (cached == null && nameDisplays[index]) element.textContent = nameDisplays[index].text
+  }
+}
+
+// 滚动热路径：直接写 textContent，避免每帧触发 Vue 文本补丁
+function setRollText(index, text) {
+  nameTextCache[index] = text
+  const node = nameTextRefs[index]
+  if (node && node.textContent !== text) node.textContent = text
+}
+
 function emphasize(index) {
   const run = pluginsStore.startAnimation('roller.finish', nameDisplayRefs[index])
   if (run) {
@@ -388,8 +410,9 @@ function animationLoop() {
     const pick = doPick([])
     const txt = getDisplayName(pick)
     if (nameDisplays[i]) {
-      nameDisplays[i].text = txt
-      nameDisplays[i].opacity = 1
+      // 滚动中只走 DOM 文本，不改 reactive text，减少 Vue 重渲染
+      setRollText(i, txt)
+      if (nameDisplays[i].opacity !== 1) nameDisplays[i].opacity = 1
       nameDisplays[i].isWhiteList = !!pick.isWhiteList
     }
     if (pick.id && !pick.isWhiteList) {
@@ -558,12 +581,17 @@ async function finishRoll() {
     const tid = setTimeout(() => {
       revealed.value[i] = true
       const result = finalPicks[i]
-      nameDisplays[i].text = settings.value.englishMode && result.englishName ? result.englishName : result.name
+      const finalText = settings.value.englishMode && result.englishName ? result.englishName : result.name
+      setRollText(i, finalText)
+      nameDisplays[i].text = finalText
       nameDisplays[i].opacity = 1
       nameDisplays[i].isWhiteList = !!result.isWhiteList
       emphasize(i)
-      pluginsStore.dispatchEvent('roller:item-result', { ...receipt, index: i, result })
-      if (i === finalPicks.length - 1) pluginsStore.dispatchEvent('roller:result', receipt)
+      // 插件音效等副作用让开一拍，避免音频解码挤卡强调动画
+      setTimeout(() => {
+        pluginsStore.dispatchEvent('roller:item-result', { ...receipt, index: i, result })
+        if (i === finalPicks.length - 1) pluginsStore.dispatchEvent('roller:result', receipt)
+      }, 0)
     }, i * stagger)
     pendingTimers.push(tid)
   }
@@ -579,7 +607,9 @@ function windDownLoop(count, stagger) {
     for (let i = 0; i < count; i++) {
       if (revealed.value[i]) continue
       const pick = doPick([])
-      nameDisplays[i].text = getDisplayName(pick)
+      const txt = getDisplayName(pick)
+      setRollText(i, txt)
+      nameDisplays[i].text = txt
       nameDisplays[i].opacity = 1
     }
     computeNameLayout()

@@ -11,6 +11,12 @@ import {
 } from './ui/principal.js'
 import { listComponentTargets } from './ui/componentRegistry.js'
 import { NATIVE_VIEW_SLOTS } from './ui/nativeViewPolicy.js'
+import { PageRegistry } from './api15/pageRegistry.js'
+import { DomBridge, createPluginPageSource } from './api15/domBridge.js'
+import { PageStateBridge } from './api15/pageState.js'
+import { WindowBridge } from './api15/windowBridge.js'
+import { listComponentTargets } from './ui/componentRegistry.js'
+import { NATIVE_VIEW_SLOTS } from './ui/nativeViewPolicy.js'
 
 const RESERVED_NATIVE_VIEW_SLOTS = Object.freeze([
   'slot:app.command-palette',
@@ -87,7 +93,7 @@ function wait(milliseconds) {
 }
 
 export class PluginRuntime {
-  constructor({ getPlugin, savePluginData, loadPluginData, showBanner, getCoreSnapshot, executeCoreDraw, selectFile, playAudio, platformBridge, onFault }) {
+  constructor({ getPlugin, savePluginData, loadPluginData, showBanner, getCoreSnapshot, executeCoreDraw, selectFile, playAudio, platformBridge, onFault, pageStateAdapter }) {
     this.getPlugin = getPlugin
     this.savePluginData = savePluginData
     this.loadPluginData = loadPluginData
@@ -98,6 +104,7 @@ export class PluginRuntime {
     this.playAudio = playAudio
     this.platformBridge = platformBridge
     this.onFault = onFault
+    this.pageStateAdapter = pageStateAdapter
     this.workers = new Map()
     this.frames = new Map()
     this.pages = new Map()
@@ -123,6 +130,37 @@ export class PluginRuntime {
     return principal
   }
 
+  pageBridge(plugin, pageId, principal) {
+    const key = `${plugin.manifest.id}:${pageId}`
+    let bridge = this.pageBridges.get(key)
+    if (bridge) return bridge
+    const record = this.frames.get(key)
+    const root = record?.surface || { tagName: 'MAIN', children: [] }
+    const location = this.pageRegistry.routeFor(plugin.manifest.id, pageId)?.location
+    bridge = {
+      state: new PageStateBridge({ pluginId: plugin.manifest.id, adapter: this.pageStateAdapter || { read: () => undefined, write: (_field, value) => value }, permissions: [...principal.grants] }),
+      window: this.windowBridges.get(plugin.manifest.id) || new WindowBridge({ pluginId: plugin.manifest.id, document: this.styleSurface?.document })
+    }
+    if (principal.grants.has(location === 'settings' ? 'dom:settings' : 'dom:main')) {
+      bridge.dom = new DomBridge({ pluginId: plugin.manifest.id, permission: location === 'settings' ? 'dom:settings' : 'dom:main', root })
+    }
+    this.windowBridges.set(plugin.manifest.id, bridge.window)
+    this.pageBridges.set(key, bridge)
+    return bridge
+  }
+
+  setStyleSurface(surface, document) {
+    for (const bridge of this.windowBridges.values()) bridge.styles().setDocument(document)
+    this.styleSurface = { surface, document }
+  }
+
+  setPageSurface(pluginId, pageId, surface, document = globalThis.document) {
+    const record = this.frames.get(`${pluginId}:${pageId}`)
+    if (record) record.surface = surface?.contentDocument?.body || surface?.parentElement || surface
+    this.windowBridges.get(pluginId)?.styles().setDocument(document)
+    this.styleSurface = { surface, document }
+    this.pageBridges.delete(`${pluginId}:${pageId}`)
+  }
   getLegacyPrincipal(plugin) {
     const pluginId = plugin?.manifest?.id
     if (!pluginId) return null
@@ -299,6 +337,9 @@ export class PluginRuntime {
   }
 
   async activate(plugin) {
+    if (plugin.manifest?.api === '1.5') {
+      throw Object.assign(new Error('API 1.5 进程运行时已撤销，请使用旧版插件或等待后续版本'), { code: 'UNSUPPORTED_PLATFORM' })
+    }
     const compatibility = this.platformBridge.compatibility(plugin.manifest)
     if (!compatibility.compatible) throw new Error(compatibility.reason)
     const existingRuntime = this.workers.get(plugin.manifest.id)
@@ -449,6 +490,21 @@ export class PluginRuntime {
     }
   }
 
+  async activateApi15() {
+    throw Object.assign(new Error('API 1.5 进程运行时已撤销'), { code: 'UNSUPPORTED_PLATFORM' })
+  }
+
+  receiveApi15() {
+    return false
+  }
+
+  sendApi15Event() {
+    return false
+  }
+
+  createApi15Worker() {
+    throw Object.assign(new Error('API 1.5 进程运行时已撤销'), { code: 'UNSUPPORTED_PLATFORM' })
+  }
   async deactivate(pluginId) {
     this.deactivatingPlugins.add(pluginId)
     try {

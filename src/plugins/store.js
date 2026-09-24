@@ -82,7 +82,29 @@ export const usePluginsStore = defineStore('plugins', () => {
   const safeModeStatus = ref(Object.freeze({ enabled: false, source: 'default', stale: false, errorCode: '', diagnostic: '', path: '' }))
   const fontRegistry = new PluginFontRegistry()
   const animationRegistry = new PluginAnimationRegistry()
-  const platformBridge = new PluginPlatformBridge()
+  const auditLog = new AuditLog({ onRecord: record => {
+    if (isTauri()) tauriAPI.invoke('plugin_audit_append', { record }).catch(() => {})
+  } })
+  const platformBridge = new PluginPlatformBridge({ auditLog, handlers: {
+    filesRead: async (args, plugin) => {
+      if (plugin.manifest.files?.app?.scopes?.includes('read') !== true) throw Object.assign(new Error('插件未声明应用文件读取范围'), { code: 'FILE_SCOPE_DENIED' })
+      throw Object.assign(new Error('应用文件读取需要 API 1.5 进程运行时，当前版本已撤销'), { code: 'UNSUPPORTED_PLATFORM' })
+    },
+    filesWrite: async (args, plugin) => {
+      if (plugin.manifest.files?.app?.scopes?.includes('write') !== true) throw Object.assign(new Error('插件未声明应用文件写入范围'), { code: 'FILE_SCOPE_DENIED' })
+      throw Object.assign(new Error('应用文件写入需要 API 1.5 进程运行时，当前版本已撤销'), { code: 'UNSUPPORTED_PLATFORM' })
+    },
+    resolveHost: async hostname => {
+      const responses = await Promise.all(['A', 'AAAA'].map(type => fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=${type}`, { headers: { accept: 'application/dns-json' } })))
+      if (responses.some(response => !response.ok)) throw new Error('DNS resolution failed')
+      const records = await Promise.all(responses.map(response => response.json()))
+      return records.flatMap(data => (data.Answer || []).map(answer => answer.data).filter(Boolean))
+    },
+    netRequest: async (args, plugin, signal) => {
+      throw Object.assign(new Error('插件网络代理需要 API 1.5 进程运行时，当前版本已撤销'), { code: 'UNSUPPORTED_PLATFORM' })
+    },
+    addressBinding: false
+  }})
   const coreClient = getCoreClient()
 
   const runtime = new PluginRuntime({
@@ -114,7 +136,32 @@ export const usePluginsStore = defineStore('plugins', () => {
     selectFile,
     playAudio,
     platformBridge,
-    onFault: handleRuntimeFault
+    onFault: handleRuntimeFault,
+    pageStateAdapter: {
+      read(field) {
+        const settings = useSettingsStore().settings
+        if (field === 'language') return settings.language
+        if (field === 'theme') return settings.colorTheme || settings.theme
+        if (field === 'animation') return settings.finishAnimation
+        if (field === 'display') return settings.englishMode ? 'english' : 'native'
+        if (field === 'drawFilter') return { listId: useNamesStore().currentListId, target: settings.groupMode ? 'groups' : 'people', count: settings.multiMode ? settings.peopleCount : 1, gender: 'all', allowDuplicates: !settings.forbidDuplicates }
+      },
+      write(field, value) {
+        const settings = useSettingsStore()
+        if (field === 'language') return settings.update('language', value)
+        if (field === 'theme') return settings.update('colorTheme', value)
+        if (field === 'animation') return settings.update('finishAnimation', value)
+        if (field === 'display') return settings.update('englishMode', value === 'english')
+        if (field === 'drawFilter' && value && typeof value === 'object') return Promise.all([
+          value.listId ? useNamesStore().switchList(value.listId) : true,
+          settings.update('groupMode', value.target === 'groups'),
+          settings.update('multiMode', Number(value.count) > 1),
+          settings.update('peopleCount', Math.max(1, Number(value.count) || 1)),
+          settings.update('forbidDuplicates', value.allowDuplicates === false)
+        ])
+        throw new Error('state field is not writable')
+      }
+    }
   })
 
   const enabledPlugins = computed(() => safeModeStatus.value.enabled ? [] : Object.values(installed.value).filter(plugin => plugin.enabled))
@@ -319,6 +366,11 @@ export const usePluginsStore = defineStore('plugins', () => {
     if (safeModeStatus.value.enabled) return false
     const plugins = []
     for (const plugin of Object.values(installed.value).filter(item => item.enabled)) {
+      if (!isPluginActivatable(plugin.manifest)) {
+        plugin.enabled = false
+        plugin.runtimeError = '该插件需要 API 1.5 进程运行时，当前版本已撤销'
+        continue
+      }
       const compatibility = compatibilityFor(plugin)
       plugin.platformCompatibility = compatibility
       if (!compatibility.compatible) {
@@ -478,6 +530,7 @@ export const usePluginsStore = defineStore('plugins', () => {
       await saveState(false)
       return true
     }
+    if (!isPluginActivatable(plugin.manifest)) throw Object.assign(new Error('该插件需要 API 1.5 进程运行时，当前版本已撤销，仅可查看'), { code: 'PLUGIN_MIGRATION_REQUIRED' })
     try {
       assertPlatformCompatibility(plugin)
       assertDependencies(plugin)
@@ -551,8 +604,17 @@ export const usePluginsStore = defineStore('plugins', () => {
   async function fetchPackage(item) {
     const original = item.downloadUrl || item.packageUrl
     if (!original) throw new Error(`${item.name || item.id} 没有可下载地址`)
+    const urls = pluginSourceCandidates(original, source.value)
+    // 桌面端走原生 HTTP，避免 WebView CORS 拦下 GitHub Release 二进制
+    if (isTauri()) {
+      const result = await tauriAPI.fetchPluginBytes(urls)
+      const binary = atob(String(result.bytes || '').replace(/\s/g, ''))
+      const bytes = new Uint8Array(binary.length)
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+      return bytes
+    }
     const response = await fetchFirstSuccessful(
-      pluginSourceCandidates(original, source.value),
+      urls,
       { cache: 'no-store' },
       `${item.name || item.id} 插件包`
     )
@@ -942,13 +1004,53 @@ function selectFile(accept = 'audio/*') {
 }
 
 const playingAudio = new Set()
+const audioContextState = { context: null, buffers: new Map() }
+function clampVolume(volume) {
+  return Math.max(0, Math.min(1, Number.isFinite(volume) ? volume : 1))
+}
+async function decodeAudioBuffer(source) {
+  if (audioContextState.buffers.has(source)) return audioContextState.buffers.get(source)
+  const Context = globalThis.AudioContext || globalThis.webkitAudioContext
+  if (!Context) return null
+  if (!audioContextState.context) audioContextState.context = new Context()
+  const context = audioContextState.context
+  if (context.state === 'suspended') await context.resume().catch(() => {})
+  // data: URL 走 fetch 异步解码，避免 new Audio(dataUrl) 在主线程同步解码 WAV 卡住动画
+  const response = await fetch(source)
+  const raw = await response.arrayBuffer()
+  const buffer = await context.decodeAudioData(raw.slice(0))
+  audioContextState.buffers.set(source, buffer)
+  // 同一音效只保留最近几份解码结果，避免插件频繁更换音频时缓存膨胀
+  if (audioContextState.buffers.size > 8) {
+    const oldest = audioContextState.buffers.keys().next().value
+    audioContextState.buffers.delete(oldest)
+  }
+  return buffer
+}
 function playAudio(source, volume = 1) {
-  if (!source) return false
-  const audio = new Audio(source)
-  audio.volume = Math.max(0, Math.min(1, Number.isFinite(volume) ? volume : 1))
-  playingAudio.add(audio)
-  const release = () => playingAudio.delete(audio)
-  audio.onended = release
-  audio.onerror = release
-  return audio.play().then(() => true).catch(() => { release(); return false })
+  if (!source) return Promise.resolve(false)
+  const level = clampVolume(volume)
+  return decodeAudioBuffer(source).then(buffer => {
+    if (!buffer) {
+      // 极少数不支持 Web Audio 的环境退回 HTMLAudioElement
+      const fallback = new Audio(source)
+      fallback.volume = level
+      playingAudio.add(fallback)
+      const release = () => playingAudio.delete(fallback)
+      fallback.onended = release
+      fallback.onerror = release
+      return fallback.play().then(() => true).catch(() => { release(); return false })
+    }
+    const context = audioContextState.context
+    const node = context.createBufferSource()
+    node.buffer = buffer
+    const gain = context.createGain()
+    gain.gain.value = level
+    node.connect(gain)
+    gain.connect(context.destination)
+    playingAudio.add(node)
+    node.onended = () => playingAudio.delete(node)
+    node.start()
+    return true
+  }).catch(() => false)
 }

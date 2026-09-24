@@ -14,6 +14,14 @@ html, body {
   -webkit-user-select: none;
   user-select: none;
   -webkit-app-region: no-drag;
+  /* 触屏禁用浏览器式回弹/滚动链，避免滑到底上下弹一下 */
+  overscroll-behavior: none;
+}
+
+/* 所有可滚动容器同样关闭 overscroll 回弹，不改变正常滚动体验 */
+#app,
+#app * {
+  overscroll-behavior: none;
 }
 
 body {

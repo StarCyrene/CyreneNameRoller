@@ -352,13 +352,6 @@
         </div>
         <FluentSelect :model-value="settings.newMemberCountMode" :options="newMemberCountModeOptions" width="220px" @update:model-value="update('newMemberCountMode', $event)" />
       </div>
-      <div v-if="isDesktop" class="setting-row">
-        <div class="setting-label-group">
-          <span class="setting-label">{{ lang === 'en' ? 'Portable mode' : '便携模式' }}</span>
-          <span class="setting-desc">{{ lang === 'en' ? 'Store app data beside the program instead of AppData.' : '开启后将应用数据保存在程序目录，而不是 AppData。' }}</span>
-        </div>
-        <FluentToggle :model-value="portableMode" :aria-label="lang === 'en' ? 'Portable mode' : '便携模式'" :disabled="portableModeBusy" @update:model-value="onPortableModeChange" />
-      </div>
       <div class="setting-row">
         <span class="setting-label">{{ lang === 'en' ? 'Data Password' : '数据操作密码' }}</span>
         <FluentButton variant="secondary" size="sm" @click="openPasswordModal">
@@ -849,8 +842,6 @@ function onAutoStopDurationChange(value) {
 const customColorDraft = ref(settings.value.customThemeColor)
 const autoStartBusy = ref(false)
 const uriSchemeBusy = ref(false)
-const portableMode = ref(false)
-const portableModeBusy = ref(false)
 watch(() => settings.value.customThemeColor, value => { customColorDraft.value = value })
 function commitCustomColor() {
   const normalized = normalizeHex(customColorDraft.value, '')
@@ -1060,31 +1051,6 @@ async function onFloatingWindowStyleChange(value) {
   const syncing = syncFloatingWindowStyle()
   await settingsStore.save()
   await syncing
-}
-
-async function onPortableModeChange(enabled) {
-  portableModeBusy.value = true
-  try {
-    const result = await tauriAPI.setPortableMode(enabled)
-    portableMode.value = !!result.enabled
-    showBanner({
-      message: enabled
-        ? (lang.value === 'en' ? 'Portable mode enabled. Data moved to the program directory.' : '便携模式已开启，数据已迁移到程序目录。')
-        : (lang.value === 'en' ? 'Portable mode disabled. Data moved to AppData.' : '便携模式已关闭，数据已迁移到 AppData。'),
-      icon: 'checkmark-circle-16-regular',
-      type: 'success',
-      duration: 6000
-    })
-  } catch (error) {
-    showBanner({
-      message: `${lang.value === 'en' ? 'Could not change portable mode' : '便携模式切换失败'}：${error?.message || String(error)}`,
-      icon: 'warning-16-regular',
-      type: 'warning',
-      duration: 8000
-    })
-  } finally {
-    portableModeBusy.value = false
-  }
 }
 
 function syncFloatingWindowStyle(overrides = {}) {
@@ -1387,7 +1353,6 @@ function getLogEntries(log) {
 
 onMounted(async () => {
   if (isTauri()) {
-    try { portableMode.value = !!(await tauriAPI.portableModeStatus()).enabled } catch {}
     let registered = !!(await tauriAPI.isUriSchemeEnabled())
     if (settings.value.uriSchemeEnabled && !registered) {
       const result = await tauriAPI.setUriSchemeEnabled(true)

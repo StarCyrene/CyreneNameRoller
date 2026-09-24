@@ -59,27 +59,45 @@ export async function resolveCatalogRelease(item, { source = 'cyrene', fetchImpl
   const slug = repositorySlug(item.repository)
   if (!slug) throw new Error(`${item.name || item.id} 缺少有效的 GitHub 仓库`)
   const apiUrl = `https://api.github.com/repos/${slug}/releases/latest`
-  const release = await fetchReleaseJson(pluginSourceCandidates(apiUrl, source), fetchImpl)
-  if (release.draft || release.prerelease) throw new Error(`${item.name || item.id} 的最新 Release 不是正式版本`)
-  const version = versionFromReleaseTag(release.tag_name)
-  const asset = selectReleaseAsset(release, config.assetPattern || '*.cnrp')
-  const digest = String(asset.digest || '')
-  const sha256 = digest.startsWith('sha256:') ? digest.slice(7).toLowerCase() : ''
-  if (!asset.browser_download_url) throw new Error(`${item.name || item.id} 的 Release 资源缺少下载地址`)
-  return {
-    ...item,
-    version,
-    downloadUrl: asset.browser_download_url,
-    sha256: sha256 || item.sha256 || '',
-    release: {
-      ...config,
-      tag: release.tag_name,
-      name: release.name || release.tag_name,
-      url: release.html_url || '',
-      publishedAt: release.published_at || '',
-      assetName: asset.name
-    },
-    releaseNotes: release.body || ''
+  try {
+    const release = await fetchReleaseJson(pluginSourceCandidates(apiUrl, source), fetchImpl)
+    if (release.draft || release.prerelease) throw new Error(`${item.name || item.id} 的最新 Release 不是正式版本`)
+    const version = versionFromReleaseTag(release.tag_name)
+    const asset = selectReleaseAsset(release, config.assetPattern || '*.cnrp')
+    const digest = String(asset.digest || '')
+    const sha256 = digest.startsWith('sha256:') ? digest.slice(7).toLowerCase() : ''
+    if (!asset.browser_download_url) throw new Error(`${item.name || item.id} 的 Release 资源缺少下载地址`)
+    return {
+      ...item,
+      version,
+      downloadUrl: asset.browser_download_url,
+      sha256: sha256 || item.sha256 || '',
+      release: {
+        ...config,
+        tag: release.tag_name,
+        name: release.name || release.tag_name,
+        url: release.html_url || '',
+        publishedAt: release.published_at || '',
+        assetName: asset.name
+      },
+      releaseNotes: release.body || ''
+    }
+  } catch (error) {
+    // 目录钉死的 version/downloadUrl 作为离线/限流/CORS 失败时的回退，仍可安装
+    if (item.version && item.downloadUrl) {
+      return {
+        ...item,
+        release: {
+          ...config,
+          tag: `v${item.version}`,
+          name: `v${item.version}`,
+          pinned: true
+        },
+        releaseNotes: item.releaseNotes || '',
+        releaseError: ''
+      }
+    }
+    throw error
   }
 }
 

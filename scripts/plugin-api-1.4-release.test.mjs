@@ -10,7 +10,7 @@ import { build } from 'esbuild'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = relative => fs.readFile(path.join(root, relative), 'utf8')
 
-test('API 1.4 release metadata is synchronized', async () => {
+test('plugin API 1.4 release metadata is synchronized', async () => {
   const packageJson = JSON.parse(await read('packages/cyrene-name-roller/package.json'))
   assert.equal(packageJson.version, '1.4.0')
   assert.equal(packageJson.bin.cnrp, 'bin/cnrp.mjs')

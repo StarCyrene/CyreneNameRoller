@@ -28,6 +28,9 @@ test('overlay menus own the approved child routes', () => {
   assert.match(navigationDock, /records:\s*\{[\s\S]*?to: '\/records'[\s\S]*?to: '\/lottery\/records'/)
   assert.match(navigationDock, /lists:\s*\{[\s\S]*?to: '\/lists'[\s\S]*?to: '\/group-manage'[\s\S]*?to: '\/lottery\/prizes'/)
   assert.match(navigationDock, /settings:\s*\{[\s\S]*?items:\s*settingsMenuItems\.value/)
+  const settingsBlock = navigationDock.match(/const settingsMenuItems = computed\(\(\) => \[([\s\S]*?)\]\)/)
+  assert.ok(settingsBlock, 'settingsMenuItems block is missing')
+  assert.doesNotMatch(settingsBlock[1], /\/lists|\/group-manage|\/lottery\/prizes/)
 })
 
 test('installed plugins can still contribute independent dock pages', () => {
