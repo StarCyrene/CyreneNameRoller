@@ -43,7 +43,6 @@ const MIN_INSTALLER_SIZE: usize = 1024 * 1024;
 const DATA_MAGIC: &[u8] = b"CYRENE1\0";
 const DATA_NONCE_LENGTH: usize = 12;
 const DATA_TAG_LENGTH: usize = 16;
-const PORTABLE_MODE_MARKER: &str = "portable.mode";
 #[cfg(target_os = "windows")]
 const STARTUP_TASK_NAME: &str = "CyreneNameRollerAutoStart";
 const FLOATING_WINDOW_SIZE: i32 = 64;
@@ -1041,7 +1040,7 @@ fn core_draw_execute(
     }
     records.truncate(500);
     let next_state = core_state::CoreState { schema_version: core_state::CORE_SCHEMA_VERSION, sequence: envelope.state.sequence + 1, previous_hash, receipt_hash: receipt_hash.clone(), algorithm: core_state::ALGORITHM_NAME.into(), algorithm_version: core_state::ALGORITHM_VERSION.into(), names: envelope.state.names.clone(), balance: envelope.state.balance.clone(), statistics: statistics.clone(), records: Value::Array(records.clone()), prizes: envelope.state.prizes.clone() };
-    let next_envelope = core_state::seal(core_state::CoreStateEnvelope { schema_version: core_state::CORE_SCHEMA_VERSION, state: next_state, state_mac: String::new() }, &key)?;
+    let next_envelope = core_state::seal(core_state::CoreStateEnvelope { schema_version: core_state::CORE_SCHEMA_VERSION, state: next_state, state_mac: String::new(), state_mac_full: None }, &key)?;
     receipt["receiptHash"] = json!(receipt_hash);
     let mut next_values = old_values.clone();
     next_values.as_object_mut().ok_or_else(|| "CORE_TRANSACTION_REJECTED".to_string())?.insert(core_state::CORE_STATE_KEY.into(), core_state::to_value(&next_envelope)?);
@@ -1170,6 +1169,7 @@ fn core_card_commit(
         schema_version: core_state::CORE_SCHEMA_VERSION,
         state: next_state,
         state_mac: String::new(),
+        state_mac_full: None,
     }, &key)?;
     receipt["receiptHash"] = json!(receipt_hash);
     let mut next_values = old_values.clone();
@@ -1296,6 +1296,7 @@ fn apply_core_maintenance(
         schema_version: core_state::CORE_SCHEMA_VERSION,
         state: next_state,
         state_mac: String::new(),
+        state_mac_full: None,
     }, key)?;
     receipt["receiptHash"] = json!(receipt_hash);
     let mut next_values = old_values.clone();
@@ -1466,20 +1467,12 @@ impl EncryptedStore {
                     Ok(bytes) => match decrypt_data(&bytes) {
                         Ok(mut values) => {
                             if values.get(core_state::CORE_STATE_KEY).is_some() {
-                                let key = match core_data_key() {
-                                    Ok(key) => key,
-                                    Err(error) => { last_error = Some(error); continue; }
-                                };
-                                values = match core_state::normalize_values(&values, &key) {
-                                    Ok(values) => values,
-                                    Err(_) => {
-                                        last_error = Some("CORE_INTEGRITY_CHECK_FAILED".into());
-                                        continue;
+                                // 能解析就规范化绑定；解析失败时保留原始密文解出的全部字段，
+                                // 不丢弃无法理解的部分，等用户升级后再自然兼容。
+                                if let Ok(key) = core_data_key() {
+                                    if let Ok(normalized) = core_state::normalize_values(&values, &key) {
+                                        values = normalized;
                                     }
-                                };
-                                if core_state::parse(&values, &key).is_err() {
-                                    last_error = Some("CORE_INTEGRITY_CHECK_FAILED".into());
-                                    continue;
                                 }
                             }
                             let sequence = values
@@ -1585,59 +1578,36 @@ fn installation_dir() -> PathBuf {
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
 }
 
-fn legacy_installation_data_dir() -> PathBuf {
-    installation_dir().join("data")
-}
-
-fn portable_marker_path(root: &Path) -> PathBuf {
-    root.join(PORTABLE_MODE_MARKER)
-}
-
-fn portable_data_path(root: &Path) -> PathBuf {
+fn installation_data_path(root: &Path) -> PathBuf {
     root.join("data").join("cyrene-data.cyrene")
 }
 
-fn data_path_for_mode(app_data_dir: &Path, root: &Path, portable: bool) -> PathBuf {
-    if portable {
-        portable_data_path(root)
-    } else {
-        app_data_dir.join("data").join("cyrene-data.cyrene")
+fn app_data_path(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("data").join("cyrene-data.cyrene")
+}
+
+// 便携模式已移除：数据始终位于程序安装目录，不再读取 portable.mode。
+fn configured_data_path(_app_data_dir: &Path, root: &Path) -> PathBuf {
+    installation_data_path(root)
+}
+
+// AppData → 安装目录一次性迁移；安装目录已有数据时绝不覆盖。
+fn migrate_app_data_into_installation(app_data_file: &Path, installation_file: &Path) {
+    if installation_file.exists() || !app_data_file.exists() {
+        return;
     }
-}
-
-fn configured_data_path(app_data_dir: &Path, root: &Path) -> PathBuf {
-    data_path_for_mode(app_data_dir, root, portable_marker_path(root).is_file())
-}
-
-fn set_portable_marker(root: &Path, enabled: bool) -> Result<(), String> {
-    let marker = portable_marker_path(root);
-    if enabled {
-        fs::write(marker, b"portable\n").map_err(|error| error.to_string())
-    } else if marker.exists() {
-        fs::remove_file(marker).map_err(|error| error.to_string())
-    } else {
-        Ok(())
+    if let Some(parent) = installation_file.parent() {
+        if fs::create_dir_all(parent).is_err() {
+            return;
+        }
     }
-}
-
-fn portable_program_dir_error(root: &Path, enabled: bool, error: impl std::fmt::Display) -> String {
-    let action = if enabled { "写入便携数据或 portable.mode 标记" } else { "删除 portable.mode 标记" };
-    let unchanged = if enabled { "当前仍使用 AppData。" } else { "当前仍保持便携模式。" };
-    format!(
-        "无法{}便携模式：程序目录“{}”可能受系统保护（例如 C:\\Program Files），应用无法{}。{}请将程序移至非受保护且可写的目录后重试；确需保留当前位置时，请以管理员身份运行。原始错误：{}",
-        if enabled { "开启" } else { "关闭" },
-        root.to_string_lossy(),
-        action,
-        unchanged,
-        error
-    )
-}
-
-fn portable_target_error(root: &Path, enabled: bool, error: impl std::fmt::Display) -> String {
-    if enabled {
-        portable_program_dir_error(root, true, error)
-    } else {
-        format!("无法关闭便携模式：数据无法迁移到 AppData，当前仍保持便携模式。原始错误：{}", error)
+    let _ = fs::copy(app_data_file, installation_file);
+    // 清理历史 portable.mode 标记（若存在），避免旧逻辑残留。
+    if let Some(root) = installation_file.parent().and_then(|parent| parent.parent()) {
+        let marker = root.join("portable.mode");
+        if marker.is_file() {
+            let _ = fs::remove_file(marker);
+        }
     }
 }
 
@@ -1694,7 +1664,131 @@ fn decrypt_data(bytes: &[u8]) -> Result<serde_json::Value, String> {
     Ok(values)
 }
 
-// 保存主窗口的尺寸、位置与最大化状态，供下次启动恢复
+// 与 tauri.conf.json 的 minWidth/minHeight 保持一致
+const MAIN_WINDOW_MIN_LOGICAL_WIDTH: f64 = 1280.0;
+const MAIN_WINDOW_MIN_LOGICAL_HEIGHT: f64 = 720.0;
+const MAIN_WINDOW_DEFAULT_LOGICAL_WIDTH: f64 = 1280.0;
+const MAIN_WINDOW_DEFAULT_LOGICAL_HEIGHT: f64 = 720.0;
+const WINDOW_HABIT_LIMIT: usize = 20;
+const WINDOW_RESIZE_SETTLE_MS: u64 = 10_000;
+
+// 非法窗口尺寸：低于最小逻辑尺寸、零值，或明显异常的“细条”幻影尺寸。
+fn is_valid_window_size(width: u32, height: u32, scale_factor: f64) -> bool {
+    if width == 0 || height == 0 {
+        return false;
+    }
+    let scale = if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    };
+    let min_width = (MAIN_WINDOW_MIN_LOGICAL_WIDTH * scale) as u32;
+    let min_height = (MAIN_WINDOW_MIN_LOGICAL_HEIGHT * scale) as u32;
+    // 最小化幻影约 160x31；即使个别环境 scale 异常，也拒绝过扁/过窄窗口。
+    if width < min_width || height < min_height {
+        return false;
+    }
+    if (height as f64) < (width as f64) * 0.35 {
+        return false;
+    }
+    true
+}
+
+// 习惯尺寸样本：最多保留 WINDOW_HABIT_MAX 条，超出丢弃最旧记录。
+fn push_window_habit(habits: &mut Vec<serde_json::Value>, width: u32, height: u32) {
+    if width == 0 || height == 0 {
+        return;
+    }
+    habits.push(serde_json::json!({ "width": width, "height": height }));
+    let excess = habits.len().saturating_sub(WINDOW_HABIT_LIMIT);
+    if excess > 0 {
+        habits.drain(0..excess);
+    }
+}
+
+// 选择出现次数最多的习惯尺寸；并列时取最近一次记录。
+fn habitual_window_size(habits: &[serde_json::Value]) -> Option<(u32, u32)> {
+    let mut counts: Vec<((u32, u32), usize)> = Vec::new();
+    for habit in habits {
+        let (Some(width), Some(height)) = (
+            habit.get("width").and_then(serde_json::Value::as_u64),
+            habit.get("height").and_then(serde_json::Value::as_u64),
+        ) else {
+            continue;
+        };
+        let key = (width as u32, height as u32);
+        match counts.iter_mut().find(|(candidate, _)| *candidate == key) {
+            Some((_, count)) => *count += 1,
+            None => counts.push((key, 1)),
+        }
+    }
+    let mut best: Option<((u32, u32), usize)> = None;
+    for entry in counts {
+        match &best {
+            Some((_, best_count)) if entry.1 < *best_count => {}
+            _ => best = Some(entry),
+        }
+    }
+    best.map(|(size, _)| size)
+}
+
+fn default_logical_window_size() -> (u32, u32) {
+    (
+        MAIN_WINDOW_DEFAULT_LOGICAL_WIDTH as u32,
+        MAIN_WINDOW_DEFAULT_LOGICAL_HEIGHT as u32,
+    )
+}
+
+fn record_window_size_habit(app: &tauri::AppHandle, width: u32, height: u32) {
+    let scale = app
+        .get_webview_window("main")
+        .and_then(|window| window.scale_factor().ok())
+        .unwrap_or(1.0);
+    if !is_valid_window_size(width, height, scale) {
+        return;
+    }
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    if window.is_minimized().unwrap_or(false) {
+        return;
+    }
+    let store = app.state::<EncryptedStore>();
+    if store.is_healthy().is_err() {
+        return;
+    }
+    let mut changed = false;
+    if let Ok(mut values) = store.values.lock() {
+        let state = values
+            .get("windowState")
+            .cloned()
+            .filter(|value| value.is_object())
+            .unwrap_or_else(|| serde_json::json!({}));
+        let mut habits = state
+            .get("sizeHabits")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let already_last = habits.last().and_then(|habit| {
+            Some((
+                habit.get("width")?.as_u64()? as u32,
+                habit.get("height")?.as_u64()? as u32,
+            ))
+        }) == Some((width, height));
+        if !already_last {
+            push_window_habit(&mut habits, width, height);
+            let mut next_state = state;
+            next_state["sizeHabits"] = serde_json::Value::Array(habits);
+            values["windowState"] = next_state;
+            changed = true;
+        }
+    }
+    if changed {
+        let _ = store.persist();
+    }
+}
+
+// 保存主窗口的尺寸与最大化状态；非法尺寸拒绝写入。
 fn save_window_state(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         // 最小化期间 outer_size() 返回幻影尺寸（约 160x31），绝不能存盘
@@ -1702,13 +1796,23 @@ fn save_window_state(app: &tauri::AppHandle) {
             return;
         }
         if let Ok(size) = window.outer_size() {
+            let scale = window.scale_factor().unwrap_or(1.0);
+            if !is_valid_window_size(size.width, size.height, scale) {
+                return;
+            }
             let store = app.state::<EncryptedStore>();
             if store.is_healthy().is_ok() {
                 if let Ok(mut values) = store.values.lock() {
+                    let habits = values
+                        .get("windowState")
+                        .and_then(|state| state.get("sizeHabits"))
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
                     values["windowState"] = serde_json::json!({
                         "width": size.width,
                         "height": size.height,
                         "isMaximized": window.is_maximized().unwrap_or(false),
+                        "sizeHabits": habits,
                     });
                 }
                 let _ = store.persist();
@@ -1716,10 +1820,6 @@ fn save_window_state(app: &tauri::AppHandle) {
         }
     }
 }
-
-// 与 tauri.conf.json 的 minWidth/minHeight 保持一致
-const MAIN_WINDOW_MIN_LOGICAL_WIDTH: f64 = 900.0;
-const MAIN_WINDOW_MIN_LOGICAL_HEIGHT: f64 = 600.0;
 
 // 恢复尺寸时钳制范围：上限防超出显示器，下限兜底自愈历史脏数据（最小化幻影尺寸等）
 fn clamp_main_window_size(
@@ -1737,6 +1837,55 @@ fn clamp_main_window_size(
     (width.max(min_width), height.max(min_height))
 }
 
+// 主窗口出现时的合法性检查：非法则切回习惯尺寸，否则回到默认 1280×720。
+fn ensure_main_window_size(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    if window.is_minimized().unwrap_or(false) {
+        return;
+    }
+    let Ok(size) = window.outer_size() else {
+        return;
+    };
+    let scale = window.scale_factor().unwrap_or(1.0);
+    if is_valid_window_size(size.width, size.height, scale) {
+        return;
+    }
+    let store = app.state::<EncryptedStore>();
+    let habits = store
+        .values
+        .lock()
+        .ok()
+        .and_then(|values| {
+            values
+                .get("windowState")
+                .and_then(|state| state.get("sizeHabits"))
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+        })
+        .unwrap_or_default();
+    let (logical_width, logical_height) = habitual_window_size(&habits)
+        .map(|(width, height)| {
+            (
+                (width as f64 / scale).round() as u32,
+                (height as f64 / scale).round() as u32,
+            )
+        })
+        .unwrap_or_else(default_logical_window_size);
+    let physical_width = (logical_width as f64 * scale).round() as u32;
+    let physical_height = (logical_height as f64 * scale).round() as u32;
+    let monitor_size = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| (monitor.size().width, monitor.size().height));
+    let (width, height) =
+        clamp_main_window_size(physical_width, physical_height, monitor_size, scale);
+    let _ = window.set_size(tauri::PhysicalSize::new(width, height));
+    let _ = window.center();
+}
+
 // 恢复尺寸后重新居中，并限制在当前显示器内，避免高 DPI 下窗口被挤到屏幕边缘。
 fn restore_window_state(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -1752,20 +1901,45 @@ fn restore_window_state(app: &tauri::AppHandle) {
             == Some(true)
         {
             let _ = window.maximize();
+            record_startup_window_habit(app);
             return;
         }
 
+        let scale_probe = window.scale_factor().unwrap_or(1.0);
         let saved_size = state.as_ref().and_then(|value| {
-            Some((
-                value["width"].as_u64()? as u32,
-                value["height"].as_u64()? as u32,
-            ))
+            let width = value["width"].as_u64()? as u32;
+            let height = value["height"].as_u64()? as u32;
+            if !is_valid_window_size(width, height, scale_probe) {
+                return None;
+            }
+            Some((width, height))
         });
         let current_size = window
             .outer_size()
             .ok()
-            .map(|size| (size.width, size.height));
-        if let Some((width, height)) = saved_size.or(current_size) {
+            .map(|size| (size.width, size.height))
+            .filter(|(width, height)| is_valid_window_size(*width, *height, scale_probe));
+        let habits = state
+            .as_ref()
+            .and_then(|value| value.get("sizeHabits"))
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let fallback = habitual_window_size(&habits)
+            .map(|(width, height)| {
+                (
+                    (width as f64 * scale_probe).round() as u32,
+                    (height as f64 * scale_probe).round() as u32,
+                )
+            })
+            .unwrap_or_else(|| {
+                let (logical_width, logical_height) = default_logical_window_size();
+                (
+                    (logical_width as f64 * scale_probe).round() as u32,
+                    (logical_height as f64 * scale_probe).round() as u32,
+                )
+            });
+        if let Some((width, height)) = saved_size.or(current_size).or(Some(fallback)) {
             let monitor_size = window
                 .current_monitor()
                 .ok()
@@ -1777,6 +1951,19 @@ fn restore_window_state(app: &tauri::AppHandle) {
             let _ = window.set_size(tauri::PhysicalSize::new(width, height));
         }
         let _ = window.center();
+        record_startup_window_habit(app);
+    }
+}
+
+fn record_startup_window_habit(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    if window.is_maximized().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+        return;
+    }
+    if let Ok(size) = window.outer_size() {
+        record_window_size_habit(app, size.width, size.height);
     }
 }
 
@@ -2146,13 +2333,13 @@ fn migrate_legacy_data(app: &tauri::AppHandle) {
     let Ok(store_path) = store.path.lock().map(|path| path.clone()) else {
         return;
     };
+    // 加密数据文件若已在安装目录（setup 已完成 AppData 迁移），则无需再走旧 JSON 迁移。
     if store_path.exists() || store.is_healthy().is_err() {
         return;
     }
 
-    // 26.0.5 曾把数据写在安装目录。普通用户通常无权写 Program Files，
-    // 因此只读取并迁移到当前用户的 AppData，保留原文件作为回退备份。
-    let installed_data = legacy_installation_data_dir().join("cyrene-data.cyrene");
+    // 兼容极少数仍把加密文件放在非标准位置的历史安装。
+    let installed_data = installation_data_path(&installation_dir());
     if installed_data != store_path {
         if let Ok(bytes) = fs::read(&installed_data) {
             if let Ok(values) = decrypt_data(&bytes) {
@@ -2215,65 +2402,6 @@ fn migrate_legacy_data(app: &tauri::AppHandle) {
             let _ = fs::remove_file(path);
         });
     }
-}
-
-#[tauri::command]
-fn portable_mode_status(store: State<'_, EncryptedStore>) -> Result<serde_json::Value, String> {
-    let path = store
-        .path
-        .lock()
-        .map_err(|_| "数据路径锁定失败".to_string())?
-        .clone();
-    let enabled = path == portable_data_path(&installation_dir());
-    Ok(serde_json::json!({
-        "enabled": enabled,
-        "dataPath": path.to_string_lossy()
-    }))
-}
-
-#[tauri::command]
-fn set_portable_mode(
-    app: tauri::AppHandle,
-    store: State<'_, EncryptedStore>,
-    enabled: bool,
-) -> Result<serde_json::Value, String> {
-    store.is_healthy()?;
-    let root = installation_dir();
-    let app_data_dir = app.path().app_data_dir().map_err(|error| error.to_string())?;
-    let target_path = data_path_for_mode(&app_data_dir, &root, enabled);
-    let mut active_path = store
-        .path
-        .lock()
-        .map_err(|_| "数据路径锁定失败".to_string())?;
-    if *active_path != target_path {
-        if let Some(parent) = target_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| portable_target_error(&root, enabled, error))?;
-        }
-        let values = store
-            .values
-            .lock()
-            .map_err(|_| "数据锁定失败".to_string())?
-            .clone();
-        EncryptedStore {
-            path: Mutex::new(target_path.clone()),
-            values: Mutex::new(values),
-            integrity_error: Mutex::new(None),
-        }
-        .persist()
-        .map_err(|error| portable_target_error(&root, enabled, error))?;
-        set_portable_marker(&root, enabled)
-            .map_err(|error| portable_program_dir_error(&root, enabled, error))?;
-        *active_path = target_path.clone();
-    } else {
-        set_portable_marker(&root, enabled)
-            .map_err(|error| portable_program_dir_error(&root, enabled, error))?;
-    }
-    Ok(serde_json::json!({
-        "success": true,
-        "enabled": enabled,
-        "dataPath": target_path.to_string_lossy()
-    }))
 }
 
 #[tauri::command]
@@ -2358,7 +2486,12 @@ fn import_encrypted_data(
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(encoded_data)
         .map_err(|_| "导入文件编码无效".to_string())?;
-    let values = core_state::normalize_values(&decrypt_data(&bytes)?, &core_data_key()?)?;
+    let raw_values = decrypt_data(&bytes)?;
+    // 能规范化就规范化；失败时保留原样导入，不丢无法理解的字段。
+    let values = core_data_key()
+        .ok()
+        .and_then(|key| core_state::normalize_values(&raw_values, &key).ok())
+        .unwrap_or(raw_values);
     let old_values = store.values.lock().map_err(|_| "数据锁定失败".to_string())?.clone();
     if let Ok(mut current_values) = store.values.lock() {
         *current_values = values;
@@ -2864,7 +2997,11 @@ async fn import_data_file(
     let path = selected.into_path().map_err(|error| error.to_string())?;
     let bytes = fs::read(&path).map_err(|error| error.to_string())?;
     store.is_healthy()?;
-    let values = core_state::normalize_values(&decrypt_data(&bytes)?, &core_data_key()?)?;
+    let raw_values = decrypt_data(&bytes)?;
+    let values = core_data_key()
+        .ok()
+        .and_then(|key| core_state::normalize_values(&raw_values, &key).ok())
+        .unwrap_or(raw_values);
     let old_values = store.values.lock().map_err(|_| "数据锁定失败".to_string())?.clone();
     *store.values.lock().map_err(|_| "数据锁定失败".to_string())? = values;
     if let Err(error) = store.persist() {
@@ -3778,6 +3915,7 @@ fn main_window_ready(app: tauri::AppHandle) -> Result<bool, String> {
 fn show_main_window_now(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         window.unminimize().map_err(|error| error.to_string())?;
+        ensure_main_window_size(app);
         window.show().map_err(|error| error.to_string())?;
         window.set_focus().map_err(|error| error.to_string())?;
     }
@@ -3869,6 +4007,14 @@ pub fn run() {
             app.manage(SafeModeState { status: Mutex::new(read_safe_mode_status(&safe_mode_path)) });
             let app_data_dir = app.path().app_data_dir()?;
             let data_path = configured_data_path(&app_data_dir, &installation_dir());
+            if !data_path.exists() {
+                migrate_app_data_into_installation(&app_data_path(&app_data_dir), &data_path);
+            }
+            // 便携模式已移除：清理历史标记，避免旧逻辑残留
+            let stale_marker = installation_dir().join("portable.mode");
+            if stale_marker.is_file() {
+                let _ = fs::remove_file(stale_marker);
+            }
             let encrypted_store = EncryptedStore::load(data_path);
             let core_readonly = encrypted_store.is_healthy().is_err()
                 || core_data_key().and_then(|key| encrypted_store.values.lock().map_err(|_| "CORE_INTEGRITY_CHECK_FAILED".to_string()).and_then(|values| core_state::parse(&values, &key).map(|_| ()))).is_err();
@@ -3898,6 +4044,7 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let win = window.clone();
                 let save_revision = Arc::new(AtomicU64::new(0));
+                let habit_revision = Arc::new(AtomicU64::new(0));
                 window.on_window_event(move |event| match event {
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         // 关闭时最小化到托盘，不退出进程（后台常驻）
@@ -3906,6 +4053,8 @@ pub fn run() {
                         let _ = win.hide();
                     }
                     tauri::WindowEvent::Resized(_) => {
+                        // 注意：此处不调用 ensure/center，避免拖拽缩放时被强制居中。
+                        // 非法尺寸只在窗口出现（restore / show）时自愈。
                         let revision = save_revision.fetch_add(1, Ordering::Relaxed) + 1;
                         let revision_state = save_revision.clone();
                         let save_handle = handle.clone();
@@ -3913,6 +4062,24 @@ pub fn run() {
                             std::thread::sleep(std::time::Duration::from_millis(350));
                             if revision_state.load(Ordering::Relaxed) == revision {
                                 save_window_state(&save_handle);
+                            }
+                        });
+                        // 用户调整后 10 秒无变化才记入习惯尺寸
+                        let habit_tick = habit_revision.fetch_add(1, Ordering::Relaxed) + 1;
+                        let habit_state = habit_revision.clone();
+                        let habit_handle = handle.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(WINDOW_RESIZE_SETTLE_MS));
+                            if habit_state.load(Ordering::Relaxed) != habit_tick {
+                                return;
+                            }
+                            if let Some(window) = habit_handle.get_webview_window("main") {
+                                if window.is_minimized().unwrap_or(false) {
+                                    return;
+                                }
+                                if let Ok(size) = window.outer_size() {
+                                    record_window_size_habit(&habit_handle, size.width, size.height);
+                                }
                             }
                         });
                     }
@@ -3927,8 +4094,6 @@ pub fn run() {
             storage_delete,
             storage_clear,
             safe_mode_status,
-            portable_mode_status,
-            set_portable_mode,
             core_grant_token,
             core_revoke_principal,
             core_state_set,
@@ -3990,10 +4155,10 @@ mod tests {
     use super::{
         apply_core_maintenance, apply_core_state_update, center_floating_window, clear_non_core_values, clamp_main_window_size, constrain_floating_window_position,
         floating_window_position_visible, floating_window_region_geometry, is_cyrene_uri,
-        launch_uri_from_arguments,
+        is_valid_window_size, launch_uri_from_arguments, habitual_window_size, push_window_habit,
         normalize_floating_window_size, read_safe_mode_status, resize_floating_window_position,
-        configured_data_path, core_data_key_for, data_key, data_path_for_mode, is_core_storage_key,
-        portable_marker_path, valid_core_principal,
+        configured_data_path, core_data_key_for, data_key, installation_data_path, app_data_path,
+        is_core_storage_key, valid_core_principal, WINDOW_HABIT_LIMIT,
         plugin_runner_command, validate_staged_runner_path, valid_plugin_runner_id, valid_runner_value,
         plugin_package_path,
         validate_core_card_caller, validate_core_caller, validate_core_maintenance_request,
@@ -4056,8 +4221,8 @@ mod tests {
     }
 
     #[test]
-    fn portable_marker_selects_installation_data_path() {
-        let root = std::env::temp_dir().join(format!("cyrene-portable-{}", std::process::id()));
+    fn installation_data_path_is_stable_and_ignores_markers() {
+        let root = std::env::temp_dir().join(format!("cyrene-install-data-{}", std::process::id()));
         let app_data = root.join("app-data");
         let installation = root.join("installation");
         let _ = std::fs::remove_dir_all(&root);
@@ -4065,14 +4230,59 @@ mod tests {
 
         assert_eq!(
             configured_data_path(&app_data, &installation),
-            data_path_for_mode(&app_data, &installation, false)
+            installation_data_path(&installation)
         );
-        std::fs::write(portable_marker_path(&installation), b"portable\n").unwrap();
+        assert_eq!(
+            installation_data_path(&installation),
+            installation.join("data").join("cyrene-data.cyrene")
+        );
+        assert_eq!(
+            app_data_path(&app_data),
+            app_data.join("data").join("cyrene-data.cyrene")
+        );
+        // 历史 portable.mode 不再影响路径判定
+        std::fs::write(installation.join("portable.mode"), b"portable\n").unwrap();
         assert_eq!(
             configured_data_path(&app_data, &installation),
-            data_path_for_mode(&app_data, &installation, true)
+            installation_data_path(&installation)
         );
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn window_size_habits_cap_and_pick_most_common() {
+        let mut habits = Vec::new();
+        for _ in 0..5 {
+            push_window_habit(&mut habits, 1600, 900);
+        }
+        push_window_habit(&mut habits, 1280, 720);
+        assert_eq!(habits.len(), 6);
+        assert_eq!(habitual_window_size(&habits), Some((1600, 900)));
+
+        let mut capped = Vec::new();
+        for index in 0..WINDOW_HABIT_LIMIT + 5 {
+            push_window_habit(&mut capped, 1280 + index as u32, 720);
+        }
+        assert_eq!(capped.len(), WINDOW_HABIT_LIMIT);
+        // 丢掉最旧 5 条后，第一条是第 6 次写入的 1280+5
+        assert_eq!(
+            capped.first().and_then(|value| value["width"].as_u64()),
+            Some(1285)
+        );
+    }
+
+    #[test]
+    fn window_size_validity_rejects_phantom_and_accepts_default() {
+        assert!(!is_valid_window_size(160, 31, 1.0));
+        assert!(!is_valid_window_size(0, 720, 1.0));
+        assert!(!is_valid_window_size(1279, 720, 1.0));
+        assert!(is_valid_window_size(1280, 720, 1.0));
+        assert!(!is_valid_window_size(1920, 300, 1.0)); // 过扁
+        assert!(is_valid_window_size(1920, 1080, 1.0));
+        // 高 DPI：物理尺寸需按 scale 放大后仍不低于逻辑最小值
+        assert!(is_valid_window_size(1920, 1080, 1.5));
+        assert!(!is_valid_window_size(1280, 720, 1.5));
+        assert!(!is_valid_window_size(100, 50, 1.5));
     }
 
     #[cfg(target_os = "windows")]
@@ -4141,10 +4351,10 @@ mod tests {
 
     #[test]
     fn main_window_restore_heals_minimized_phantom_size() {
-        // 最小化幻影尺寸约 160x31，恢复时必须被钳制到最小可用尺寸
+        // 最小化幻影尺寸约 160x31，恢复时必须被钳制到最小可用尺寸 1280×720
         assert_eq!(
             clamp_main_window_size(160, 31, Some((1920, 1080)), 1.0),
-            (900, 600)
+            (1280, 720)
         );
     }
 
@@ -4159,12 +4369,12 @@ mod tests {
     #[test]
     fn main_window_restore_keeps_normal_size_and_scales_min() {
         assert_eq!(
-            clamp_main_window_size(1200, 900, Some((1920, 1080)), 1.0),
-            (1200, 900)
+            clamp_main_window_size(1600, 900, Some((1920, 1080)), 1.0),
+            (1600, 900)
         );
         assert_eq!(
             clamp_main_window_size(160, 31, Some((2560, 1440)), 1.5),
-            (1350, 900)
+            (1920, 1080)
         );
     }
 
