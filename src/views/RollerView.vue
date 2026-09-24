@@ -624,8 +624,11 @@ async function finishRoll() {
       nameDisplays[i].opacity = 1
       nameDisplays[i].isWhiteList = !!result.isWhiteList
       emphasize(i)
-      pluginsStore.dispatchEvent('roller:item-result', { ...receipt, index: i, result })
-      if (i === finalPicks.length - 1) pluginsStore.dispatchEvent('roller:result', receipt)
+      // 插件音效等副作用让开一拍，避免音频解码挤卡强调动画
+      setTimeout(() => {
+        pluginsStore.dispatchEvent('roller:item-result', { ...receipt, index: i, result })
+        if (i === finalPicks.length - 1) pluginsStore.dispatchEvent('roller:result', receipt)
+      }, 0)
     }, i * stagger)
     pendingTimers.push(tid)
   }

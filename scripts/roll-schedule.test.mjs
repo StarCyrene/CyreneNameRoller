@@ -25,7 +25,7 @@ test('a single oversized tick produces at most one swap', () => {
   assert.equal(scheduler.tick(1), false)
 })
 
-test('deceleration grows the interval monotonically up to the target', () => {
+test('deceleration eases speed down gradually and converges to the target interval', () => {
   const scheduler = createRollScheduler()
   scheduler.beginDeceleration()
   const intervals = []
@@ -37,7 +37,9 @@ test('deceleration grows the interval monotonically up to the target', () => {
     assert.ok(intervals[i] >= intervals[i - 1], `interval shrank at step ${i}`)
   }
   assert.ok(intervals[0] <= 80, 'deceleration starts near base interval')
-  assert.ok(Math.abs(intervals[intervals.length - 1] - 400) < 1, 'interval converges to target')
+  // 缓降：起步阶段速度几乎不变，不能一按下停止就掉到很低
+  assert.ok(intervals[3] <= 120, `early deceleration should stay fast, got ${intervals[3]}`)
+  assert.ok(Math.abs(scheduler.currentIntervalMs() - 400) < 1, 'interval converges to target')
   assert.equal(scheduler.isDecelerating(), true)
 })
 

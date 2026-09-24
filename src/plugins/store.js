@@ -1031,13 +1031,53 @@ function selectFile(accept = 'audio/*') {
 }
 
 const playingAudio = new Set()
+const audioContextState = { context: null, buffers: new Map() }
+function clampVolume(volume) {
+  return Math.max(0, Math.min(1, Number.isFinite(volume) ? volume : 1))
+}
+async function decodeAudioBuffer(source) {
+  if (audioContextState.buffers.has(source)) return audioContextState.buffers.get(source)
+  const Context = globalThis.AudioContext || globalThis.webkitAudioContext
+  if (!Context) return null
+  if (!audioContextState.context) audioContextState.context = new Context()
+  const context = audioContextState.context
+  if (context.state === 'suspended') await context.resume().catch(() => {})
+  // data: URL 走 fetch 异步解码，避免 new Audio(dataUrl) 在主线程同步解码 WAV 卡住动画
+  const response = await fetch(source)
+  const raw = await response.arrayBuffer()
+  const buffer = await context.decodeAudioData(raw.slice(0))
+  audioContextState.buffers.set(source, buffer)
+  // 同一音效只保留最近几份解码结果，避免插件频繁更换音频时缓存膨胀
+  if (audioContextState.buffers.size > 8) {
+    const oldest = audioContextState.buffers.keys().next().value
+    audioContextState.buffers.delete(oldest)
+  }
+  return buffer
+}
 function playAudio(source, volume = 1) {
-  if (!source) return false
-  const audio = new Audio(source)
-  audio.volume = Math.max(0, Math.min(1, Number.isFinite(volume) ? volume : 1))
-  playingAudio.add(audio)
-  const release = () => playingAudio.delete(audio)
-  audio.onended = release
-  audio.onerror = release
-  return audio.play().then(() => true).catch(() => { release(); return false })
+  if (!source) return Promise.resolve(false)
+  const level = clampVolume(volume)
+  return decodeAudioBuffer(source).then(buffer => {
+    if (!buffer) {
+      // 极少数不支持 Web Audio 的环境退回 HTMLAudioElement
+      const fallback = new Audio(source)
+      fallback.volume = level
+      playingAudio.add(fallback)
+      const release = () => playingAudio.delete(fallback)
+      fallback.onended = release
+      fallback.onerror = release
+      return fallback.play().then(() => true).catch(() => { release(); return false })
+    }
+    const context = audioContextState.context
+    const node = context.createBufferSource()
+    node.buffer = buffer
+    const gain = context.createGain()
+    gain.gain.value = level
+    node.connect(gain)
+    gain.connect(context.destination)
+    playingAudio.add(node)
+    node.onended = () => playingAudio.delete(node)
+    node.start()
+    return true
+  }).catch(() => false)
 }

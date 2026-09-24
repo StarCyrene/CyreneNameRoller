@@ -19,8 +19,11 @@ export function createRollScheduler(options = {}) {
   function currentIntervalMs() {
     if (!decelerating) return baseMs
     const progress = Math.min(1, decelElapsedMs / decelDurationMs)
-    const eased = 1 - Math.pow(1 - progress, 3)
-    return baseMs + (targetMs - baseMs) * eased
+    // 速度线性缓降（近似恒定摩擦）：起始几乎不减速，随后逐渐变慢，收尾自然
+    const startSpeed = 1 / baseMs
+    const endSpeed = 1 / targetMs
+    const speed = startSpeed + (endSpeed - startSpeed) * progress
+    return 1 / speed
   }
 
   return {
