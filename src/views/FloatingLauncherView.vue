@@ -116,6 +116,7 @@ function onPointerDown(e) {
   e.currentTarget.setPointerCapture(e.pointerId)
   pointer = {
     id: e.pointerId,
+    pointerType: e.pointerType,
     startClientX: e.clientX,
     startClientY: e.clientY,
     dragged: false,
@@ -133,7 +134,7 @@ function onPointerMove(e) {
   const dy = e.clientY - pointer.startClientY
   if (!pointer.dragged && Math.max(Math.abs(dx), Math.abs(dy)) > DRAG_THRESHOLD) {
     pointer.dragged = true
-    pointer.drag = startDrag(pointer.startClientX, pointer.startClientY)
+    pointer.drag = startDrag(pointer)
   }
 
   if (pointer.dragged) movePointer(pointer, e.clientX, e.clientY)
@@ -160,17 +161,46 @@ async function finishPointer(e, cancelled) {
     movePointer(activePointer, e.clientX, e.clientY)
     await activePointer.inFlight
     const drag = await activePointer.drag
-    await drag.end()
+    await drag.end(e.clientX, e.clientY)
   }
   if (!activePointer.dragged && !cancelled) {
     await openMainWindow()
   }
 }
 
-async function startDrag(anchorX, anchorY) {
+async function startDrag(activePointer) {
+  const anchorX = activePointer.startClientX
+  const anchorY = activePointer.startClientY
   if (isTauri()) {
     const { getCurrentWindow, PhysicalPosition } = await import('@tauri-apps/api/window')
     const win = getCurrentWindow()
+
+    // 鼠标：系统原生移动循环，丝滑。模态循环内 pointerup 被吃掉，所以 resolve 后保存位置。
+    if (activePointer.pointerType === 'mouse') {
+      const nativeDrag = (async () => {
+        try {
+          await win.startDragging()
+        } catch {}
+        await tauriAPI.saveFloatingWindowPosition()
+      })()
+      return { move: () => Promise.resolve(), end: () => nativeDrag }
+    }
+
+    // 触屏：Rust 原生拖动循环。IPC 再慢也无妨，Rust 侧只消费最新采样。
+    try {
+      await tauriAPI.invokeStrict('begin_touch_drag', { x: anchorX, y: anchorY })
+      return {
+        move: (clientX, clientY) => {
+          tauriAPI.invoke('update_touch_drag', { x: clientX, y: clientY })
+        },
+        end: async (clientX, clientY) => {
+          await tauriAPI.invoke('end_touch_drag', { x: clientX, y: clientY })
+          await tauriAPI.saveFloatingWindowPosition()
+        }
+      }
+    } catch {}
+
+    // begin 失败回退手动拖动
     const scaleFactor = await win.scaleFactor()
     return {
       move: async (clientX, clientY) => {

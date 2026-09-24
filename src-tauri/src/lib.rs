@@ -1800,6 +1800,137 @@ fn constrain_floating_window_position(
     )
 }
 
+// target = 窗口当前物理位置 + (采样client - 起点client) × scale
+// 每步都基于 GetWindowRect 实际位置求增量，窗口移动引起 client 坐标变化正好抵消，无反馈振荡。
+fn touch_drag_target(
+    current_x: i32,
+    current_y: i32,
+    sample_x: f64,
+    sample_y: f64,
+    anchor_x: f64,
+    anchor_y: f64,
+    scale_factor: f64,
+) -> (i32, i32) {
+    (
+        (current_x as f64 + (sample_x - anchor_x) * scale_factor).round() as i32,
+        (current_y as f64 + (sample_y - anchor_y) * scale_factor).round() as i32,
+    )
+}
+
+#[cfg(target_os = "windows")]
+struct TouchDragState {
+    generation: u64,
+    active: bool,
+    anchor_x: f64,
+    anchor_y: f64,
+    scale_factor: f64,
+    hwnd: isize,
+    // ponytail: 显示器工作区在 begin 时缓存；拖动中热插拔显示器不会被感知
+    work_areas: Vec<(i32, i32, u32, u32, f64)>,
+    latest: Option<(f64, f64)>,
+}
+
+#[cfg(target_os = "windows")]
+struct TouchDragSnapshot {
+    anchor_x: f64,
+    anchor_y: f64,
+    scale_factor: f64,
+    hwnd: isize,
+    work_areas: Vec<(i32, i32, u32, u32, f64)>,
+    sample_x: f64,
+    sample_y: f64,
+}
+
+#[cfg(target_os = "windows")]
+static TOUCH_DRAG: Mutex<Option<TouchDragState>> = Mutex::new(None);
+
+#[cfg(target_os = "windows")]
+fn touch_drag_snapshot(state: &TouchDragState, sample_x: f64, sample_y: f64) -> TouchDragSnapshot {
+    TouchDragSnapshot {
+        anchor_x: state.anchor_x,
+        anchor_y: state.anchor_y,
+        scale_factor: state.scale_factor,
+        hwnd: state.hwnd,
+        work_areas: state.work_areas.clone(),
+        sample_x,
+        sample_y,
+    }
+}
+
+// 先复制快照再放锁，绝不在持锁时调 SetWindowPos（跨线程会卡主线程消息泵，可能与 update 死锁）。
+#[cfg(target_os = "windows")]
+fn apply_touch_drag_snapshot(snapshot: &TouchDragSnapshot) {
+    let hwnd = snapshot.hwnd as windows_sys::Win32::Foundation::HWND;
+    let mut rect: windows_sys::Win32::Foundation::RECT = unsafe { std::mem::zeroed() };
+    if unsafe { GetWindowRect(hwnd, &mut rect) } == 0 {
+        return;
+    }
+    let (mut target_x, mut target_y) = touch_drag_target(
+        rect.left,
+        rect.top,
+        snapshot.sample_x,
+        snapshot.sample_y,
+        snapshot.anchor_x,
+        snapshot.anchor_y,
+        snapshot.scale_factor,
+    );
+    let physical_width = rect.right - rect.left;
+    let physical_height = rect.bottom - rect.top;
+    let physical_size = physical_width.max(physical_height);
+    let center_x = target_x + physical_size / 2;
+    let center_y = target_y + physical_size / 2;
+    if let Some((work_x, work_y, work_width, work_height, _)) =
+        floating_work_area_for_center(&snapshot.work_areas, center_x, center_y)
+    {
+        (target_x, target_y) = constrain_floating_window_position(
+            target_x,
+            target_y,
+            physical_size,
+            work_x,
+            work_y,
+            work_width,
+            work_height,
+        );
+    }
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            target_x,
+            target_y,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn spawn_touch_drag_worker(generation: u64) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(2));
+        let snapshot = {
+            let Ok(mut guard) = TOUCH_DRAG.lock() else {
+                return;
+            };
+            match guard.as_mut() {
+                Some(state) if state.generation == generation && state.active => {
+                    match state.latest.take() {
+                        Some((sample_x, sample_y)) => {
+                            Some(touch_drag_snapshot(state, sample_x, sample_y))
+                        }
+                        None => None,
+                    }
+                }
+                _ => return,
+            }
+        };
+        if let Some(snapshot) = snapshot {
+            apply_touch_drag_snapshot(&snapshot);
+        }
+    });
+}
+
 fn floating_work_areas(app: &tauri::AppHandle) -> Result<Vec<(i32, i32, u32, u32, f64)>, String> {
     app.available_monitors()
         .map_err(|error| error.to_string())
@@ -3099,6 +3230,92 @@ async fn focus_main_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn begin_touch_drag(app: tauri::AppHandle, x: f64, y: f64) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let win = app
+            .get_webview_window("floating")
+            .ok_or_else(|| "悬浮窗不可用".to_string())?;
+        let hwnd = win.hwnd().map_err(|error| error.to_string())?;
+        let native_hwnd = hwnd.0 as windows_sys::Win32::Foundation::HWND;
+        let scale_factor = win.scale_factor().map_err(|error| error.to_string())?;
+        let work_areas = floating_work_areas(&app)?;
+        let mut guard = TOUCH_DRAG
+            .lock()
+            .map_err(|_| "触屏拖动状态锁定失败".to_string())?;
+        let generation = guard
+            .as_ref()
+            .map(|state| state.generation.wrapping_add(1))
+            .unwrap_or(1);
+        *guard = Some(TouchDragState {
+            generation,
+            active: true,
+            anchor_x: x,
+            anchor_y: y,
+            scale_factor,
+            hwnd: native_hwnd as isize,
+            work_areas,
+            latest: None,
+        });
+        drop(guard);
+        spawn_touch_drag_worker(generation);
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, x, y);
+        Err("触屏原生拖动仅支持 Windows".to_string())
+    }
+}
+
+#[tauri::command]
+async fn update_touch_drag(x: f64, y: f64) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let Ok(mut guard) = TOUCH_DRAG.lock() else {
+            return Err("触屏拖动状态锁定失败".to_string());
+        };
+        if let Some(state) = guard.as_mut() {
+            if state.active {
+                state.latest = Some((x, y));
+            }
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (x, y);
+        Ok(())
+    }
+}
+
+// end 带上最终采样坐标，避免「最后 update 还在 IPC 队列里就 end」丢最后一帧。
+#[tauri::command]
+async fn end_touch_drag(x: f64, y: f64) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let snapshot = {
+            let Ok(mut guard) = TOUCH_DRAG.lock() else {
+                return Err("触屏拖动状态锁定失败".to_string());
+            };
+            match guard.take() {
+                Some(state) => Some(touch_drag_snapshot(&state, x, y)),
+                None => None,
+            }
+        };
+        if let Some(snapshot) = snapshot {
+            apply_touch_drag_snapshot(&snapshot);
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (x, y);
+        Ok(())
+    }
+}
+
+#[tauri::command]
 async fn hide_to_tray(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("main") {
         win.hide().map_err(|e| e.to_string())?;
@@ -3865,6 +4082,9 @@ pub fn run() {
             reset_floating_window_position,
             set_floating_window_style,
             set_floating_window_size,
+            begin_touch_drag,
+            update_touch_drag,
+            end_touch_drag,
             focus_main_window,
             hide_to_tray,
             main_window_ready,
@@ -3881,6 +4101,7 @@ mod tests {
         floating_window_position_visible, floating_window_region_geometry, is_cyrene_uri,
         is_valid_window_size, launch_uri_from_arguments, habitual_window_size, push_window_habit,
         normalize_floating_window_size, read_safe_mode_status, resize_floating_window_position,
+        touch_drag_target,
         configured_data_path, core_data_key_for, data_key, installation_data_path, app_data_path,
         is_core_storage_key, valid_core_principal, WINDOW_HABIT_LIMIT,
         plugin_package_path,
@@ -4144,6 +4365,32 @@ mod tests {
             constrain_floating_window_position(-20, 1070, 128, 0, 40, 1920, 1040),
             (0, 952)
         );
+    }
+
+    #[test]
+    fn touch_drag_target_scales_css_delta_to_physical_pixels() {
+        assert_eq!(
+            touch_drag_target(100, 200, 25.0, 12.0, 20.0, 16.0, 2.0),
+            (110, 192)
+        );
+    }
+
+    #[test]
+    fn touch_drag_target_keeps_window_still_without_movement() {
+        assert_eq!(
+            touch_drag_target(110, 192, 20.0, 16.0, 20.0, 16.0, 2.0),
+            (110, 192)
+        );
+    }
+
+    #[test]
+    fn touch_drag_target_settles_after_catch_up_without_feedback_oscillation() {
+        let step1 = touch_drag_target(0, 0, 20.0, 10.0, 10.0, 10.0, 1.0);
+        assert_eq!(step1, (10, 0));
+        let step2 = touch_drag_target(step1.0, step1.1, 10.0, 10.0, 10.0, 10.0, 1.0);
+        assert_eq!(step2, (10, 0));
+        let step3 = touch_drag_target(10, 0, 15.0, 10.0, 10.0, 10.0, 1.0);
+        assert_eq!(step3, (15, 0));
     }
 
     #[test]
