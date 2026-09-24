@@ -10,6 +10,7 @@ import './assets/variables.css'
 import './assets/global.css'
 import { isTauri, tauriAPI } from './utils/tauriAPI'
 import { loadSafeModeStatus } from './plugins/safeMode'
+import { getCoreClient } from './core/client'
 
 import fluentIcons from 'virtual:fluent-icons'
 addCollection(fluentIcons)
@@ -59,6 +60,9 @@ async function bootstrap() {
   const pinia = createPinia()
   const settingsStore = useSettingsStore(pinia)
   await settingsStore.initialize()
+
+  // Web：提前拉起 Core Worker，避免首抽停止时才冷启动卡住约 1 秒
+  if (!isTauri()) getCoreClient().prewarm()
 
   const app = createApp(App)
   app.use(pinia)

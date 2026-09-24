@@ -80,7 +80,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNamesStore } from '../stores/names'
 import { useSettingsStore } from '../stores/settings'
@@ -95,6 +95,19 @@ const listOptions = computed(() =>
   namesStore.allLists.map(l => ({ value: l.id, label: l.name }))
 )
 const selectedListId = ref(namesStore.currentListId)
+watch(
+  () => namesStore.currentListId,
+  id => {
+    if (id && namesStore.nameLists[id]) selectedListId.value = id
+  },
+  { immediate: true }
+)
+onMounted(async () => {
+  await namesStore.initialize()
+  if (namesStore.nameLists[namesStore.currentListId]) {
+    selectedListId.value = namesStore.currentListId
+  }
+})
 const groups = computed(() => namesStore.listGroups(selectedListId.value))
 
 function memberCount(groupId) {

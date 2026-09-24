@@ -51,6 +51,34 @@ class CoreClient {
     return worker
   }
 
+  // Web 端提前拉起 Worker，避免首抽停止时才付冷启动代价
+  prewarm() {
+    if (isTauri()) return false
+    try {
+      this.ensureWorker()
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  // stores 就绪后预同步，让第一次 draw.execute 不必再等 state.sync
+  async warmWebState() {
+    if (isTauri()) return false
+    try {
+      this.ensureWorker()
+      const namesStore = useNamesStore()
+      const recordsStore = useRecordsStore()
+      const statisticsStore = useStatisticsStore()
+      await Promise.all([namesStore.initialize(), recordsStore.initialize(), statisticsStore.initialize()])
+      await this.syncWebState(namesStore, recordsStore, statisticsStore)
+      return true
+    } catch (error) {
+      console.warn('[core] web warm failed:', error)
+      return false
+    }
+  }
+
   request(message) {
     const worker = this.ensureWorker()
     const requestId = `core-${++this.requestSequence}`

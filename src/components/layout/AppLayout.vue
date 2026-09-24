@@ -139,6 +139,7 @@ import { updateState, checkForUpdates, downloadUpdate } from '../../utils/update
 import { isTauri, tauriAPI } from '../../utils/tauriAPI'
 import { dataBridge } from '../../utils/dataBridge'
 import { createThemeVariables, DEFAULT_ACCENT, normalizeHex } from '../../utils/theme'
+import { getCoreClient } from '../../core/client'
 
 const router = useRouter()
 const currentRoute = useRoute()
@@ -804,6 +805,8 @@ onMounted(async () => {
   await statisticsStore.initialize()
   await recordsStore.initialize()
   await prizesStore.initialize()
+  // Web：stores 就绪后预同步 Core Worker，首抽不再付 state.sync 延迟
+  void getCoreClient().warmWebState()
   const safeModeStatus = globalThis.__CYRENE_SAFE_MODE__ || { enabled: false, source: 'default', stale: false, errorCode: '', diagnostic: '' }
   pluginsStore.configureSafeMode(safeModeStatus)
   await pluginsStore.initialize()
