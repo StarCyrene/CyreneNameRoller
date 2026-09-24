@@ -122,18 +122,23 @@ export function pluginSourceCandidates(originalUrl, source = 'cyrene') {
   const add = value => {
     if (value && !candidates.includes(value)) candidates.push(value)
   }
-  if (source === 'github') {
-    add(original)
-  } else {
-    const preferred = source === 'ghproxy' ? 'https://v4.gh-proxy.com/' : 'https://gh.昔涟.cn/'
-    add(`${preferred}${original}`)
+  const bare = original.replace(/^https?:\/\//i, '')
+  const addProxy = proxy => {
+    // 两种写法都试：gh-proxy.com 对完整 https:// 更稳，v4 对去协议路径更稳
+    add(`${proxy}${original}`)
+    add(`${proxy}${bare}`)
   }
 
-  // 镜像只是偏好，不是单点故障：任一代理失败后继续试其余代理，最后才直连 GitHub。
-  const proxies = source === 'ghproxy'
-    ? ['https://gh.昔涟.cn/', 'https://v4.gh-proxy.com/']
-    : ['https://v4.gh-proxy.com/', 'https://gh.昔涟.cn/']
-  for (const proxy of proxies) add(`${proxy}${original}`)
+  if (source === 'github') {
+    add(original)
+    return candidates
+  }
+
+  // 选中的镜像优先；其余镜像兜底。gh-proxy 带 CORS，适合 Web 拉 GitHub API。
+  const orderedProxies = source === 'ghproxy'
+    ? ['https://gh-proxy.com/', 'https://v4.gh-proxy.com/', 'https://gh.昔涟.cn/']
+    : ['https://gh.昔涟.cn/', 'https://gh-proxy.com/', 'https://v4.gh-proxy.com/']
+  for (const proxy of orderedProxies) addProxy(proxy)
   add(original)
   return candidates
 }
