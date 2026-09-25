@@ -25,9 +25,12 @@ test('API 1.4 UI template validates, packs and parses through host parser', asyn
   const template = path.join(root, 'packages/cyrene-name-roller/templates/ui-customization')
   const validation = await validateDirectory(template)
   assert.equal(validation.manifest.engine.min, '1.4.0')
-  assert.deepEqual(validation.manifest.contributes.pages[0].native.controls.map(control => control.type), [
+  assert.deepEqual(validation.manifest.contributes.pages, [])
+  assert.deepEqual(validation.manifest.contributes.settings.sections[0].fields.map(field => field.type), [
     'component-style-select', 'component-override-select', 'component-override-toggle', 'result-presentation-select'
   ])
+  assert.equal(validation.manifest.contributes.settings.storageKey, 'settings')
+  assert.deepEqual(validation.manifest.contributes.settings.sections[0].fields.map(field => field.path), ['', '', '', ''])
   assert.equal(validation.manifest.systemOperations[0].id, 'desktop-check')
   assert.deepEqual(validation.manifest.systemOperations[0].command, { program: 'cmd', args: ['/d', '/c', 'ver'] })
   assert.deepEqual(validation.manifest.contributes.nativeViews.map(view => view.slot), [

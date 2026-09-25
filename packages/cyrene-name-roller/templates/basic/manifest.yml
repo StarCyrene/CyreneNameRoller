@@ -1,0 +1,23 @@
+# 插件身份声明（新格式）：贡献内容写在同目录 contributions.json。
+# 两者不能与 manifest.json 同时存在；打包后 cnrp 会向本文件注入 integrity，
+# 该清单覆盖除 manifest.yml 外的所有包内文件（含 contributions.json）。
+
+schemaVersion: 1
+id: cn.example.cyrene.plugin
+name: Cyrene Plugin
+version: 1.0.0
+author: Your Name
+description: A CyreneNameRoller plugin.
+
+engine:
+  min: 1.2.0
+  max: 1.2.0
+
+entry: src/worker.js
+readme: README.md
+
+permissions:
+  - events:draw
+  - storage:read
+  - storage:write
+  - notifications:show

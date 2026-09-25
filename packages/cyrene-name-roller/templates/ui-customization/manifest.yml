@@ -1,0 +1,40 @@
+# 插件身份声明（新格式）：贡献内容写在同目录 contributions.json。
+# 两者不能与 manifest.json 同时存在；打包后 cnrp 会向本文件注入 integrity，
+# 该清单覆盖除 manifest.yml 外的所有包内文件（含 contributions.json）。
+schemaVersion: 1
+id: cn.example.cyrene.ui-customization
+name: Cyrene UI Customization
+version: 1.0.0
+author: Your Name
+description: Constrained API 1.4 component styles, optional UI, native selectors, slot views and verified result layouts.
+engine:
+  min: 1.4.0
+  max: 1.4.0
+entry: src/worker.js
+readme: README.md
+permissions:
+  - draw:execute
+  - statistics:read
+  - storage:read
+  - system:execute
+  - ui:component-overrides
+  - ui:component-styles
+  - ui:native-views
+  - ui:result-presentations
+capabilities:
+  system:execute:
+    required: false
+    platforms:
+      - tauri
+systemOperations:
+  - id: desktop-check
+    label: Desktop check
+    platforms:
+      - windows
+    command:
+      program: cmd
+      args:
+        - /d
+        - /c
+        - ver
+    timeoutMs: 3000

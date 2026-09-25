@@ -55,6 +55,7 @@
   "dependencies": {
     "esbuild": "^0.25.12",
     "javascript-obfuscator": "^5.5.0",
-    "jszip": "^3.10.1"
+    "jszip": "^3.10.1",
+    "yaml": "^2.9.1"
   }
 }

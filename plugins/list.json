@@ -29,9 +29,9 @@
       "status": "preview"
     },
     {
-      "id": "com.cyrene2008.fancycnr",
+      "id": "cn.leafsc.fancycnr",
       "name": "FancyCNR",
-      "author": "FancyCNR contributors",
+      "author": "LeafS825",
       "description": "为 CyreneNameRoller 提供受宿主管理的界面显隐、样式与结果布局选项。",
       "repository": "LeafS825/FancyCNR",
       "release": {

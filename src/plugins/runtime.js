@@ -68,6 +68,11 @@ function canReceiveEvent(plugin, event) {
   return permissions.has('events:lifecycle') || permissions.has('core:before-operation')
 }
 
+function declaredSettingsKey(plugin) {
+  const key = plugin?.manifest?.contributes?.settings?.storageKey
+  return typeof key === 'string' && key !== '' ? key : ''
+}
+
 const RUNTIME_DEACTIVATE_GRACE_MS = 250
 const RUNTIME_COMMAND_TIMEOUT_MS = 15000
 const RUNTIME_CONTRIBUTION_ID_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/
@@ -856,14 +861,22 @@ export class PluginRuntime {
 
   dispatchForPlugin(pluginId, event, payload) {
     const plugin = this.getPlugin(pluginId)
-    if (!canReceiveEvent(plugin, event)) return
+    const permitted = canReceiveEvent(plugin, event)
+    // The declared settings key is a host-owned surface: a plugin page that shares
+    // storageKey with the host settings panel must observe the change even without
+    // events:lifecycle. Everything else stays behind the existing permission gate.
+    const settingsRelay = !permitted && event === 'plugin:storage-changed' && declaredSettingsKey(plugin) !== '' && payload?.key === declaredSettingsKey(plugin)
+    if (!permitted && !settingsRelay) return
     const transferredPayload = transferableValue(payload)
-    const worker = this.workers.get(pluginId)
-    try { worker?.worker.postMessage({ type: 'event', event, payload: transferredPayload }) } catch {}
+    if (permitted) {
+      const worker = this.workers.get(pluginId)
+      try { worker?.worker.postMessage({ type: 'event', event, payload: transferredPayload }) } catch {}
+    }
     for (const [key, frame] of this.frames) {
       if (!key.startsWith(`${pluginId}:`)) continue
       try { this.postFrameMessage(frame, { type: 'event', event, payload: transferredPayload }) } catch {}
     }
+    if (!permitted) return
     for (const [key, runtime] of this.visualRuntimes) {
       if (!key.startsWith(`${pluginId}:`)) continue
       if (!runtime.activationComplete || runtime.cancelled || runtime.finalized) continue
@@ -1037,6 +1050,7 @@ export class PluginRuntime {
     const bootstrap = `<script>
       (() => {
         const pluginId = ${JSON.stringify(plugin.manifest.id)};
+        const settingsKey = ${JSON.stringify(declaredSettingsKey(plugin) || 'settings')};
         const platform = Object.freeze(${JSON.stringify(platform)});
         const capabilities = Object.freeze(${JSON.stringify(capabilities)});
         const host = Object.freeze(${JSON.stringify(host)});
@@ -1065,7 +1079,19 @@ export class PluginRuntime {
           if (rpcPort) rpcPort.postMessage({ type: 'rpc-request', id, method, args });
           else parent.postMessage({ type: 'rpc-request', pluginId, id, method, args }, '*');
         });
-        window.CyrenePlugin = Object.freeze({ pluginId, platform, capabilities, host, request });
+        window.CyrenePlugin = Object.freeze({
+          pluginId, platform, capabilities, host, request, settingsKey,
+          settings: Object.freeze({
+            read: async () => (await request('storage.read', { key: settingsKey })) || {},
+            write: value => request('storage.write', { key: settingsKey, value: value || {} }),
+            patch: async partial => {
+              const current = (await request('storage.read', { key: settingsKey })) || {};
+              const next = Object.assign({}, current, partial || {});
+              await request('storage.write', { key: settingsKey, value: next });
+              return next;
+            }
+          })
+        });
         applyTheme(initialTheme);
         addEventListener('message', event => {
           const message = event.data || {};

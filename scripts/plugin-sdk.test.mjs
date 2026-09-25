@@ -26,6 +26,44 @@ async function createTestDirectory(prefix) {
   return fs.mkdtemp(path.join(testTempRoot, prefix))
 }
 
+// The shipped templates now use the split declaration (manifest.yml + contributions.json).
+// These legacy-format regression cases keep exercising the single-file manifest.json path,
+// so they materialize one explicitly on top of the template payload files.
+const LEGACY_IDENTITY = {
+  schemaVersion: 1,
+  id: 'cn.example.cyrene.plugin',
+  name: 'Cyrene Plugin',
+  version: '1.0.0',
+  author: 'Your Name',
+  description: 'A CyreneNameRoller plugin.',
+  engine: { min: '1.2.0', max: '1.2.0' },
+  entry: 'src/worker.js',
+  readme: 'README.md',
+  permissions: ['events:draw', 'storage:read', 'storage:write', 'notifications:show']
+}
+
+const LEGACY_CONTRIBUTES = {
+  pages: [{ id: 'main', title: 'Plugin', location: 'plugins', entry: 'pages/main.html' }],
+  commands: [{
+    id: 'refresh', title: '刷新插件', titleEn: 'Refresh plugin',
+    locations: ['command-palette', 'page-header'], icon: 'arrow-clockwise-24-regular'
+  }]
+}
+
+async function createLegacyPackage(directory, patch = {}) {
+  await createTemplate(directory, 'basic')
+  await fs.rm(path.join(directory, 'manifest.yml'))
+  await fs.rm(path.join(directory, 'contributions.json'))
+  const manifest = {
+    ...structuredClone(LEGACY_IDENTITY),
+    ...structuredClone(patch.identity || {}),
+    contributes: { ...structuredClone(LEGACY_CONTRIBUTES), ...structuredClone(patch.contributes || {}) }
+  }
+  const manifestPath = path.join(directory, 'manifest.json')
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2))
+  return manifestPath
+}
+
 async function loadApplicationParser(directory) {
   const output = path.join(directory, 'application-plugin-parser.mjs')
   await build({
@@ -178,7 +216,25 @@ test('native Fluent settings pages validate and pack without an iframe entry', a
   t.after(() => fs.rm(temporary, { recursive: true, force: true }))
   const source = path.join(temporary, 'plugin')
   const output = path.join(temporary, 'sound-effects.cnrp')
-  await createTemplate(source, 'sound-effects')
+  const manifestPath = await createLegacyPackage(source, {
+    contributes: {
+      pages: [{
+        id: 'sound-settings', title: '音效', icon: 'music-note-2-24-regular', location: 'plugins',
+        description: '为随机点名、翻牌点名和抽奖分别配置本地音频。',
+        native: {
+          type: 'settings',
+          settingsKey: 'settings',
+          controls: [
+            { id: 'enabled', type: 'toggle', path: 'enabled', label: '启用音效', default: true },
+            { id: 'volume', type: 'range', path: 'volume', label: '音量', min: 0, max: 1, step: 0.01, default: 0.7 },
+            { id: 'roller-audio', type: 'audio', path: 'roller', label: '随机点名', accept: 'audio/*,.mp3' }
+          ]
+        }
+      }],
+      commands: []
+    }
+  })
+  assert.equal(manifestPath.endsWith('manifest.json'), true)
 
   const validation = await validateDirectory(source)
   const nativePage = validation.manifest.contributes.pages[0]
@@ -198,8 +254,21 @@ test('native settings pages accept host contribution selectors', async t => {
   t.after(() => fs.rm(temporary, { recursive: true, force: true }))
   const source = path.join(temporary, 'plugin')
   const output = path.join(temporary, 'native-contributions.cnrp')
-  await createTemplate(source, 'sound-effects')
-  const manifestPath = path.join(source, 'manifest.json')
+  const manifestPath = await createLegacyPackage(source, {
+    contributes: {
+      pages: [{
+        id: 'settings', title: 'Settings', location: 'plugins',
+        native: {
+          type: 'settings',
+          controls: [
+            { id: 'enabled', type: 'toggle', path: 'enabled', label: 'Enabled', default: true },
+            { id: 'volume', type: 'range', path: 'volume', label: 'Volume', min: 0, max: 1, default: 0.7 }
+          ]
+        }
+      }],
+      commands: []
+    }
+  })
   const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
   manifest.contributes.pages[0].native.controls.push(
     { id: 'style', type: 'component-style-select', label: 'Style', target: 'navigation.dock' },
@@ -229,8 +298,7 @@ test('plugin-owned commands are validated, packed and advertised as a generic ex
   t.after(() => fs.rm(temporary, { recursive: true, force: true }))
   const source = path.join(temporary, 'plugin')
   const output = path.join(temporary, 'command.cnrp')
-  await createTemplate(source, 'basic')
-  const manifestPath = path.join(source, 'manifest.json')
+  const manifestPath = await createLegacyPackage(source)
   const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
   manifest.contributes.commands = [{
     id: 'refresh', title: '刷新插件数据', titleEn: 'Refresh plugin data',
@@ -268,8 +336,7 @@ test('SDK validates animation packs and rejects properties outside the visual al
   t.after(() => fs.rm(temporary, { recursive: true, force: true }))
   const source = path.join(temporary, 'plugin')
   const output = path.join(temporary, 'animation.cnrp')
-  await createTemplate(source, 'basic')
-  const manifestPath = path.join(source, 'manifest.json')
+  const manifestPath = await createLegacyPackage(source)
   const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
   manifest.contributes.animationPacks = [{ id: 'motion', title: 'More Motion', source: 'animations/presets.json' }]
   await fs.mkdir(path.join(source, 'animations'), { recursive: true })
@@ -317,8 +384,7 @@ test('SDK and host accept declarative GSAP presets while rejecting layout and ne
   t.after(() => fs.rm(temporary, { recursive: true, force: true }))
   const source = path.join(temporary, 'plugin')
   const output = path.join(temporary, 'gsap.cnrp')
-  await createTemplate(source, 'basic')
-  const manifestPath = path.join(source, 'manifest.json')
+  const manifestPath = await createLegacyPackage(source)
   const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
   manifest.permissions.push('ui:animations')
   manifest.contributes.animationPacks = [{ id: 'motion', title: 'GSAP Motion', source: 'animations/presets.json' }]
@@ -361,8 +427,7 @@ test('appearance packs provide semantic light and dark tokens with host and CLI 
   t.after(() => fs.rm(temporary, { recursive: true, force: true }))
   const source = path.join(temporary, 'plugin')
   const output = path.join(temporary, 'appearance.cnrp')
-  await createTemplate(source, 'basic')
-  const manifestPath = path.join(source, 'manifest.json')
+  const manifestPath = await createLegacyPackage(source)
   const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
   manifest.permissions.push('ui:appearance')
   manifest.contributes.appearancePacks = [{
@@ -394,8 +459,7 @@ test('SDK bundles visual surface workers and preserves top-level Dock page metad
   t.after(() => fs.rm(temporary, { recursive: true, force: true }))
   const source = path.join(temporary, 'plugin')
   const output = path.join(temporary, 'visual.cnrp')
-  await createTemplate(source, 'basic')
-  const manifestPath = path.join(source, 'manifest.json')
+  const manifestPath = await createLegacyPackage(source)
   const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
   manifest.permissions.push('events:lifecycle', 'ui:visual-surfaces')
   Object.assign(manifest.contributes.pages[0], {
@@ -432,8 +496,7 @@ test('CLI rejects packages that the host would reject before installation', asyn
   const temporary = await createTestDirectory('cyrene-plugin-parity-')
   t.after(() => fs.rm(temporary, { recursive: true, force: true }))
   const source = path.join(temporary, 'plugin')
-  await createTemplate(source, 'basic')
-  const manifestPath = path.join(source, 'manifest.json')
+  const manifestPath = await createLegacyPackage(source)
   const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
   delete manifest.entry
   manifest.contributes.pages = []
@@ -451,8 +514,7 @@ test('CLI and host normalize API 1.2 page, native and dependency metadata consis
   const temporary = await createTestDirectory('cyrene-plugin-parity-metadata-')
   t.after(() => fs.rm(temporary, { recursive: true, force: true }))
   const source = path.join(temporary, 'plugin')
-  await createTemplate(source, 'basic')
-  const manifestPath = path.join(source, 'manifest.json')
+  const manifestPath = await createLegacyPackage(source)
   const original = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
   Object.assign(original.contributes.pages[0], {
     location: 'dock', order: 0, icon: 'sparkle-24-regular', titleEn: 'Zero order'
@@ -501,8 +563,7 @@ test('legacy manifests remain display-only while API 1.5 process runtime is unav
   const temporary = await createTestDirectory('cyrene-plugin-api-compatibility-')
   t.after(() => fs.rm(temporary, { recursive: true, force: true }))
   const source = path.join(temporary, 'plugin')
-  await createTemplate(source, 'basic')
-  const manifestPath = path.join(source, 'manifest.json')
+  const manifestPath = await createLegacyPackage(source)
   const parser = await loadApplicationParser(temporary)
   const legacy = { schemaVersion: 1, id: 'cn.example.legacy', name: 'Legacy', version: '1.0.0', author: 'Legacy' }
   const legacyManifest = parser.normalizePluginManifest(legacy)
@@ -1099,8 +1160,7 @@ test('SDK manifest rejects combined command strings instead of fixed program dec
   const temporary = await createTestDirectory('cyrene-plugin-platform-')
   t.after(() => fs.rm(temporary, { recursive: true, force: true }))
   const source = path.join(temporary, 'plugin')
-  await createTemplate(source, 'basic')
-  const manifestPath = path.join(source, 'manifest.json')
+  const manifestPath = await createLegacyPackage(source)
   const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
   manifest.permissions = [...manifest.permissions, 'system:execute']
   manifest.capabilities = {}
