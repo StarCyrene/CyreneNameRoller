@@ -1,4 +1,5 @@
 import JSZip from 'jszip'
+import { parse as parseYaml } from 'yaml'
 import {
   PLUGIN_ANIMATION_TARGETS,
   PLUGIN_API_VERSION,
@@ -61,6 +62,26 @@ const API15_PAGE_LOCATIONS = new Set(['main', 'settings'])
 const API15_MANIFEST_FIELDS = new Set(['api', 'schemaVersion', 'id', 'name', 'version', 'author', 'description', 'engine', 'entry', 'platforms', 'permissions', 'files', 'network', 'windows', 'pages', 'hooks', 'signature', 'integrity'])
 const API15_FILE_SCOPES = new Set(['read', 'write', 'execute'])
 const API15_WINDOW_FIELDS = new Set(['create', 'main', 'floating'])
+
+export const MANIFEST_JSON_FILE = 'manifest.json'
+export const MANIFEST_YAML_FILE = 'manifest.yml'
+export const CONTRIBUTIONS_FILE = 'contributions.json'
+const YAML_FORBIDDEN_KEYS = ['contributes', 'settings', 'pages', 'api']
+const CONTRIBUTIONS_IDENTITY_KEYS = new Set([
+  'schemaVersion', 'id', 'name', 'version', 'author', 'description', 'engine', 'entry', 'icon', 'readme',
+  'permissions', 'platformEntries', 'supportedPlatforms', 'dependencies', 'capabilities', 'systemOperations', 'integrity'
+])
+const PLUGIN_SETTINGS_FIELD_TYPES = new Set([
+  'toggle', 'checkbox', 'select', 'slider', 'range', 'audio',
+  'animation-select', 'component-style-select', 'component-override-select',
+  'component-override-toggle', 'result-presentation-select'
+])
+const HOST_SELECT_FIELD_TYPES = new Set([
+  'animation-select', 'component-style-select', 'component-override-select',
+  'component-override-toggle', 'result-presentation-select'
+])
+const MAX_PLUGIN_SETTINGS_SECTIONS = 16
+const MAX_PLUGIN_SETTINGS_FIELDS = 64
 
 function boundedString(value, label, max, required = false) {
   if (typeof value !== 'string' || value.length > max || (required && !value.trim())) throw new Error(`${label} is invalid`)
@@ -635,7 +656,83 @@ function normalizeNativePage(value, label) {
   return { type: 'settings', settingsKey, controls }
 }
 
-function normalizePages(value) {
+export function normalizePluginSettings(value, label = 'contributes.settings') {
+  if (value === undefined || value === null) return undefined
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} 无效`)
+  const title = String(value.title || '').trim()
+  if (title.length > 120) throw new Error(`${label}.title 过长`)
+  const description = String(value.description || '')
+  if (description.length > 300) throw new Error(`${label}.description 过长`)
+  const storageKey = String(value.storageKey || 'settings')
+  if (!SETTING_PATH_PATTERN.test(storageKey)) throw new Error(`${label}.storageKey 无效`)
+  if (!Array.isArray(value.sections) || !value.sections.length || value.sections.length > MAX_PLUGIN_SETTINGS_SECTIONS) {
+    throw new Error(`${label}.sections 必须是 1-${MAX_PLUGIN_SETTINGS_SECTIONS} 项的数组`)
+  }
+  const sectionIds = new Set()
+  const sections = value.sections.map((rawSection, sectionIndex) => {
+    const sectionLabel = `${label}.sections[${sectionIndex}]`
+    if (!rawSection || typeof rawSection !== 'object' || Array.isArray(rawSection)) throw new Error(`${sectionLabel} 无效`)
+    const id = String(rawSection.id || '')
+    if (!CONTRIBUTION_ID_PATTERN.test(id) || sectionIds.has(id)) throw new Error(`${sectionLabel} 的 ID 无效或重复`)
+    sectionIds.add(id)
+    const sectionTitle = String(rawSection.title || '').trim()
+    if (!sectionTitle || sectionTitle.length > 120) throw new Error(`${sectionLabel} 缺少 title 或过长`)
+    const sectionDescription = String(rawSection.description || '')
+    if (sectionDescription.length > 300) throw new Error(`${sectionLabel}.description 过长`)
+    if (!Array.isArray(rawSection.fields) || !rawSection.fields.length || rawSection.fields.length > MAX_PLUGIN_SETTINGS_FIELDS) {
+      throw new Error(`${sectionLabel}.fields 必须是 1-${MAX_PLUGIN_SETTINGS_FIELDS} 项的数组`)
+    }
+    const fieldIds = new Set()
+    const fields = rawSection.fields.map((rawField, fieldIndex) => {
+      const fieldLabel = `${sectionLabel}.fields[${fieldIndex}]`
+      if (!rawField || typeof rawField !== 'object' || Array.isArray(rawField)) throw new Error(`${fieldLabel} 无效`)
+      const id = String(rawField.id || '')
+      if (!CONTRIBUTION_ID_PATTERN.test(id) || fieldIds.has(id)) throw new Error(`${fieldLabel} 的 ID 无效或重复`)
+      fieldIds.add(id)
+      const type = rawField.type === 'range' ? 'slider' : String(rawField.type || '')
+      if (!PLUGIN_SETTINGS_FIELD_TYPES.has(type)) throw new Error(`${fieldLabel} 类型不受支持`)
+      const fieldTitle = String(rawField.label || '').trim()
+      if (!fieldTitle || fieldTitle.length > 120) throw new Error(`${fieldLabel} 缺少 label 或过长`)
+      const fieldDescription = String(rawField.description || '')
+      if (fieldDescription.length > 300) throw new Error(`${fieldLabel}.description 过长`)
+      const hostSelect = HOST_SELECT_FIELD_TYPES.has(type)
+      const path = hostSelect ? '' : String(rawField.path || id)
+      if (!hostSelect && !SETTING_PATH_PATTERN.test(path)) throw new Error(`${fieldLabel} path 无效`)
+      if (hostSelect && String(rawField.path || '') !== '') throw new Error(`${fieldLabel} 不应声明 path`)
+      if (type === 'animation-select' && !PLUGIN_ANIMATION_TARGETS.has(rawField.target)) throw new Error(`${fieldLabel} target 无效`)
+      if (['component-style-select', 'component-override-select', 'component-override-toggle'].includes(type) && !getComponentTarget(rawField.target)) throw new Error(`${fieldLabel} target 无效`)
+      if (type === 'result-presentation-select' && rawField.target !== 'roller.result') throw new Error(`${fieldLabel} target 无效`)
+      if (type === 'animation-select' && rawField.packId && !CONTRIBUTION_ID_PATTERN.test(rawField.packId)) throw new Error(`${fieldLabel} packId 无效`)
+      if (type === 'component-override-toggle' && !CONTRIBUTION_ID_PATTERN.test(rawField.packId || '')) throw new Error(`${fieldLabel} packId 无效`)
+      if (type === 'select' && (!Array.isArray(rawField.options) || !rawField.options.length || rawField.options.length > 32)) {
+        throw new Error(`${fieldLabel} options 无效`)
+      }
+      if (type === 'select' && rawField.options.some(option => !option || typeof option !== 'object' || option.value === undefined || !option.label)) {
+        throw new Error(`${fieldLabel} options 无效`)
+      }
+      if (type === 'slider') {
+        const min = Number(rawField.min)
+        const max = Number(rawField.max)
+        if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) throw new Error(`${fieldLabel} 范围无效`)
+      }
+      return {
+        id, type, label: fieldTitle, description: fieldDescription, path,
+        target: hostSelect ? String(rawField.target) : undefined,
+        packId: ['animation-select', 'component-override-toggle'].includes(type) ? String(rawField.packId || '') : undefined,
+        accept: type === 'audio' ? String(rawField.accept || 'audio/*') : undefined,
+        min: type === 'slider' ? Number(rawField.min) : undefined,
+        max: type === 'slider' ? Number(rawField.max) : undefined,
+        step: type === 'slider' ? Number(rawField.step || 0.01) : undefined,
+        options: type === 'select' ? rawField.options.map(option => ({ value: String(option.value), label: option.label })) : undefined,
+        default: rawField.default
+      }
+    })
+    return { id, title: sectionTitle, description: sectionDescription, fields }
+  })
+  return { title, description, storageKey, sections }
+}
+
+function normalizePages(value, { allowNative = true } = {}) {
   if (value === undefined) return []
   if (!Array.isArray(value) || value.length > 32) throw new Error('pages 必须是最多 32 项的数组')
   const ids = new Set()
@@ -649,7 +746,10 @@ function normalizePages(value) {
     if (rawPage.location !== undefined && !['plugins', 'dock'].includes(rawPage.location)) throw new Error(`pages[${index}].location 无效`)
     const platformEntries = normalizePlatformEntries(rawPage.platformEntries, `pages[${index}].platformEntries`)
     const entry = rawPage.entry ? validatePath(rawPage.entry) : ''
-    const native = normalizeNativePage(rawPage.native, `pages[${index}].native`)
+    if (!allowNative && rawPage.native !== undefined && rawPage.native !== null) {
+      throw new Error(`pages[${index}].native 在新格式中不可用，请改用 contributions.json 的 settings`)
+    }
+    const native = allowNative ? normalizeNativePage(rawPage.native, `pages[${index}].native`) : null
     if (!entry && !Object.keys(platformEntries).length && !native) throw new Error(`pages[${index}] 缺少可用的页面入口`)
     const order = rawPage.order === undefined ? 500 : Number(rawPage.order)
     if (!Number.isInteger(order) || order < 0 || order > 999) throw new Error(`pages[${index}].order 必须是 0-999 的整数`)
@@ -700,9 +800,9 @@ function normalizeCommands(value) {
   })
 }
 
-export function normalizePluginManifest(raw) {
+export function normalizePluginManifest(raw, { fromYml = false } = {}) {
   if (!raw || typeof raw !== 'object') throw new Error('manifest.json 无效')
-  if (raw.api === undefined && (!raw.name || !raw.version || !raw.author || !raw.schemaVersion || !raw.engine)) return manifestMigrationMetadata(raw)
+  if (!fromYml && raw.api === undefined && (!raw.name || !raw.version || !raw.author || !raw.schemaVersion || !raw.engine)) return manifestMigrationMetadata(raw)
   if (raw.api === '1.5' || (raw.api !== undefined && raw.api !== null)) return normalizeApi15Manifest(raw)
   const manifest = JSON.parse(JSON.stringify(raw))
   if (manifest.schemaVersion !== 1) throw new Error('不支持的插件清单版本')
@@ -715,7 +815,10 @@ export function normalizePluginManifest(raw) {
   const unknownPermission = manifest.permissions.find(permission => !PLUGIN_PERMISSIONS.has(permission))
   if (unknownPermission) throw new Error(`未知插件权限：${unknownPermission}`)
   manifest.contributes = manifest.contributes && typeof manifest.contributes === 'object' ? manifest.contributes : {}
-  manifest.contributes.pages = normalizePages(manifest.contributes.pages)
+  manifest.contributes.pages = normalizePages(manifest.contributes.pages, { allowNative: !fromYml })
+  const settings = normalizePluginSettings(manifest.contributes.settings)
+  if (settings) manifest.contributes.settings = settings
+  else delete manifest.contributes.settings
   manifest.contributes.commands = normalizeCommands(manifest.contributes.commands)
   manifest.contributes.animationPacks = normalizeAnimationPacks(manifest.contributes.animationPacks, manifest.permissions)
   manifest.contributes.visualSurfaces = normalizeVisualSurfaces(manifest.contributes.visualSurfaces, manifest.permissions)
@@ -734,7 +837,7 @@ export function normalizePluginManifest(raw) {
   if (manifest.contributes.commands.length && !manifest.entry && !Object.keys(manifest.platformEntries).length) {
     throw new Error('commands 需要插件 Worker 入口')
   }
-  if (!manifest.entry && !Object.keys(manifest.platformEntries).length && !(manifest.contributes.pages || []).length && !manifest.contributes.commands.length && !manifest.contributes.visualSurfaces.length && !manifest.contributes.appearancePacks.length && !manifest.contributes.componentStylePacks.length && !manifest.contributes.componentOverridePacks.length && !manifest.contributes.nativeViews.length && !manifest.contributes.resultPresentations.length && !manifest.contributes.fonts.length) {
+  if (!manifest.entry && !Object.keys(manifest.platformEntries).length && !(manifest.contributes.pages || []).length && !manifest.contributes.commands.length && !manifest.contributes.visualSurfaces.length && !manifest.contributes.appearancePacks.length && !manifest.contributes.componentStylePacks.length && !manifest.contributes.componentOverridePacks.length && !manifest.contributes.nativeViews.length && !manifest.contributes.resultPresentations.length && !manifest.contributes.fonts.length && !(manifest.contributes.settings?.sections || []).length) {
     throw new Error('插件至少需要一个 Worker、页面、视觉层或外观包入口')
   }
   if (manifest.icon) manifest.icon = validatePath(manifest.icon)
@@ -827,9 +930,13 @@ export async function parsePluginPackage(input, { expectedPublisherKey = '' } = 
   const fileNames = Object.keys(archive.files).filter(name => !archive.files[name].dir)
   if (fileNames.length > MAX_FILE_COUNT) throw new Error('插件包文件数量过多')
   fileNames.forEach(validatePath)
-  const manifestEntry = archive.file('manifest.json')
-  if (!manifestEntry) throw new Error('插件包缺少 manifest.json')
-  const manifest = normalizePluginManifest(JSON.parse(await manifestEntry.async('string')))
+  const declarationTexts = {}
+  for (const name of [MANIFEST_YAML_FILE, MANIFEST_JSON_FILE, CONTRIBUTIONS_FILE]) {
+    const entry = archive.file(name)
+    if (entry) declarationTexts[name] = await entry.async('string')
+  }
+  const { raw, declarationFile, fromYml } = pluginManifestSource(declarationTexts)
+  const manifest = normalizePluginManifest(raw, { fromYml })
   if (manifest.displayOnly) return { manifest, files: {}, animationPacks: [], nativeViews: [], packageHash: await sha256Hex(packageBytes), packageSignature: envelope.signature || '', publisherKey: publisher.publisherKey, publisherVerified: publisher.verified, signatureAlgorithm: envelope.signatureAlgorithm || '', readme: '' }
   if (manifest.id !== envelope.id || manifest.version !== envelope.version) {
     throw new Error('插件清单与 CNRP 封装身份不一致')
@@ -861,7 +968,7 @@ export async function parsePluginPackage(input, { expectedPublisherKey = '' } = 
   validateFontFiles(manifest.api === '1.5' ? [] : (manifest.contributes.fonts || []), files)
   const integrity = manifest.integrity || {}
   for (const name of fileNames) {
-    if (name !== 'manifest.json' && !Object.hasOwn(integrity, name)) throw new Error(`完整性清单未覆盖文件：${name}`)
+    if (name !== declarationFile && !Object.hasOwn(integrity, name)) throw new Error(`完整性清单未覆盖文件：${name}`)
   }
   const nativeViews = (manifest.contributes.nativeViews || []).map(declaration => {
     try {
@@ -906,4 +1013,64 @@ export function decodePluginFile(plugin, path, binary = false) {
   if (!encoded) throw new Error(`插件文件不存在：${path}`)
   const bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0))
   return binary ? bytes : new TextDecoder().decode(bytes)
+}
+
+export function parseManifestYaml(text) {
+  let value
+  try {
+    value = parseYaml(text, { uniqueKeys: true })
+  } catch (error) {
+    throw new Error(`${MANIFEST_YAML_FILE} 解析失败：${error.message || error}`)
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${MANIFEST_YAML_FILE} 必须是一个映射`)
+  if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) throw new Error(`${MANIFEST_YAML_FILE} 必须是普通映射`)
+  const forbidden = YAML_FORBIDDEN_KEYS.find(key => Object.hasOwn(value, key))
+  if (forbidden) throw new Error(`${MANIFEST_YAML_FILE} 不允许包含 ${forbidden}，贡献声明请写入 ${CONTRIBUTIONS_FILE}`)
+  return { ...value }
+}
+
+export function parseContributionsJson(text) {
+  let value
+  try {
+    value = JSON.parse(text)
+  } catch (error) {
+    throw new Error(`${CONTRIBUTIONS_FILE} 解析失败：${error.message || error}`)
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${CONTRIBUTIONS_FILE} 必须是一个对象`)
+  if (Object.hasOwn(value, 'contributes')) throw new Error(`${CONTRIBUTIONS_FILE} 必须是扁平贡献对象，无需 contributes 包装`)
+  const leaked = Object.keys(value).find(key => CONTRIBUTIONS_IDENTITY_KEYS.has(key))
+  if (leaked) throw new Error(`${CONTRIBUTIONS_FILE} 不允许声明插件身份字段：${leaked}`)
+  return value
+}
+
+export function mergePluginContributions(yamlValue, contributions = {}) {
+  const merged = {}
+  for (const [key, value] of Object.entries(contributions)) {
+    if (CONTRIBUTIONS_IDENTITY_KEYS.has(key)) continue
+    merged[key] = value
+  }
+  return merged
+}
+
+export function pluginManifestSource(texts) {
+  const hasYml = typeof texts?.[MANIFEST_YAML_FILE] === 'string'
+  const hasJson = typeof texts?.[MANIFEST_JSON_FILE] === 'string'
+  if (!hasYml && !hasJson) throw new Error(`插件缺少 ${MANIFEST_YAML_FILE} 或 ${MANIFEST_JSON_FILE}`)
+  if (hasYml && hasJson) throw new Error(`插件同时包含 ${MANIFEST_YAML_FILE} 与 ${MANIFEST_JSON_FILE}，禁止混用`)
+  if (hasYml) {
+    const yamlValue = parseManifestYaml(texts[MANIFEST_YAML_FILE])
+    const contributions = typeof texts[CONTRIBUTIONS_FILE] === 'string' ? parseContributionsJson(texts[CONTRIBUTIONS_FILE]) : {}
+    return {
+      raw: { ...yamlValue, contributes: mergePluginContributions(yamlValue, contributions) },
+      declarationFile: MANIFEST_YAML_FILE,
+      fromYml: true
+    }
+  }
+  let raw
+  try {
+    raw = JSON.parse(texts[MANIFEST_JSON_FILE])
+  } catch (error) {
+    throw new Error(`${MANIFEST_JSON_FILE} 解析失败：${error.message || error}`)
+  }
+  return { raw, declarationFile: MANIFEST_JSON_FILE, fromYml: false }
 }

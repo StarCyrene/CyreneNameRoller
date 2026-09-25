@@ -732,6 +732,13 @@ export const usePluginsStore = defineStore('plugins', () => {
     return runtime.getContributedPages().find(page => page.pluginId === pluginId && page.id === pageId)
   }
 
+  function settingsFor(pluginId) {
+    pagesRevision.value
+    const plugin = installed.value[pluginId]
+    const settings = plugin?.manifest?.contributes?.settings
+    return settings && Array.isArray(settings.sections) && settings.sections.length ? settings : null
+  }
+
   function invokePluginCommand(pluginId, commandId, args = {}) {
     if (safeModeStatus.value.enabled) return Promise.reject(Object.assign(new Error('安全模式已启用，插件命令不可用'), { code: 'SAFE_MODE_PLUGIN_BLOCKED' }))
     return runtime.invokeCommand(pluginId, commandId, args)
@@ -982,7 +989,7 @@ export const usePluginsStore = defineStore('plugins', () => {
   return {
     installed, list, source, initialized, recovering, lastError, enabledPlugins, contributedPages, contributedCommands, contributedVisualSurfaces, contributedAppearancePacks, contributedComponentStylePacks, contributedComponentOverridePacks, contributedNativeViews, contributedResultPresentations, animationSelections, animationDurationScales, componentStyleSelections, componentOverrideSelections, resultPresentationSelections, safeModeStatus,
     initialize, configureSafeMode, setBannerHandler, saveState, activateEnabled, inspectPackage, installPackage, uninstall, setEnabled,
-    setSource, fetchList, downloadPlugin, loadCatalogDetails, pageById, appearanceByValue, appearanceOptions, resolveAppearance, componentStyleByValue, componentStyleOptions, componentStyleStyle, setComponentStyleSelection, componentOverrideByValue, componentOverrideOptions, nativeViewsForSlot, resultPresentationByValue, resultPresentationOptions, resultPresentationForTarget, setResultPresentationSelection, componentOverrideState, setComponentOverrideSelection, resetComponentOverrides, pluginById, pluginAssetUrl,
+    setSource, fetchList, downloadPlugin, loadCatalogDetails, pageById, settingsFor, appearanceByValue, appearanceOptions, resolveAppearance, componentStyleByValue, componentStyleOptions, componentStyleStyle, setComponentStyleSelection, componentOverrideByValue, componentOverrideOptions, nativeViewsForSlot, resultPresentationByValue, resultPresentationOptions, resultPresentationForTarget, setResultPresentationSelection, componentOverrideState, setComponentOverrideSelection, resetComponentOverrides, pluginById, pluginAssetUrl,
      pluginPageSource, requestPlugin, invokePluginCommand, executeRollerDraw, mountPageFrame, setPageSurface, connectPageFrame, unmountPageFrame, mountVisualSurface, resizeVisualSurface, unmountVisualSurface,
     animationOptions, animationSelectionValue, setAnimationSelection, hasAnimation, startAnimation, animationDurationScale, setAnimationDurationScale, registerAnimationSurface, unregisterAnimationSurface,
     dispatchEvent, handlePluginMessage, markCleanShutdown,

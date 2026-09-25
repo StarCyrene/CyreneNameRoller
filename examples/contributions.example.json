@@ -1,0 +1,155 @@
+{
+  "settings": {
+    "title": "FancyCNR 设置",
+    "description": "由宿主 VueFluentWidgets 渲染；插件只提供声明，不提供 HTML。iframe 页面通过同一 storageKey 读写本对象。",
+    "storageKey": "settings",
+    "sections": [
+      {
+        "id": "appearance",
+        "title": "外观",
+        "description": "界面显隐与组件样式",
+        "fields": [
+          {
+            "id": "compact-filters",
+            "type": "toggle",
+            "path": "compactFilters",
+            "label": "紧凑筛选栏",
+            "description": "收窄点名页筛选区域，腾出纵向空间。",
+            "default": false
+          },
+          {
+            "id": "hide-statistics",
+            "type": "checkbox",
+            "path": "hideStatistics",
+            "label": "隐藏统计摘要卡片",
+            "description": "在首页隐藏 statistics.summary 区域。",
+            "default": false
+          },
+          {
+            "id": "result-style",
+            "type": "component-style-select",
+            "target": "roller.result",
+            "label": "点名结果样式"
+          },
+          {
+            "id": "filter-layout",
+            "type": "component-override-select",
+            "target": "roller.filters",
+            "label": "筛选区布局"
+          },
+          {
+            "id": "result-layout",
+            "type": "result-presentation-select",
+            "target": "roller.result",
+            "label": "权威结果呈现"
+          }
+        ]
+      },
+      {
+        "id": "behavior",
+        "title": "行为",
+        "description": "本地开关与选项",
+        "fields": [
+          {
+            "id": "enabled",
+            "type": "toggle",
+            "path": "enabled",
+            "label": "启用 FancyCNR",
+            "description": "关闭后保留全部配置，但不再应用贡献。",
+            "default": true
+          },
+          {
+            "id": "playback-mode",
+            "type": "select",
+            "path": "playbackMode",
+            "label": "结果动效时机",
+            "default": "once",
+            "options": [
+              { "value": "once", "label": "每次操作一次" },
+              { "value": "each", "label": "每个结果一次" }
+            ]
+          },
+          {
+            "id": "volume",
+            "type": "slider",
+            "path": "volume",
+            "label": "反馈音量",
+            "min": 0,
+            "max": 1,
+            "step": 0.01,
+            "default": 0.7
+          },
+          {
+            "id": "confirm-banner",
+            "type": "checkbox",
+            "path": "confirmBanner",
+            "label": "应用变更时显示横幅",
+            "default": true
+          }
+        ]
+      }
+    ]
+  },
+  "pages": [
+    {
+      "id": "visual-lab",
+      "title": "视觉实验室",
+      "titleEn": "Visual Lab",
+      "icon": "sparkle-24-regular",
+      "location": "dock",
+      "order": 640,
+      "description": "独立 iframe 富页面；不承载插件设置。",
+      "entry": "pages/visual-lab.html"
+    },
+    {
+      "id": "legacy-tools",
+      "title": "附加工具",
+      "titleEn": "Tools",
+      "icon": "apps-24-regular",
+      "location": "plugins",
+      "order": 720,
+      "entry": "pages/tools.html"
+    }
+  ],
+  "commands": [
+    {
+      "id": "apply-preset",
+      "title": "应用当前预设",
+      "titleEn": "Apply preset",
+      "locations": ["command-palette", "page-header"],
+      "icon": "sparkle-24-regular"
+    }
+  ],
+  "componentStylePacks": [
+    {
+      "id": "focused",
+      "title": "Focused",
+      "targets": {
+        "roller.result": {
+          "fontFamily": "host:display",
+          "fontSize": 64,
+          "fontWeight": 700,
+          "alignment": "center"
+        }
+      }
+    }
+  ],
+  "componentOverridePacks": [
+    {
+      "id": "minimal-statistics",
+      "title": "Minimal statistics",
+      "targets": {
+        "statistics.summary": { "visibility": "hidden" }
+      }
+    }
+  ],
+  "resultPresentations": [
+    {
+      "id": "spotlight",
+      "title": "Spotlight",
+      "targets": ["roller.result"],
+      "layout": "spotlight",
+      "style": { "size": "large", "showAlgorithm": true }
+    }
+  ]
+}

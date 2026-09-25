@@ -1,0 +1,510 @@
+<!-- AI生成 -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>contributions.json 设计预览 — settings / pages 拆分</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f3f3f3;
+      --card: #ffffff;
+      --ink: #1a1a1a;
+      --muted: #5c5c5c;
+      --line: color-mix(in srgb, #888 28%, transparent);
+      --accent: #0067c0;
+      --accent-soft: color-mix(in srgb, #0067c0 12%, transparent);
+      --page: #e8eef6;
+      --warn: #9d5d00;
+      font-family: "Segoe UI Variable", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1c1c1c;
+        --card: #2a2a2a;
+        --ink: #f2f2f2;
+        --muted: #a8a8a8;
+        --line: color-mix(in srgb, #aaa 28%, transparent);
+        --accent: #4cc2ff;
+        --accent-soft: color-mix(in srgb, #4cc2ff 16%, transparent);
+        --page: #243044;
+        --warn: #fce100;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); min-height: 100vh; }
+    header {
+      padding: 20px 28px 8px;
+      border-bottom: 1px solid var(--line);
+      background: var(--card);
+    }
+    header h1 { margin: 0 0 6px; font-size: 20px; font-weight: 600; }
+    header p { margin: 0 0 14px; color: var(--muted); font-size: 13px; max-width: 920px; line-height: 1.55; }
+    code { font-family: Consolas, ui-monospace, monospace; font-size: 0.95em; }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tab {
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .tab[aria-selected="true"] {
+      background: var(--accent-soft);
+      border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+      color: var(--accent);
+      font-weight: 600;
+    }
+    main { padding: 18px 28px 32px; }
+    .pane { display: none; }
+    .pane.active { display: block; }
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(320px, 1.1fr) minmax(300px, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+    @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .panel-head span { color: var(--muted); font-weight: 400; font-size: 12px; }
+    pre {
+      margin: 0;
+      padding: 14px;
+      max-height: min(72vh, 720px);
+      overflow: auto;
+      font-family: Consolas, "Cascadia Code", ui-monospace, monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre;
+    }
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+    .tag.settings {
+      color: var(--accent);
+      border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+      background: var(--accent-soft);
+    }
+    .tag.page {
+      color: var(--warn);
+      border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+      background: color-mix(in srgb, var(--warn) 12%, transparent);
+    }
+    .host-shell { padding: 16px; background: var(--page); min-height: 320px; }
+    .plugin-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    .plugin-card h3 { margin: 0; font-size: 15px; }
+    .plugin-card small { color: var(--muted); }
+    .entry-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .btn {
+      font: inherit;
+      font-size: 12px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+    .btn.primary { background: var(--accent); color: #fff; }
+    .btn.ghost { background: transparent; border-color: var(--line); color: var(--ink); }
+    .settings-view {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .settings-view h2 { margin: 0 0 4px; font-size: 16px; }
+    .sub { margin: 0 0 14px; color: var(--muted); font-size: 12px; }
+    .section-title {
+      margin: 16px 0 8px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 11px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--card) 70%, var(--bg));
+      margin-bottom: 8px;
+    }
+    .setting-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .setting-copy strong { font-size: 13px; font-weight: 600; }
+    .setting-copy span { font-size: 12px; color: var(--muted); line-height: 1.4; }
+    .control { flex: 0 0 auto; }
+    .switch {
+      width: 40px; height: 20px; border-radius: 999px;
+      background: color-mix(in srgb, var(--muted) 35%, transparent);
+      position: relative; cursor: pointer; border: none; padding: 0;
+    }
+    .switch::after {
+      content: ""; position: absolute; top: 2px; left: 2px;
+      width: 16px; height: 16px; border-radius: 50%; background: #fff;
+      transition: transform 0.15s ease;
+      box-shadow: 0 1px 2px rgba(0,0,0,.25);
+    }
+    .switch[aria-checked="true"] { background: var(--accent); }
+    .switch[aria-checked="true"]::after { transform: translateX(20px); }
+    .checkbox {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 13px; cursor: pointer; user-select: none;
+    }
+    .checkbox input { width: 16px; height: 16px; accent-color: var(--accent); }
+    select, input[type="range"] {
+      font: inherit; font-size: 13px;
+      border: 1px solid var(--line); border-radius: 6px;
+      background: var(--card); color: var(--ink);
+      padding: 5px 8px; min-width: 160px;
+    }
+    input[type="range"] { min-width: 150px; padding: 0; accent-color: var(--accent); }
+    .slider-wrap { display: flex; align-items: center; gap: 8px; }
+    .slider-wrap output {
+      font-variant-numeric: tabular-nums; font-size: 12px;
+      color: var(--muted); min-width: 32px; text-align: right;
+    }
+    .note {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .rules { display: grid; gap: 8px; }
+    .rule {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .rule b { color: var(--accent); }
+    .iframe-dummy {
+      border: 1.5px dashed color-mix(in srgb, var(--warn) 55%, transparent);
+      background: color-mix(in srgb, var(--warn) 8%, transparent);
+      border-radius: 8px;
+      min-height: 180px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 20px;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+<p data-aigc-mark="1" style="margin:0 0 8px;font-size:10px;line-height:1.3;color:#6b6560;font-weight:400;">AI生成</p>
+
+  <header>
+    <h1>拆分后的 contributions.json：settings 与 pages 彻底分离</h1>
+    <p>
+      插件设置 = <strong>纯声明</strong>（<code>settings</code>），由宿主 VueFluentWidgets 渲染（开关 / 下拉 / 复选框 / 滑条 / 贡献选择器）；
+      <code>pages</code> <strong>只注册 iframe 富页面</strong>，不再承载 <code>native</code> 设置。
+      完整示例：<code>examples/contributions.example.json</code>。
+    </p>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-pane="design">结构说明</button>
+      <button class="tab" role="tab" aria-selected="false" data-pane="settings">宿主设置页预览</button>
+      <button class="tab" role="tab" aria-selected="false" data-pane="iframe">iframe 页面预览</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="pane-design" class="pane active">
+      <div class="grid">
+        <div class="panel">
+          <div class="panel-head">contributions.example.json <span>examples/</span></div>
+          <pre id="json-source">加载中…</pre>
+        </div>
+        <div class="rules">
+          <div class="rule"><b>settings</b><span>顶层对象：<code>sections[].fields[]</code>。宿主生成「插件设置」页；普通字段写入 <code>storageKey</code>，贡献选择器走宿主注册表。</span></div>
+          <div class="rule"><b>pages</b><span>顶层数组：仅 <code>entry</code> iframe；<strong>禁止</strong> <code>native</code>。<code>location: dock|plugins</code> 决定侧栏一级入口或插件区链接。</span></div>
+          <div class="rule"><b>其余键</b><span><code>commands</code> / <code>componentStylePacks</code> / … 仍为贡献树，运行时并入 <code>manifest.contributes</code>。</span></div>
+          <div class="rule"><b>字段类型</b><span><code>toggle</code>→FluentToggle · <code>checkbox</code>→FluentCheckBox · <code>select</code>→FluentSelect · <code>slider</code>→FluentSlider · 贡献选择器沿用现有 host control。</span></div>
+          <div class="rule"><b>iframe 读设置</b><span>与宿主设置共用 <code>settings.storageKey</code>；bootstrap 注入 <code>CyrenePlugin.settingsKey</code>（可选 <code>settings.read/write</code>）。需 <code>storage:read</code> / <code>storage:write</code>。宿主保存后 iframe 收到 <code>plugin:storage-changed</code>。</span></div>
+          <div class="rule"><b>兼容</b><span>旧包 <code>pages[].native</code> 继续可读；新模板/文档只产 <code>settings</code>。</span></div>
+          <div class="note">
+            旧模型把设置挂在 <code>pages[].native</code>，与 iframe 内容页共用 pages 数组，插件管理里一律标成「插件设置」。
+            拆开后：<strong>设置页永远是宿主 UI，内容页永远是 iframe</strong>。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="pane-settings" class="pane">
+      <div class="grid">
+        <div class="panel">
+          <div class="panel-head">插件卡片入口（改后语义） <span>示意</span></div>
+          <div class="host-shell">
+            <div class="plugin-card">
+              <h3>FancyCNR</h3>
+              <small>cn.leafsc.fancycnr · v0.4.0</small>
+              <div class="entry-row">
+                <button class="btn primary" id="open-settings" type="button">⚙ 插件设置</button>
+                <button class="btn ghost" id="open-page" type="button">↗ 视觉实验室</button>
+                <button class="btn ghost" id="open-tools" type="button">↗ 附加工具</button>
+              </div>
+              <p class="sub" style="margin:10px 0 0">
+                设置入口来自 <span class="tag settings">settings</span>；
+                页面入口来自 <span class="tag page">pages[]</span>，文案用页面标题，不写死「插件设置」。
+              </p>
+            </div>
+            <div class="settings-view" id="settings-surface">
+              <h2>FancyCNR 设置</h2>
+              <p class="sub">宿主 VueFluentWidgets · storageKey: settings</p>
+
+              <div class="section-title">外观 · Appearance</div>
+              <div class="setting-row">
+                <div class="setting-copy"><strong>紧凑筛选栏</strong><span>收窄点名页筛选区域，腾出纵向空间。</span></div>
+                <div class="control"><button class="switch" role="switch" aria-checked="false" data-field="compactFilters" aria-label="紧凑筛选栏"></button></div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy"><strong>隐藏统计摘要卡片</strong><span>在首页隐藏 statistics.summary 区域。</span></div>
+                <div class="control"><label class="checkbox"><input type="checkbox" data-field="hideStatistics" /> 隐藏</label></div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy"><strong>点名结果样式</strong><span>component-style-select · roller.result</span></div>
+                <div class="control">
+                  <select data-field="resultStyle">
+                    <option value="">默认：roller.result</option>
+                    <option value="fancy::focused" selected>Focused</option>
+                    <option value="fancy::bold">Bold</option>
+                  </select>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy"><strong>筛选区布局</strong><span>component-override-select</span></div>
+                <div class="control">
+                  <select data-field="filterLayout">
+                    <option value="">默认：roller.filters</option>
+                    <option value="fancy::compact">Compact</option>
+                  </select>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy"><strong>权威结果呈现</strong><span>result-presentation-select</span></div>
+                <div class="control">
+                  <select data-field="resultLayout">
+                    <option value="">默认 Roller result</option>
+                    <option value="spotlight" selected>Spotlight</option>
+                    <option value="list">List</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="section-title">行为 · Behavior</div>
+              <div class="setting-row">
+                <div class="setting-copy"><strong>启用 FancyCNR</strong><span>关闭后保留配置，不再应用贡献。</span></div>
+                <div class="control"><button class="switch" role="switch" aria-checked="true" data-field="enabled" aria-label="启用"></button></div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy"><strong>结果动效时机</strong><span>select → FluentSelect</span></div>
+                <div class="control">
+                  <select data-field="playbackMode">
+                    <option value="once" selected>每次操作一次</option>
+                    <option value="each">每个结果一次</option>
+                  </select>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy"><strong>反馈音量</strong><span>slider → FluentSlider</span></div>
+                <div class="control slider-wrap">
+                  <input type="range" min="0" max="1" step="0.01" value="0.7" data-field="volume" id="vol" />
+                  <output id="vol-out">0.70</output>
+                </div>
+              </div>
+              <div class="setting-row">
+                <div class="setting-copy"><strong>应用变更时显示横幅</strong><span>checkbox → FluentCheckBox</span></div>
+                <div class="control"><label class="checkbox"><input type="checkbox" checked data-field="confirmBanner" /> 显示</label></div>
+              </div>
+
+              <div class="note">运行时会写入的对象（预览草稿，不落盘）：</div>
+              <pre id="live-state" style="max-height:160px;border:1px solid var(--line);border-radius:8px;background:color-mix(in srgb, var(--card) 70%, var(--bg));"></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">settings 声明片段 <span>对应左侧 UI</span></div>
+          <pre id="settings-snippet"></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="pane-iframe" class="pane">
+      <div class="grid">
+        <div class="panel">
+          <div class="panel-head">侧栏 Dock · iframe 内容页 <span>pages[] only</span></div>
+          <div class="host-shell">
+            <div class="iframe-dummy">
+              <div>
+                <strong style="color:var(--ink);font-size:14px">pages/visual-lab.html</strong><br />
+                PluginPageView → <code>&lt;iframe sandbox="allow-scripts"&gt;</code><br />
+                富交互留在 iframe；设置不会出现在这里。
+              </div>
+            </div>
+            <div class="note">
+              Dock 一级导航只列 <code>location: dock</code> 的 pages；
+              插件管理卡片用<strong>页面标题</strong>做按钮，而不是「插件设置」。
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">pages 声明片段 <span>无 native</span></div>
+          <pre id="pages-snippet"></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const EXAMPLE_URL = 'examples/contributions.example.json';
+
+    const FALLBACK = {
+      settings: {
+        title: "FancyCNR 设置",
+        description: "由宿主 VueFluentWidgets 渲染；插件只提供声明，不提供 HTML。",
+        storageKey: "settings",
+        sections: [
+          {
+            id: "appearance",
+            title: "外观",
+            fields: [
+              { id: "compact-filters", type: "toggle", path: "compactFilters", label: "紧凑筛选栏", default: false },
+              { id: "hide-statistics", type: "checkbox", path: "hideStatistics", label: "隐藏统计摘要卡片", default: false },
+              { id: "result-style", type: "component-style-select", target: "roller.result", label: "点名结果样式" }
+            ]
+          }
+        ]
+      },
+      pages: [
+        { id: "visual-lab", title: "视觉实验室", location: "dock", entry: "pages/visual-lab.html" }
+      ]
+    };
+
+    async function loadJson() {
+      try {
+        const res = await fetch(EXAMPLE_URL);
+        if (!res.ok) throw new Error(String(res.status));
+        return await res.json();
+      } catch {
+        return FALLBACK;
+      }
+    }
+
+    function renderState() {
+      const data = window.__EXAMPLE__ || FALLBACK;
+      const state = {};
+      const contributions = {};
+      for (const section of (data.settings && data.settings.sections) || []) {
+        for (const field of section.fields || []) {
+          const el = document.querySelector('[data-field="' + field.id + '"]');
+          if (field.path) {
+            let value = field.default != null ? field.default : null;
+            if (el) {
+              if (el.classList.contains('switch')) value = el.getAttribute('aria-checked') === 'true';
+              else if (el.type === 'checkbox') value = el.checked;
+              else if (el.type === 'range') value = Number(el.value);
+              else value = el.value;
+            }
+            state[field.path] = value;
+          } else if (el) {
+            contributions[field.id] = el.value;
+          }
+        }
+      }
+      const payload = Object.assign(
+        { key: (data.settings && data.settings.storageKey) || 'settings' },
+        state,
+        { __contributionSelections: contributions }
+      );
+      document.getElementById('live-state').textContent = JSON.stringify(payload, null, 2);
+    }
+
+    function renderSnippets(data) {
+      document.getElementById('settings-snippet').textContent = JSON.stringify({ settings: data.settings }, null, 2);
+      document.getElementById('pages-snippet').textContent = JSON.stringify({ pages: data.pages || [] }, null, 2);
+    }
+
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t === tab)));
+        document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+        document.getElementById('pane-' + tab.dataset.pane).classList.add('active');
+      });
+    });
+
+    document.querySelectorAll('.switch').forEach(sw => {
+      sw.addEventListener('click', () => {
+        sw.setAttribute('aria-checked', sw.getAttribute('aria-checked') === 'true' ? 'false' : 'true');
+        renderState();
+      });
+    });
+    document.querySelectorAll('#settings-surface input, #settings-surface select').forEach(el => {
+      el.addEventListener('input', renderState);
+      el.addEventListener('change', renderState);
+    });
+    document.getElementById('vol').addEventListener('input', event => {
+      document.getElementById('vol-out').textContent = Number(event.target.value).toFixed(2);
+    });
+
+    document.getElementById('open-settings').addEventListener('click', () => {
+      document.querySelector('[data-pane="settings"]').click();
+    });
+    document.getElementById('open-page').addEventListener('click', () => {
+      document.querySelector('[data-pane="iframe"]').click();
+    });
+    document.getElementById('open-tools').addEventListener('click', () => {
+      document.querySelector('[data-pane="iframe"]').click();
+    });
+
+    loadJson().then(data => {
+      window.__EXAMPLE__ = data;
+      document.getElementById('json-source').textContent = JSON.stringify(data, null, 2);
+      renderSnippets(data);
+      renderState();
+    });
+  </script>
+</body>
+</html>

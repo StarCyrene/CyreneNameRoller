@@ -7,11 +7,33 @@ import { fileURLToPath } from 'node:url'
 import JSZip from 'jszip'
 import { build } from 'esbuild'
 import JavaScriptObfuscator from 'javascript-obfuscator'
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const packageRoot = path.resolve(__dirname, '..')
 const MAGIC = Buffer.from('CNRP1\n', 'utf8')
 const API_VERSION = '1.4.0'
+const MANIFEST_JSON_FILE = 'manifest.json'
+const MANIFEST_YAML_FILE = 'manifest.yml'
+const CONTRIBUTIONS_FILE = 'contributions.json'
+const YAML_FORBIDDEN_KEYS = ['contributes', 'settings', 'pages', 'api']
+const CONTRIBUTIONS_IDENTITY_KEYS = new Set([
+  'schemaVersion', 'id', 'name', 'version', 'author', 'description', 'engine', 'entry', 'icon', 'readme',
+  'permissions', 'platformEntries', 'supportedPlatforms', 'dependencies', 'capabilities', 'systemOperations', 'integrity'
+])
+const SETTINGS_FIELD_TYPES = new Set([
+  'toggle', 'checkbox', 'select', 'slider', 'range', 'audio',
+  'animation-select', 'component-style-select', 'component-override-select',
+  'component-override-toggle', 'result-presentation-select'
+])
+const HOST_SELECT_FIELD_TYPES = new Set([
+  'animation-select', 'component-style-select', 'component-override-select',
+  'component-override-toggle', 'result-presentation-select'
+])
+const MAX_SETTINGS_SECTIONS = 16
+const MAX_SETTINGS_FIELDS = 64
+const YAML_MANIFEST_ORDER = ['schemaVersion', 'id', 'name', 'version', 'author', 'description', 'engine', 'entry', 'icon', 'readme']
+const YAML_OPTIONAL_ORDER = ['platformEntries', 'supportedPlatforms', 'dependencies', 'capabilities', 'systemOperations']
 const MAX_FILE_COUNT = 256
 const MAX_PACKAGE_SIZE = 32 * 1024 * 1024
 const ID_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)+$/
@@ -497,7 +519,71 @@ function normalizeNativePage(value, label) {
   return { type: 'settings', settingsKey, controls }
 }
 
-function normalizePages(value) {
+function normalizePluginSettings(value, label = 'contributes.settings') {
+  if (value === undefined || value === null) return undefined
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be an object`)
+  const title = String(value.title || '').trim()
+  if (title.length > 120) fail(`${label}.title is too long`)
+  const description = String(value.description || '')
+  if (description.length > 300) fail(`${label}.description is too long`)
+  const storageKey = String(value.storageKey || 'settings')
+  if (!SETTING_PATH_PATTERN.test(storageKey)) fail(`${label}.storageKey is invalid`)
+  if (!Array.isArray(value.sections) || !value.sections.length || value.sections.length > MAX_SETTINGS_SECTIONS) fail(`${label}.sections must hold 1-${MAX_SETTINGS_SECTIONS} items`)
+  const sectionIds = new Set()
+  const sections = value.sections.map((rawSection, sectionIndex) => {
+    const sectionLabel = `${label}.sections[${sectionIndex}]`
+    if (!rawSection || typeof rawSection !== 'object' || Array.isArray(rawSection)) fail(`${sectionLabel} must be an object`)
+    const id = String(rawSection.id || '')
+    if (!CONTRIBUTION_ID_PATTERN.test(id) || sectionIds.has(id)) fail(`${sectionLabel} has an invalid or duplicate id`)
+    sectionIds.add(id)
+    const sectionTitle = String(rawSection.title || '').trim()
+    if (!sectionTitle || sectionTitle.length > 120) fail(`${sectionLabel} needs a title`)
+    const sectionDescription = String(rawSection.description || '')
+    if (sectionDescription.length > 300) fail(`${sectionLabel}.description is too long`)
+    if (!Array.isArray(rawSection.fields) || !rawSection.fields.length || rawSection.fields.length > MAX_SETTINGS_FIELDS) fail(`${sectionLabel}.fields must hold 1-${MAX_SETTINGS_FIELDS} items`)
+    const fieldIds = new Set()
+    const fields = rawSection.fields.map((rawField, fieldIndex) => {
+      const fieldLabel = `${sectionLabel}.fields[${fieldIndex}]`
+      if (!rawField || typeof rawField !== 'object' || Array.isArray(rawField)) fail(`${fieldLabel} must be an object`)
+      const id = String(rawField.id || '')
+      if (!CONTRIBUTION_ID_PATTERN.test(id) || fieldIds.has(id)) fail(`${fieldLabel} has an invalid or duplicate id`)
+      fieldIds.add(id)
+      const type = rawField.type === 'range' ? 'slider' : String(rawField.type || '')
+      if (!SETTINGS_FIELD_TYPES.has(type)) fail(`${fieldLabel} has an unsupported type`)
+      const fieldTitle = String(rawField.label || '').trim()
+      if (!fieldTitle || fieldTitle.length > 120) fail(`${fieldLabel} needs a valid label`)
+      const fieldDescription = String(rawField.description || '')
+      if (fieldDescription.length > 300) fail(`${fieldLabel}.description is too long`)
+      const hostSelect = HOST_SELECT_FIELD_TYPES.has(type)
+      const fieldPath = hostSelect ? '' : String(rawField.path || id)
+      if (!hostSelect && !SETTING_PATH_PATTERN.test(fieldPath)) fail(`${fieldLabel} has an invalid path`)
+      if (hostSelect && String(rawField.path || '') !== '') fail(`${fieldLabel} must not declare a path`)
+      if (type === 'animation-select' && !ANIMATION_TARGETS.has(rawField.target)) fail(`${fieldLabel} has an invalid animation target`)
+      if (['component-style-select', 'component-override-select', 'component-override-toggle'].includes(type) && !COMPONENT_TARGETS.has(rawField.target)) fail(`${fieldLabel} has an invalid component target`)
+      if (type === 'result-presentation-select' && rawField.target !== 'roller.result') fail(`${fieldLabel} has an invalid result presentation target`)
+      if (type === 'animation-select' && rawField.packId && !CONTRIBUTION_ID_PATTERN.test(rawField.packId)) fail(`${fieldLabel} has an invalid animation pack id`)
+      if (type === 'component-override-toggle' && !CONTRIBUTION_ID_PATTERN.test(rawField.packId || '')) fail(`${fieldLabel} has an invalid component override pack id`)
+      if (type === 'select' && (!Array.isArray(rawField.options) || !rawField.options.length || rawField.options.length > 32)) fail(`${fieldLabel} needs options`)
+      if (type === 'select' && rawField.options.some(option => !option || typeof option !== 'object' || option.value === undefined || !option.label)) fail(`${fieldLabel} needs options`)
+      if (type === 'slider' && (!Number.isFinite(Number(rawField.min)) || !Number.isFinite(Number(rawField.max)) || Number(rawField.min) >= Number(rawField.max))) fail(`${fieldLabel} has an invalid range`)
+      return {
+        id, type, label: fieldTitle, description: fieldDescription, path: fieldPath,
+        target: hostSelect ? String(rawField.target) : undefined,
+        packId: ['animation-select', 'component-override-toggle'].includes(type) ? String(rawField.packId || '') : undefined,
+        accept: type === 'audio' ? String(rawField.accept || 'audio/*') : undefined,
+        min: type === 'slider' ? Number(rawField.min) : undefined,
+        max: type === 'slider' ? Number(rawField.max) : undefined,
+        step: type === 'slider' ? Number(rawField.step || 0.01) : undefined,
+        options: type === 'select' ? rawField.options.map(option => ({ value: String(option.value), label: option.label })) : undefined,
+        default: rawField.default
+      }
+    })
+    return { id, title: sectionTitle, description: sectionDescription, fields }
+  })
+  return { title, description, storageKey, sections }
+}
+
+function normalizePages(value, { allowNative = true } = {}) {
   if (value === undefined) return []
   if (!Array.isArray(value) || value.length > 32) fail('pages must be an array with at most 32 items')
   const ids = new Set()
@@ -511,7 +597,8 @@ function normalizePages(value) {
     if (rawPage.location !== undefined && !['plugins', 'dock'].includes(rawPage.location)) fail(`pages[${index}].location is invalid`)
     const platformEntries = normalizePlatformEntries(rawPage.platformEntries, `pages[${index}].platformEntries`)
     const entry = rawPage.entry ? normalizePath(rawPage.entry) : ''
-    const native = normalizeNativePage(rawPage.native, `pages[${index}].native`)
+    if (!allowNative && rawPage.native !== undefined && rawPage.native !== null) fail(`pages[${index}].native is unavailable in the split format; declare settings in ${CONTRIBUTIONS_FILE}`)
+    const native = allowNative ? normalizeNativePage(rawPage.native, `pages[${index}].native`) : null
     if (!entry && !Object.keys(platformEntries).length && !native) fail(`pages[${index}] needs an entry or native schema`)
     const order = rawPage.order === undefined ? 500 : Number(rawPage.order)
     if (!Number.isInteger(order) || order < 0 || order > 999) fail(`pages[${index}].order must be an integer from 0 to 999`)
@@ -552,9 +639,9 @@ function normalizeCommands(value) {
   })
 }
 
-function normalizeManifest(raw) {
+function normalizeManifest(raw, { fromYml = false } = {}) {
   if (!raw || typeof raw !== 'object') fail('manifest.json must be an object')
-  if (raw.api === undefined && (!raw.name || !raw.version || !raw.author || !raw.schemaVersion || !raw.engine)) return { ...structuredClone(raw), activatable: false, displayOnly: true, migrationRequired: true, api: null, id: String(raw.id || ''), version: String(raw.version || ''), name: String(raw.name || '') }
+  if (!fromYml && raw.api === undefined && (!raw.name || !raw.version || !raw.author || !raw.schemaVersion || !raw.engine)) return { ...structuredClone(raw), activatable: false, displayOnly: true, migrationRequired: true, api: null, id: String(raw.id || ''), version: String(raw.version || ''), name: String(raw.name || '') }
   if (raw.api === '1.5' || (raw.api !== undefined && raw.api !== null)) return normalizeManifest15(raw)
   const manifest = structuredClone(raw)
   if (manifest.schemaVersion !== 1) fail('schemaVersion must be 1')
@@ -572,7 +659,10 @@ function normalizeManifest(raw) {
   manifest.systemOperations = normalizeSystemOperations(manifest.systemOperations, manifest.permissions)
   manifest.dependencies = normalizeDependencies(manifest.dependencies, manifest.id)
   manifest.contributes = manifest.contributes && typeof manifest.contributes === 'object' ? manifest.contributes : {}
-  manifest.contributes.pages = normalizePages(manifest.contributes.pages)
+  manifest.contributes.pages = normalizePages(manifest.contributes.pages, { allowNative: !fromYml })
+  const settings = normalizePluginSettings(manifest.contributes.settings)
+  if (settings) manifest.contributes.settings = settings
+  else delete manifest.contributes.settings
   manifest.contributes.commands = normalizeCommands(manifest.contributes.commands)
   manifest.contributes.animationPacks = normalizeAnimationPacks(manifest.contributes.animationPacks, manifest.permissions)
   manifest.contributes.visualSurfaces = normalizeVisualSurfaces(manifest.contributes.visualSurfaces, manifest.permissions)
@@ -658,7 +748,7 @@ function normalizeManifest(raw) {
   if (!manifest.contributes.resultPresentations?.length) delete manifest.contributes.resultPresentations
   if (manifest.entry) manifest.entry = normalizePath(manifest.entry)
   if ((manifest.contributes.commands || []).length && !manifest.entry && !Object.keys(manifest.platformEntries).length) fail('commands require a Worker entry')
-  if (!manifest.entry && !Object.keys(manifest.platformEntries).length && !(manifest.contributes.pages || []).length && !(manifest.contributes.commands || []).length && !(manifest.contributes.visualSurfaces || []).length && !(manifest.contributes.appearancePacks || []).length && !(manifest.contributes.componentStylePacks || []).length && !(manifest.contributes.componentOverridePacks || []).length && !(manifest.contributes.nativeViews || []).length && !(manifest.contributes.resultPresentations || []).length && !(manifest.contributes.fonts || []).length) {
+  if (!manifest.entry && !Object.keys(manifest.platformEntries).length && !(manifest.contributes.pages || []).length && !(manifest.contributes.commands || []).length && !(manifest.contributes.visualSurfaces || []).length && !(manifest.contributes.appearancePacks || []).length && !(manifest.contributes.componentStylePacks || []).length && !(manifest.contributes.componentOverridePacks || []).length && !(manifest.contributes.nativeViews || []).length && !(manifest.contributes.resultPresentations || []).length && !(manifest.contributes.fonts || []).length && !(manifest.contributes.settings?.sections || []).length) {
     fail('plugin needs at least one Worker, page, visual surface or appearance pack entry (or a command contribution with a Worker)')
   }
   if (manifest.icon) manifest.icon = normalizePath(manifest.icon)
@@ -721,18 +811,101 @@ async function collectFiles(root, current = root, result = []) {
   return result
 }
 
+async function readOptionalText(directory, name) {
+  try {
+    return await fs.readFile(path.join(directory, name), 'utf8')
+  } catch {
+    return undefined
+  }
+}
+
+function parseManifestYaml(text) {
+  let value
+  try {
+    value = parseYaml(text, { uniqueKeys: true })
+  } catch (error) {
+    fail(`${MANIFEST_YAML_FILE} cannot be parsed: ${error.message || error}`)
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${MANIFEST_YAML_FILE} must be a mapping`)
+  if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) fail(`${MANIFEST_YAML_FILE} must be a plain mapping`)
+  const forbidden = YAML_FORBIDDEN_KEYS.find(key => Object.hasOwn(value, key))
+  if (forbidden) fail(`${MANIFEST_YAML_FILE} must not declare ${forbidden}; keep contributions in ${CONTRIBUTIONS_FILE}`)
+  return { ...value }
+}
+
+function parseContributionsJson(text) {
+  let value
+  try {
+    value = JSON.parse(text)
+  } catch (error) {
+    fail(`${CONTRIBUTIONS_FILE} cannot be parsed: ${error.message || error}`)
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${CONTRIBUTIONS_FILE} must be an object`)
+  if (Object.hasOwn(value, 'contributes')) fail(`${CONTRIBUTIONS_FILE} must be a flat contribution object without a contributes wrapper`)
+  const leaked = Object.keys(value).find(key => CONTRIBUTIONS_IDENTITY_KEYS.has(key))
+  if (leaked) fail(`${CONTRIBUTIONS_FILE} must not declare identity field ${leaked}`)
+  return value
+}
+
+function isPresentValue(value) {
+  if (value === undefined || value === null) return false
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === 'object') return Object.keys(value).length > 0
+  if (typeof value === 'string') return value.trim() !== ''
+  return true
+}
+
+function serializeManifestYaml(manifest, integrity) {
+  const ordered = {}
+  for (const key of YAML_MANIFEST_ORDER) if (isPresentValue(manifest[key])) ordered[key] = manifest[key]
+  if (Array.isArray(manifest.permissions) && manifest.permissions.length) ordered.permissions = [...manifest.permissions].sort()
+  for (const key of YAML_OPTIONAL_ORDER) if (isPresentValue(manifest[key])) ordered[key] = manifest[key]
+  ordered.integrity = integrity
+  return stringifyYaml(ordered, { indent: 2, lineWidth: 0 })
+}
+
+async function readManifestSource(directory) {
+  const yamlText = await readOptionalText(directory, MANIFEST_YAML_FILE)
+  const jsonText = await readOptionalText(directory, MANIFEST_JSON_FILE)
+  if (yamlText === undefined && jsonText === undefined) fail(`plugin is missing ${MANIFEST_YAML_FILE} or ${MANIFEST_JSON_FILE}`)
+  if (yamlText !== undefined && jsonText !== undefined) fail(`${MANIFEST_YAML_FILE} and ${MANIFEST_JSON_FILE} cannot coexist`)
+  if (yamlText !== undefined) {
+    const contributionsText = await readOptionalText(directory, CONTRIBUTIONS_FILE)
+    const yamlValue = parseManifestYaml(yamlText)
+    const contributions = contributionsText === undefined ? {} : parseContributionsJson(contributionsText)
+    const merged = {}
+    for (const [key, value] of Object.entries(contributions)) {
+      if (CONTRIBUTIONS_IDENTITY_KEYS.has(key)) continue
+      merged[key] = value
+    }
+    return { raw: { ...yamlValue, contributes: merged }, fromYml: true, contributionsText }
+  }
+  let raw
+  try {
+    raw = JSON.parse(jsonText)
+  } catch (error) {
+    fail(`${MANIFEST_JSON_FILE} cannot be parsed: ${error.message || error}`)
+  }
+  return { raw, fromYml: false, contributionsText: undefined }
+}
+
+function declarationFilesFor(fromYml) {
+  return fromYml ? [MANIFEST_YAML_FILE, CONTRIBUTIONS_FILE] : [MANIFEST_JSON_FILE]
+}
+
 async function validateDirectory(directory) {
-  const manifestPath = path.join(directory, 'manifest.json')
-  const raw = JSON.parse(await fs.readFile(manifestPath, 'utf8'))
-  const manifest = normalizeManifest(raw)
-  if (manifest.displayOnly) return { manifest, animationPacks: [], files: [] }
+  const source = await readManifestSource(directory)
+  const manifest = normalizeManifest(source.raw, { fromYml: source.fromYml })
+  if (manifest.displayOnly) return { manifest, animationPacks: [], files: [], source }
   const files = new Set(await collectFiles(directory))
   if (files.size > MAX_FILE_COUNT) fail(`plugin has more than ${MAX_FILE_COUNT} files`)
+  const declarationFiles = declarationFilesFor(source.fromYml)
+  const payloadFiles = [...files].filter(file => !declarationFiles.includes(file))
   if (manifest.api === '1.5') {
     const pageFiles = pages => pages.flatMap(page => [page.entry, ...pages.flatMap(() => page.children || []).map(child => child.entry)])
     const requiredFiles = [manifest.entry.script, ...pageFiles(manifest.pages)].filter(Boolean)
     for (const required of requiredFiles) if (!files.has(required)) fail(`manifest references missing file: ${required}`)
-    return { manifest, animationPacks: [], files: [...files].filter(file => file !== 'manifest.json') }
+    return { manifest, animationPacks: [], files: payloadFiles, source }
   }
   const requiredFiles = [
     manifest.entry?.script || manifest.entry,
@@ -763,7 +936,7 @@ async function validateDirectory(directory) {
     catch (error) { fail(`cannot parse animation pack ${declaration.id}: ${error.message || error}`) }
     animationPacks.push(normalizeAnimationPack(raw, declaration))
   }
-  return { manifest, animationPacks, files: [...files].filter(file => file !== 'manifest.json') }
+  return { manifest, animationPacks, files: payloadFiles, source }
 }
 
 async function encryptEnvelope(zipBytes, manifest, options = {}) {
@@ -807,7 +980,7 @@ async function encryptEnvelope(zipBytes, manifest, options = {}) {
 }
 
 async function packDirectory(directory, outFile, options = {}) {
-  const { manifest, files } = await validateDirectory(directory)
+  const { manifest, source } = await validateDirectory(directory)
   const workerEntries = new Set([
     manifest.entry?.script || manifest.entry,
     ...(manifest.api === '1.5' ? [] : [
@@ -818,15 +991,18 @@ async function packDirectory(directory, outFile, options = {}) {
   const bundledWorkers = new Map()
   for (const entry of workerEntries) bundledWorkers.set(entry, Buffer.from(await bundleWorker(path.resolve(directory, entry)), 'utf8'))
   const finalFiles = await collectFiles(directory)
+  const declarationFile = source.fromYml ? MANIFEST_YAML_FILE : MANIFEST_JSON_FILE
   const integrity = {}
   const archive = new JSZip()
   for (const file of finalFiles) {
     const bytes = bundledWorkers.get(file) || await fs.readFile(path.join(directory, file))
-    if (file !== 'manifest.json') integrity[file] = sha256(bytes)
+    if (file !== declarationFile) integrity[file] = sha256(bytes)
     archive.file(file, bytes)
   }
   const packageManifest = { ...manifest, integrity }
-  archive.file('manifest.json', JSON.stringify(packageManifest, null, 2))
+  archive.file(declarationFile, source.fromYml
+    ? serializeManifestYaml(manifest, integrity)
+    : JSON.stringify(packageManifest, null, 2))
   const zipBytes = await archive.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 9 } })
   const { output, envelope } = await encryptEnvelope(zipBytes, packageManifest, options)
   await fs.mkdir(path.dirname(outFile), { recursive: true })
@@ -834,10 +1010,20 @@ async function packDirectory(directory, outFile, options = {}) {
   return { manifest: packageManifest, output, envelope, packageHash: sha256(output), outFile }
 }
 
+async function templateDeclarationPath(directory) {
+  for (const name of [MANIFEST_YAML_FILE, MANIFEST_JSON_FILE]) {
+    try {
+      await fs.access(path.join(directory, name))
+      return name
+    } catch {}
+  }
+  fail(`template is missing ${MANIFEST_YAML_FILE} or ${MANIFEST_JSON_FILE}`)
+}
+
 async function createTemplate(directory, kind = 'basic') {
   if (kind === 'api15') {
     const target = path.join(packageRoot, 'templates', 'api15')
-    await fs.access(path.join(target, 'manifest.json'))
+    await templateDeclarationPath(target)
     await fs.mkdir(directory, { recursive: true })
     if ((await fs.readdir(directory)).length) fail(`target directory is not empty: ${directory}`)
     await fs.cp(target, directory, { recursive: true })
@@ -847,7 +1033,7 @@ async function createTemplate(directory, kind = 'basic') {
     ? 'sound-effects'
     : ['ui', 'ui-customization'].includes(kind) ? 'ui-customization' : 'basic'
   const templateDirectory = path.join(packageRoot, 'templates', templateName)
-  await fs.access(path.join(templateDirectory, 'manifest.json'))
+  await templateDeclarationPath(templateDirectory)
   await fs.mkdir(directory, { recursive: true })
   const existing = await fs.readdir(directory)
   if (existing.length) fail(`target directory is not empty: ${directory}`)
@@ -904,4 +1090,4 @@ if (await isMainModule()) {
   })
 }
 
-export { packDirectory, validateDirectory, createTemplate }
+export { packDirectory, validateDirectory, createTemplate, readManifestSource }

@@ -1,0 +1,26 @@
+# 插件身份声明（新格式）：贡献内容写在同目录 contributions.json。
+# 两者不能与 manifest.json 同时存在；打包后 cnrp 会向本文件注入 integrity，
+# 该清单覆盖除 manifest.yml 外的所有包内文件（含 contributions.json）。
+
+schemaVersion: 1
+id: cn.cyrene2008.sound-effects
+name: 来点音效
+version: 1.1.1
+author: Cyrene2008
+description: 为随机点名、翻牌点名和抽奖添加可选音效。
+
+engine:
+  min: 1.2.0
+  max: 1.2.0
+
+entry: src/worker.js
+readme: README.md
+
+permissions:
+  - storage:read
+  - storage:write
+  - events:draw
+  - events:lifecycle
+  - audio:select
+  - audio:play
+  - notifications:show

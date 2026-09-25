@@ -230,6 +230,7 @@ class CoreClient {
     const caller = normalizeCoreCaller({ kind: 'core-ui', pluginId: 'core', operationId, countStatistics: false })
     const input = normalizeCoreCardInput({ listId, personIds })
     const hooked = this.hookCoordinator && await this.hookCoordinator.before('card-flip', { ...input, count: input.personIds.length, allowDuplicates: false, gender: 'all' })
+    const auditFilter = hooked ? { ...input, ...hooked.filter } : input
     const namesStore = useNamesStore()
     const recordsStore = useRecordsStore()
     const statisticsStore = useStatisticsStore()
@@ -244,15 +245,15 @@ class CoreClient {
         input: hooked ? { ...input, listId: hooked.filter.listId } : input
       })
       await recordsStore.restoreState(value.records, { persist: false })
-        const afterAudit = await this.runAfterHooks('card-flip', value.receipt, hooked?.audit, { originalFilter: input, finalFilter: { ...input, ...hooked.filter } })
-       return JSON.parse(JSON.stringify(hooked ? { ...value.receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: { ...input, ...hooked.filter } } : value.receipt))
+        const afterAudit = await this.runAfterHooks('card-flip', value.receipt, hooked?.audit, { originalFilter: input, finalFilter: auditFilter })
+       return JSON.parse(JSON.stringify(hooked ? { ...value.receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: auditFilter } : value.receipt))
     }
     return this.enqueueWebTransaction(async () => {
       const balance = await this.syncWebState(namesStore, recordsStore, statisticsStore)
       const receipt = await this.request({ type: 'card.commit', caller, input: hooked ? { ...input, listId: hooked.filter.listId } : input })
       this.lastStateSignature = this.webStateSignature(namesStore, recordsStore, statisticsStore, balance)
-       const afterAudit = await this.runAfterHooks('card-flip', receipt, hooked?.audit, { originalFilter: input, finalFilter: { ...input, ...hooked.filter } })
-      return JSON.parse(JSON.stringify(hooked ? { ...receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: { ...input, ...hooked.filter } } : receipt))
+       const afterAudit = await this.runAfterHooks('card-flip', receipt, hooked?.audit, { originalFilter: input, finalFilter: auditFilter })
+      return JSON.parse(JSON.stringify(hooked ? { ...receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: auditFilter } : receipt))
     })
   }
 

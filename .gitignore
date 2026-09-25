@@ -17,6 +17,8 @@ build-output
 *.dat
 *.bin
 *.yml
+# 插件身份清单是新格式的核心声明文件，必须纳入版本控制
+!**/manifest.yml
 *.pak
 .git-rewrite
 .codex/

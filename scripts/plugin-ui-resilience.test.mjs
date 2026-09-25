@@ -14,6 +14,18 @@ test('startup decides the splash before mounting plugin-owning layout', async ()
   assert.doesNotMatch(app, /const showSplash = ref\(false\)/)
 })
 
+test('plugin settings stay wheel-scrollable inside their own page frame', async () => {
+  const [panel, page] = await Promise.all([
+    read('src/components/plugins/PluginSettingsPanel.vue'),
+    read('src/views/PluginPageView.vue')
+  ])
+  // 设置卡片比视口高，overflow:hidden 会使它成为不可滚动的滚动容器：
+  // 指针永远停在卡片上，滚轮被吞掉，外层 .plugin-page-view 收不到滚动。
+  assert.doesNotMatch(panel, /\.settings-card\s*\{[^}]*overflow:\s*hidden/)
+  assert.match(panel, /\.settings-card\s*\{[^}]*overflow:\s*clip/)
+  assert.match(page, /\.plugin-page-view\s*\{[\s\S]*?overflow:\s*auto/)
+})
+
 test('settings controls collapse within narrow scaled layouts', async () => {
   const settings = await read('src/views/SettingsView.vue')
   assert.match(settings, /@media \(max-width: 720px\) \{[\s\S]*?\.setting-row \{[^}]*flex-direction: column;/)
