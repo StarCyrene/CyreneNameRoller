@@ -192,3 +192,24 @@ test('Core Client syncs prize state before web prize execution', async () => {
   assert.match(source, /prizes: usePrizesStore\(\)\.snapshotState\(\)/)
   assert.match(source, /const balance = await this\.syncWebState\(namesStore, recordsStore, statisticsStore\)/)
 })
+
+test('Web prewarms core worker so the first stop does not pay cold-start cost', async () => {
+  const fs = await import('node:fs/promises')
+  const client = await fs.readFile(new URL('../src/core/client.js', import.meta.url), 'utf8')
+  const main = await fs.readFile(new URL('../src/main.js', import.meta.url), 'utf8')
+  const layout = await fs.readFile(new URL('../src/components/layout/AppLayout.vue', import.meta.url), 'utf8')
+  assert.match(client, /prewarm\(\)/)
+  assert.match(client, /warmWebState\(\)/)
+  assert.match(main, /if \(!isTauri\(\)\) getCoreClient\(\)\.prewarm\(\)/)
+  assert.match(layout, /getCoreClient\(\)\.warmWebState\(\)/)
+})
+
+test('statistics and group pages rebind selected list after names load', async () => {
+  const fs = await import('node:fs/promises')
+  for (const file of ['src/views/StatisticsView.vue', 'src/views/GroupManageView.vue']) {
+    const source = await fs.readFile(new URL(`../${file}`, import.meta.url), 'utf8')
+    assert.match(source, /watch\(\s*\(\) => namesStore\.currentListId/)
+    assert.match(source, /await namesStore\.initialize\(\)/)
+    assert.match(source, /selectedListId\.value = namesStore\.currentListId/)
+  }
+})

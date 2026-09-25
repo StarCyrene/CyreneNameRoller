@@ -56,7 +56,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useNamesStore } from '../stores/names'
 import { useSettingsStore } from '../stores/settings'
 import { useStatisticsStore } from '../stores/statistics'
@@ -79,6 +79,14 @@ const balanceSettings = ref({ ...DEFAULT_CYRENE_BALANCE_SETTINGS })
 const summaryOverride = computed(() => pluginsStore.componentOverrideState('statistics.summary'))
 
 const selectedListId = ref(namesStore.currentListId)
+// 名单尚未加载时 currentListId 可能是占位值；加载完成后必须跟上真实列表
+watch(
+  () => namesStore.currentListId,
+  id => {
+    if (id && namesStore.nameLists[id]) selectedListId.value = id
+  },
+  { immediate: true }
+)
 
 const listOptions = computed(() =>
   namesStore.allLists.map(l => ({ value: l.id, label: l.name }))
@@ -112,6 +120,12 @@ const statsWithBalance = computed(() => {
 })
 
 onMounted(async () => {
+  // 刷新直达本页时，子页可能先于 AppLayout 完成初始化而渲染
+  await namesStore.initialize()
+  await statisticsStore.initialize()
+  if (namesStore.nameLists[namesStore.currentListId]) {
+    selectedListId.value = namesStore.currentListId
+  }
   const saved = await dataBridge.load('balance')
   balanceSettings.value = normalizeCyreneBalanceSettings(saved)
 })

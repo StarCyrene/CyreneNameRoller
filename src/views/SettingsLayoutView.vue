@@ -5,5 +5,6 @@
 </template>
 
 <style scoped>
-.settings-layout-view { position: relative; width: 100%; min-height: 100%; overflow: hidden; }
+/* 不要 overflow:hidden：否则设置内容无法撑高 .app-content，鼠标滚轮会滚不动 */
+.settings-layout-view { position: relative; width: 100%; min-height: 100%; }
 </style>
