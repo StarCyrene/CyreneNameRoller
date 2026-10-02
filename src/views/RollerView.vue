@@ -431,10 +431,18 @@ function swapOnce() {
 
 const rollScheduler = createRollScheduler()
 let rollTickerActive = false
+// 停止流程：点击停止后立刻并行发起权威抽取，ticker 继续滚动直到事务返回，
+// 避免「停表 → 等事务 → 弹结果」之间的画面冻结。
+let stopRequested = false
+let drawSettled = false
+let pendingReceipt = null
 
 function rollTickerTick(_time, deltaTimeMs) {
   if (!isRunning.value) return
-  if (rollScheduler.decelerationComplete()) { concludeRoll(); return }
+  if (stopRequested) {
+    const decelerationReady = !settings.value.decelerateFinish || rollScheduler.decelerationComplete()
+    if (decelerationReady && drawSettled) { concludeRoll(); return }
+  }
   if (rollScheduler.tick(Math.min(deltaTimeMs, 100))) swapOnce()
 }
 
@@ -459,22 +467,24 @@ function updateNamePositionsOnly() {
 }
 
 function stopRoll() {
-  if (rollScheduler.isDecelerating()) return
+  if (stopRequested) return
+  stopRequested = true
   clearTimeout(autoStopTimer)
   clearInterval(autoStopInterval)
   autoStopInterval = null
   autoStopRemaining.value = 0
-  if (settings.value.decelerateFinish) {
-    rollScheduler.beginDeceleration()
-    return
-  }
-  concludeRoll()
+  void requestFinishDraw()
+  if (settings.value.decelerateFinish) rollScheduler.beginDeceleration()
 }
 
 function concludeRoll() {
   stopRollTicker()
   isRunning.value = false
-  void finishRoll()
+  const receipt = pendingReceipt
+  pendingReceipt = null
+  stopRequested = false
+  drawSettled = false
+  if (receipt) revealRoll(receipt)
 }
 
 function startAutoStopCountdown() {
@@ -504,6 +514,9 @@ function toggleRoll() {
   }
   isRunning.value = true
   currentReceipt.value = null
+  stopRequested = false
+  drawSettled = false
+  pendingReceipt = null
   drawOperationId = crypto.randomUUID?.() || `roller-${Date.now()}`
   pluginsStore.dispatchEvent('roller:start', {
     operationId: drawOperationId,
@@ -542,6 +555,10 @@ async function applyUriNavigation(event) {
     pendingTimers.forEach(id => clearTimeout(id))
     pendingTimers.length = 0
     isRunning.value = false
+    stopRequested = false
+    drawSettled = false
+    pendingReceipt = null
+    isFinishing.value = false
   }
   const parameters = navigation.roller || {}
   if (typeof parameters.englishMode === 'boolean') settings.value.englishMode = parameters.englishMode
@@ -583,14 +600,15 @@ async function applyUriNavigation(event) {
   }
 }
 
-async function finishRoll() {
+async function requestFinishDraw() {
   isFinishing.value = true
+  drawSettled = false
+  pendingReceipt = null
   const count = settings.value.multiMode ? (settings.value.peopleCount || 2) : 1
   const forbidDup = settings.value.multiMode && settings.value.forbidDuplicates
   const shouldRecordCounts = settings.value.recordCounts || balanceSettings.value.enabled
-  let receipt
   try {
-    receipt = await pluginsStore.executeRollerDraw({
+    pendingReceipt = await pluginsStore.executeRollerDraw({
       listId: namesStore.currentList.id,
       target: settings.value.groupMode ? 'groups' : 'people',
       count,
@@ -599,12 +617,20 @@ async function finishRoll() {
       operationId: drawOperationId,
       countStatistics: shouldRecordCounts
     })
+    drawSettled = true
   } catch (error) {
     currentReceipt.value = null
     showBanner({ message: error?.message || (lang.value === 'en' ? 'Draw could not be committed' : '抽签结果保存失败'), icon: 'warning-16-regular', type: 'warning', duration: 8000 })
+    pendingReceipt = null
+    drawSettled = true
+    stopRollTicker()
+    isRunning.value = false
+    stopRequested = false
     isFinishing.value = false
-    return
   }
+}
+
+function revealRoll(receipt) {
   currentReceipt.value = receipt
   lastPickedNames.value = receipt.results.map(result => result.id)
   const finalPicks = receipt.results
