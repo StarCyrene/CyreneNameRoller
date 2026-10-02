@@ -1,0 +1,322 @@
+{
+  "settings": {
+    "title": "UI Customization",
+    "description": "Host-native API 1.4 contribution selectors.",
+    "storageKey": "settings",
+    "sections": [
+      {
+        "id": "appearance",
+        "title": "Appearance",
+        "fields": [
+          {
+            "id": "result-style",
+            "type": "component-style-select",
+            "target": "roller.result",
+            "label": "Roller result style"
+          },
+          {
+            "id": "filter-layout",
+            "type": "component-override-select",
+            "target": "roller.filters",
+            "label": "Roller filter layout"
+          },
+          {
+            "id": "hide-statistics",
+            "type": "component-override-toggle",
+            "target": "statistics.summary",
+            "packId": "minimal-statistics",
+            "label": "Hide statistics summary"
+          },
+          {
+            "id": "result-layout",
+            "type": "result-presentation-select",
+            "target": "roller.result",
+            "label": "Roller result layout"
+          }
+        ]
+      }
+    ]
+  },
+  "commands": [
+    {
+      "id": "draw-now",
+      "title": "Draw now",
+      "locations": [
+        "command-palette"
+      ]
+    },
+    {
+      "id": "show-statistics",
+      "title": "Show statistics",
+      "locations": [
+        "command-palette"
+      ]
+    },
+    {
+      "id": "describe-host",
+      "title": "Describe host",
+      "locations": [
+        "command-palette"
+      ]
+    },
+    {
+      "id": "desktop-check",
+      "title": "Desktop check",
+      "locations": [
+        "command-palette"
+      ]
+    }
+  ],
+  "componentStylePacks": [
+    {
+      "id": "focused",
+      "title": "Focused",
+      "targets": {
+        "roller.primary-action": {
+          "size": "large",
+          "foreground": "#ffffff",
+          "background": "#005a9e",
+          "fontFamily": "host:ui",
+          "fontSize": 18,
+          "fontWeight": 700,
+          "radius": 8
+        },
+        "roller.result": {
+          "size": "large",
+          "foreground": "#172033",
+          "background": "#ffffff",
+          "fontFamily": "host:display",
+          "fontSize": 72,
+          "fontWeight": 700,
+          "alignment": "center",
+          "padding": "comfortable",
+          "gap": "comfortable"
+        },
+        "lottery.result": {
+          "size": "large",
+          "foreground": "#172033",
+          "background": "#ffffff",
+          "fontFamily": "host:display",
+          "fontSize": 48,
+          "fontWeight": 700,
+          "alignment": "center"
+        }
+      }
+    },
+    {
+      "id": "compact-navigation",
+      "title": "Compact navigation",
+      "targets": {
+        "navigation.dock": {
+          "size": "small",
+          "foreground": "#ffffff",
+          "background": "#243447",
+          "fontFamily": "host:ui",
+          "fontSize": 14,
+          "fontWeight": 600,
+          "density": "compact"
+        },
+        "roller.current-list": {
+          "size": "medium",
+          "foreground": "#172033",
+          "background": "#ffffff",
+          "fontFamily": "host:ui",
+          "fontSize": 14,
+          "fontWeight": 600,
+          "padding": "compact",
+          "gap": "compact"
+        },
+        "roller.filters": {
+          "size": "small",
+          "foreground": "#172033",
+          "background": "#f3f6f9",
+          "fontFamily": "host:ui",
+          "fontSize": 13,
+          "fontWeight": 500,
+          "padding": "compact",
+          "gap": "compact"
+        },
+        "app.version-badge": {
+          "foreground": "#ffffff",
+          "background": "#536878",
+          "fontFamily": "host:numeric",
+          "fontSize": 11,
+          "fontWeight": 600,
+          "padding": "compact"
+        }
+      }
+    },
+    {
+      "id": "cards-and-statistics",
+      "title": "Cards and statistics",
+      "targets": {
+        "card.controls": {
+          "size": "small",
+          "foreground": "#172033",
+          "background": "#f3f6f9",
+          "fontFamily": "host:ui",
+          "fontSize": 14,
+          "fontWeight": 600,
+          "padding": "compact",
+          "gap": "compact"
+        },
+        "card.deck": {
+          "size": "medium",
+          "foreground": "#172033",
+          "background": "#ffffff",
+          "padding": "comfortable",
+          "gap": "normal"
+        },
+        "card.item": {
+          "size": "medium",
+          "foreground": "#172033",
+          "background": "#ffffff",
+          "fontFamily": "host:display",
+          "fontSize": 20,
+          "fontWeight": 700,
+          "radius": 10,
+          "shadow": "medium"
+        },
+        "statistics.summary": {
+          "size": "small",
+          "foreground": "#172033",
+          "background": "#eef5f7",
+          "fontFamily": "host:numeric",
+          "fontSize": 14,
+          "fontWeight": 600,
+          "padding": "normal",
+          "gap": "compact"
+        }
+      }
+    }
+  ],
+  "componentOverridePacks": [
+    {
+      "id": "focus-mode",
+      "title": "Focus mode",
+      "targets": {
+        "app.version-badge": {
+          "visibility": "hidden",
+          "layout": "collapse"
+        },
+        "roller.filters": {
+          "visibility": "hidden",
+          "layout": "collapse"
+        }
+      }
+    },
+    {
+      "id": "compact-filters",
+      "title": "Compact filters",
+      "targets": {
+        "roller.filters": {
+          "visibility": "visible",
+          "layout": "compact"
+        }
+      }
+    },
+    {
+      "id": "minimal-statistics",
+      "title": "Minimal statistics",
+      "targets": {
+        "statistics.summary": {
+          "visibility": "hidden",
+          "layout": "reserve"
+        }
+      }
+    }
+  ],
+  "nativeViews": [
+    {
+      "id": "roller-stats",
+      "title": "Roller statistics",
+      "slot": "slot:roller.side-panel",
+      "source": "views/roller-stats.json",
+      "uses": [
+        "statistics:read",
+        "draw:execute"
+      ],
+      "order": 200
+    },
+    {
+      "id": "below-result",
+      "title": "Result context",
+      "slot": "slot:roller.below-result",
+      "source": "views/below-result.json",
+      "uses": [],
+      "order": 210
+    },
+    {
+      "id": "records-toolbar",
+      "title": "Records toolbar",
+      "slot": "slot:records.toolbar",
+      "source": "views/records-toolbar.json",
+      "uses": [
+        "statistics:read"
+      ],
+      "order": 100
+    }
+  ],
+  "resultPresentations": [
+    {
+      "id": "single-compact",
+      "title": "Single compact",
+      "targets": [
+        "roller.result"
+      ],
+      "layout": "single",
+      "style": {
+        "size": "small",
+        "alignment": "start",
+        "showAlgorithm": false,
+        "showOperationId": false,
+        "showEnglishName": true
+      }
+    },
+    {
+      "id": "list-readable",
+      "title": "Readable list",
+      "targets": [
+        "roller.result"
+      ],
+      "layout": "list",
+      "style": {
+        "size": "medium",
+        "alignment": "start",
+        "showAlgorithm": true,
+        "showOperationId": false,
+        "showEnglishName": true
+      }
+    },
+    {
+      "id": "grid-summary",
+      "title": "Grid summary",
+      "targets": [
+        "roller.result"
+      ],
+      "layout": "grid",
+      "style": {
+        "size": "medium",
+        "alignment": "center",
+        "showAlgorithm": false,
+        "showOperationId": true,
+        "showEnglishName": false
+      }
+    },
+    {
+      "id": "spotlight",
+      "title": "Spotlight",
+      "targets": [
+        "roller.result"
+      ],
+      "layout": "spotlight",
+      "style": {
+        "size": "large",
+        "alignment": "center",
+        "showAlgorithm": true,
+        "showOperationId": true,
+        "showEnglishName": true
+      }
+    }
+  ]
+}

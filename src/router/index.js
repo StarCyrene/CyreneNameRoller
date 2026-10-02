@@ -31,6 +31,7 @@ const routes = [
       { path: 'balance', redirect: '/settings/features' },
       { path: 'management', redirect: '/settings/data' },
       { path: 'changelog', redirect: '/settings/data' },
+      { path: 'plugin/:pluginId/settings', name: 'SettingsPluginSettings', component: () => import('../views/PluginPageView.vue'), props: true, meta: { order: 780 } },
       { path: 'plugin/:pluginId/:pageId', name: 'SettingsPluginPage', component: () => import('../views/PluginPageView.vue'), props: true, meta: { order: 781 } }
     ]
   },
@@ -41,6 +42,7 @@ const routes = [
   { path: '/announcement', name: 'Announcement', component: () => import('../views/AnnouncementView.vue'), meta: { order: 700 } },
   { path: '/floating', name: 'Floating', component: () => import('../views/FloatingLauncherView.vue'), meta: { order: 50 } },
   { path: '/plugins', name: 'Plugins', component: () => import('../views/PluginManagerView.vue'), meta: { order: 780 } },
+  { path: '/plugin/:pluginId/settings', name: 'PluginSettings', component: () => import('../views/PluginPageView.vue'), props: true, meta: { order: 780 } },
   { path: '/plugin/:pluginId/:pageId', name: 'PluginPage', component: () => import('../views/PluginPageView.vue'), props: true, meta: { order: 781 } }
 ]
 

@@ -14,7 +14,9 @@ npx cnrp validate ./my-plugin
 npx cnrp pack ./my-plugin --out ./dist/my-plugin.cnrp
 ```
 
-`.cnrp` means Cyrene NameRoller Plugin File. The application installs it from the independent Plugin Dock page or by drag and drop. A page normally appears under the Plugin section; plugins may explicitly contribute a top-level Dock page with `location: "dock"`. Plugin pages are never injected into Settings.
+`npx cnrp create` scaffolds the split declaration: `manifest.yml` for identity, entry and permissions, plus `contributions.json` for pages, settings, commands and packs. Single-file `manifest.json` packages from earlier releases remain installable.
+
+`.cnrp` means Cyrene NameRoller Plugin File. The application installs it from the independent Plugin Dock page or by drag and drop. A page normally appears under the Plugin section; plugins may explicitly contribute a top-level Dock page with `location: "dock"`. Plugin pages are never injected into Settings. Host-rendered plugin settings are declared in the top-level `settings` key of `contributions.json` and open from the plugin card.
 
 See [Development Guide](./plugin-development.md) for the manifest, permissions, events, UI sandbox, dependencies, signatures and publication format.
 

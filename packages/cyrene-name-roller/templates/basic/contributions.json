@@ -1,0 +1,8 @@
+{
+  "pages": [
+    { "id": "main", "title": "Plugin", "location": "plugins", "entry": "pages/main.html" }
+  ],
+  "commands": [
+    { "id": "refresh", "title": "刷新插件", "titleEn": "Refresh plugin", "locations": ["command-palette", "page-header"], "icon": "arrow-clockwise-24-regular" }
+  ]
+}

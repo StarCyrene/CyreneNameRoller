@@ -1,0 +1,27 @@
+{
+  "settings": {
+    "title": "音效",
+    "description": "为随机点名、翻牌点名和抽奖分别配置本地音频。",
+    "storageKey": "settings",
+    "sections": [
+      {
+        "id": "playback",
+        "title": "播放",
+        "fields": [
+          { "id": "enabled", "type": "toggle", "path": "enabled", "label": "启用音效", "description": "关闭后保留所有音频配置，但不再播放。", "default": true },
+          { "id": "volume", "type": "slider", "path": "volume", "label": "音量", "description": "统一调整所有插件音效的播放音量。", "min": 0, "max": 1, "step": 0.01, "default": 0.7 },
+          { "id": "playback-mode", "type": "select", "path": "playbackMode", "label": "播放逻辑", "description": "多人抽取时可以只播放一次，避免连续播放。", "default": "once", "options": [{ "value": "once", "label": "每次操作播放一次" }, { "value": "each", "label": "每个结果都播放" }] }
+        ]
+      },
+      {
+        "id": "sounds",
+        "title": "音频文件",
+        "fields": [
+          { "id": "roller-audio", "type": "audio", "path": "roller", "label": "随机点名", "description": "随机点名完成时播放。", "accept": "audio/*,.mp3,.m4a,.wav,.flac,.ogg", "default": null },
+          { "id": "card-audio", "type": "audio", "path": "card", "label": "翻牌点名", "description": "翻牌点名完成时播放。", "accept": "audio/*,.mp3,.m4a,.wav,.flac,.ogg", "default": null },
+          { "id": "lottery-audio", "type": "audio", "path": "lottery", "label": "抽奖", "description": "抽奖或奖品分配完成时播放。", "accept": "audio/*,.mp3,.m4a,.wav,.flac,.ogg", "default": null }
+        ]
+      }
+    ]
+  }
+}

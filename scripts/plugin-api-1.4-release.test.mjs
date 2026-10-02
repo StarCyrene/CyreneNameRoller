@@ -12,7 +12,8 @@ const read = relative => fs.readFile(path.join(root, relative), 'utf8')
 
 test('plugin API 1.4 release metadata is synchronized', async () => {
   const packageJson = JSON.parse(await read('packages/cyrene-name-roller/package.json'))
-  assert.equal(packageJson.version, '1.4.0')
+  // 包版本与插件 API 契约版本各自演进：1.4.1 是 API 1.4 线上的工具链补丁版
+  assert.equal(packageJson.version, '1.4.1')
   assert.equal(packageJson.bin.cnrp, 'bin/cnrp.mjs')
   assert.match(await read('src/plugins/constants.js'), /PLUGIN_API_VERSION = '1\.4\.0'/)
   assert.match(await read('packages/cyrene-name-roller/src/plugin-sdk.mjs'), /PLUGIN_API_VERSION = '1\.4\.0'/)
@@ -25,9 +26,12 @@ test('API 1.4 UI template validates, packs and parses through host parser', asyn
   const template = path.join(root, 'packages/cyrene-name-roller/templates/ui-customization')
   const validation = await validateDirectory(template)
   assert.equal(validation.manifest.engine.min, '1.4.0')
-  assert.deepEqual(validation.manifest.contributes.pages[0].native.controls.map(control => control.type), [
+  assert.deepEqual(validation.manifest.contributes.pages, [])
+  assert.deepEqual(validation.manifest.contributes.settings.sections[0].fields.map(field => field.type), [
     'component-style-select', 'component-override-select', 'component-override-toggle', 'result-presentation-select'
   ])
+  assert.equal(validation.manifest.contributes.settings.storageKey, 'settings')
+  assert.deepEqual(validation.manifest.contributes.settings.sections[0].fields.map(field => field.path), ['', '', '', ''])
   assert.equal(validation.manifest.systemOperations[0].id, 'desktop-check')
   assert.deepEqual(validation.manifest.systemOperations[0].command, { program: 'cmd', args: ['/d', '/c', 'ver'] })
   assert.deepEqual(validation.manifest.contributes.nativeViews.map(view => view.slot), [

@@ -6,6 +6,7 @@
         <p class="page-subtitle">{{ lang === 'en' ? 'Extend CyreneNameRoller with optional, permissioned modules.' : '安装可选功能模块，插件始终通过权限化接口访问程序能力。' }}</p>
       </div>
       <div class="header-actions">
+        <FluentSegmented class="view-switch" :model-value="viewMode" :items="viewModeItems" :title="lang === 'en' ? 'Switch layout' : '切换视图'" @update:model-value="setViewMode" />
         <FluentSelect :model-value="plugins.source" :options="sourceOptions" width="170px" :disabled="plugins.safeModeStatus.enabled" @update:model-value="changeSource" />
         <FluentButton variant="secondary" size="sm" :disabled="plugins.safeModeStatus.enabled" @click="importLocal"><FluentIcon icon="arrow-upload-16-regular" :width="14" />{{ lang === 'en' ? 'Import .cnrp' : '导入 .cnrp' }}</FluentButton>
         <FluentButton variant="primary" size="sm" @click="refreshList" :disabled="loading || plugins.safeModeStatus.enabled"><FluentIcon icon="arrow-sync-16-regular" :width="14" />{{ lang === 'en' ? 'Refresh' : '刷新列表' }}</FluentButton>
@@ -18,70 +19,40 @@
 
     <section class="plugin-section">
       <div class="section-heading"><h2>{{ lang === 'en' ? 'Installed' : '已安装' }}</h2><span>{{ installedPlugins.length }}</span></div>
-      <div v-if="installedPlugins.length" class="plugin-grid">
+      <div v-if="installedPlugins.length" class="plugin-grid" :class="{ list: viewMode === 'list' }">
         <article v-for="plugin in installedPlugins" :key="plugin.manifest.id" class="plugin-card installed-card">
           <div class="plugin-card-header">
             <div class="plugin-icon"><img v-if="pluginIcon(plugin)" :src="pluginIcon(plugin)" alt="" /><FluentIcon v-else icon="plug-connected-24-regular" :width="24" /></div>
             <div class="plugin-heading"><h3>{{ plugin.manifest.name }}</h3><small>{{ plugin.manifest.id }} · v{{ plugin.manifest.version }}</small></div>
-            <FluentToggle :model-value="plugin.enabled" :disabled="plugins.safeModeStatus.enabled || plugin.manifest.displayOnly" @update:model-value="togglePlugin(plugin, $event)" />
+            <FluentToggle v-if="viewMode === 'grid'" :model-value="plugin.enabled" :disabled="plugins.safeModeStatus.enabled || plugin.manifest.displayOnly" @update:model-value="togglePlugin(plugin, $event)" />
           </div>
-          <p class="plugin-description">{{ plugin.manifest.description || (lang === 'en' ? 'No description.' : '暂无说明。') }}</p>
-          <div v-if="!pluginCompatibility(plugin).compatible" class="compatibility-warning"><FluentIcon icon="warning-16-regular" :width="14" /><span>{{ pluginCompatibility(plugin).reason }}</span></div>
-          <div v-if="plugin.manifest.displayOnly" class="compatibility-warning"><FluentIcon icon="info-16-regular" :width="14" /><span>{{ lang === 'en' ? 'Legacy metadata only. Migrate to API 1.5 before enabling.' : '旧版插件仅保留元数据供查看，迁移到 API 1.5 后才能启用。' }}</span></div>
-          <div v-else-if="pluginCompatibility(plugin).degraded" class="compatibility-warning limited"><FluentIcon icon="info-16-regular" :width="14" /><span>{{ pluginCompatibility(plugin).reason }}</span></div>
-          <div class="plugin-meta"><span>{{ lang === 'en' ? 'By' : '开发者' }} {{ plugin.manifest.author }}</span><span>{{ pluginProvenance(plugin) }}</span></div>
-          <div v-if="pagesFor(plugin).length" class="plugin-pages"><span>{{ lang === 'en' ? 'Extension pages' : '扩展页面' }}</span><div class="plugin-page-links"><FluentButton v-for="page in pagesFor(plugin)" :key="`${plugin.manifest.id}:${page.id}`" variant="primary" size="sm" @click="openPluginPage(page)"><FluentIcon icon="settings-16-regular" :width="14" />{{ lang === 'en' ? 'Plugin settings' : '插件设置' }}</FluentButton></div></div>
-          <div class="plugin-actions"><FluentButton variant="subtle" size="sm" @click="openDetails(plugin)">{{ lang === 'en' ? 'Details' : '详情' }}</FluentButton><FluentButton variant="danger" size="sm" @click="removePlugin(plugin)">{{ lang === 'en' ? 'Uninstall' : '卸载' }}</FluentButton></div>
+          <div class="plugin-card-body">
+            <p class="plugin-description">{{ plugin.manifest.description || (lang === 'en' ? 'No description.' : '暂无说明。') }}</p>
+            <div v-if="!pluginCompatibility(plugin).compatible" class="compatibility-warning"><FluentIcon icon="warning-16-regular" :width="14" /><span>{{ pluginCompatibility(plugin).reason }}</span></div>
+            <div v-if="plugin.manifest.displayOnly" class="compatibility-warning"><FluentIcon icon="info-16-regular" :width="14" /><span>{{ lang === 'en' ? 'Legacy metadata only. Migrate to API 1.5 before enabling.' : '旧版插件仅保留元数据供查看，迁移到 API 1.5 后才能启用。' }}</span></div>
+            <div v-else-if="pluginCompatibility(plugin).degraded" class="compatibility-warning limited"><FluentIcon icon="info-16-regular" :width="14" /><span>{{ pluginCompatibility(plugin).reason }}</span></div>
+            <div class="plugin-meta"><span>{{ lang === 'en' ? 'By' : '开发者' }} {{ plugin.manifest.author }}</span><span>{{ pluginProvenance(plugin) }}</span></div>
+            <div v-if="settingsFor(plugin) || pagesFor(plugin).length" class="plugin-pages"><span>{{ lang === 'en' ? 'Extension pages' : '扩展页面' }}</span><div class="plugin-page-links"><FluentButton v-if="settingsFor(plugin)" variant="primary" size="sm" @click="openPluginSettings(plugin)"><FluentIcon icon="settings-16-regular" :width="14" />{{ settingsEntryLabel }}</FluentButton><FluentButton v-for="page in pagesFor(plugin)" :key="`${plugin.manifest.id}:${page.id}`" variant="primary" size="sm" @click="openPluginPage(page)"><FluentIcon :icon="pageIcon(page)" :width="14" />{{ pageLabel(page) }}</FluentButton></div></div>
+          </div>
+          <div class="plugin-actions">
+            <FluentToggle v-if="viewMode === 'list'" class="list-enable-toggle" :label="lang === 'en' ? 'Enabled' : '启用'" :model-value="plugin.enabled" :disabled="plugins.safeModeStatus.enabled || plugin.manifest.displayOnly" @update:model-value="togglePlugin(plugin, $event)" />
+            <FluentButton variant="subtle" size="sm" @click="openDetails(plugin)">{{ lang === 'en' ? 'Details' : '详情' }}</FluentButton><FluentButton variant="danger" size="sm" @click="removePlugin(plugin)">{{ lang === 'en' ? 'Uninstall' : '卸载' }}</FluentButton>
+          </div>
         </article>
       </div>
       <div v-else class="empty-state"><FluentIcon icon="plug-disconnected-24-regular" :width="28" /><span>{{ lang === 'en' ? 'No plugins installed.' : '尚未安装插件。' }}</span></div>
     </section>
 
-    <section v-if="styleTargets.length" class="plugin-section component-style-section">
-      <div class="section-heading"><h2>{{ lang === 'en' ? 'Component styles' : '组件样式' }}</h2><span>{{ styleTargets.length }}</span></div>
-      <div class="style-pack-list">
-        <article v-for="target in styleTargets" :key="target" class="style-pack-row">
-          <div class="style-pack-copy"><strong>{{ target }}</strong><small>{{ lang === 'en' ? 'Global fallback selector' : '全局兜底选择器' }}</small></div>
-          <div class="style-pack-controls">
-            <FluentSelect :model-value="plugins.componentStyleSelections[target] || ''" :options="[{ value: '', label: lang === 'en' ? `Default: ${target}` : `默认：${target}` }, ...plugins.componentStyleOptions(target, lang)]" width="280px" @update:model-value="value => chooseStyle(target, value)" />
-            <div v-if="target === 'roller.result'" class="style-pack-preview" :style="plugins.componentStyleStyle(target)">Aa</div>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section v-if="overrideTargets.length" class="plugin-section">
-      <div class="section-heading"><h2>{{ lang === 'en' ? 'Component overrides' : '组件覆盖' }}</h2><FluentButton variant="subtle" size="sm" @click="resetOverrides">{{ lang === 'en' ? 'Restore defaults' : '恢复默认界面' }}</FluentButton></div>
-      <div class="style-pack-list">
-        <article v-for="target in overrideTargets" :key="target" class="style-pack-row">
-          <div class="style-pack-copy"><strong>{{ target }}</strong><small>{{ lang === 'en' ? 'Global fallback selector' : '全局兜底选择器' }}</small></div>
-          <div class="style-pack-controls">
-            <FluentSelect :model-value="plugins.componentOverrideSelections[target] || ''" :options="[{ value: '', label: lang === 'en' ? `Default: ${target}` : `默认：${target}` }, ...plugins.componentOverrideOptions(target, lang)]" width="280px" @update:model-value="value => chooseOverride(target, value)" />
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section v-if="resultPresentations.length && !nativeSelectorTargets.has('result-presentation-select:roller.result')" class="plugin-section">
-      <div class="section-heading"><h2>{{ lang === 'en' ? 'Verified result presentation' : '权威结果呈现' }}</h2><span>{{ resultPresentations.length }}</span></div>
-      <div class="style-pack-controls">
-        <FluentSelect
-          :model-value="plugins.resultPresentationSelections['roller.result'] || ''"
-          :options="[{ value: '', label: lang === 'en' ? 'Default Roller result' : '默认点名结果' }, ...plugins.resultPresentationOptions('roller.result', lang)]"
-          width="280px"
-          @update:model-value="chooseResultPresentation"
-        />
-      </div>
-    </section>
-
     <section class="plugin-section">
       <div class="section-heading"><h2>{{ lang === 'en' ? 'Plugin catalog' : '插件列表' }}</h2><span v-if="listUpdated">{{ listUpdated }}</span></div>
-      <div v-if="plugins.list.length" class="plugin-grid">
+      <div v-if="plugins.list.length" class="plugin-grid" :class="{ list: viewMode === 'list' }">
         <article v-for="item in plugins.list" :key="item.id" class="plugin-card catalog-card">
           <div class="plugin-card-header"><div class="plugin-icon"><img v-if="item.icon" :src="item.icon" alt="" /><FluentIcon v-else icon="plug-connected-24-regular" :width="24" /></div><div class="plugin-heading"><h3>{{ item.name }}</h3><small>{{ item.id }} · {{ item.version ? `v${item.version}` : (lang === 'en' ? 'Release unavailable' : '版本获取失败') }}</small></div></div>
-          <p class="plugin-description">{{ item.description || (lang === 'en' ? 'No description.' : '暂无说明。') }}</p>
-          <div v-if="item.releaseError" class="compatibility-warning"><FluentIcon icon="warning-16-regular" :width="14" /><span>{{ item.releaseError }}</span></div>
-          <div class="plugin-meta"><span>{{ lang === 'en' ? 'By' : '开发者' }} {{ item.author || '—' }}</span><span v-if="installedVersion(item.id)">{{ catalogAction(item) }}</span></div>
+          <div class="plugin-card-body">
+            <p class="plugin-description">{{ item.description || (lang === 'en' ? 'No description.' : '暂无说明。') }}</p>
+            <div v-if="item.releaseError" class="compatibility-warning"><FluentIcon icon="warning-16-regular" :width="14" /><span>{{ item.releaseError }}</span></div>
+            <div class="plugin-meta"><span>{{ lang === 'en' ? 'By' : '开发者' }} {{ item.author || '—' }}</span><span v-if="installedVersion(item.id)">{{ catalogAction(item) }}</span></div>
+          </div>
           <div class="plugin-actions"><FluentButton variant="subtle" size="sm" @click="openCatalogDetails(item)">{{ lang === 'en' ? 'README / Dependencies' : 'README / 依赖' }}</FluentButton><FluentButton variant="primary" size="sm" :disabled="catalogInstallDisabled(item)" @click="installCatalogItem(item)"><FluentIcon icon="arrow-download-16-regular" :width="14" />{{ catalogButtonLabel(item) }}</FluentButton></div>
         </article>
       </div>
@@ -128,10 +99,24 @@ const router = useRouter()
 const plugins = usePluginsStore()
 const showBanner = inject('banner')
 const lang = computed(() => settingsStore.settings.language)
+const settingsEntryLabel = computed(() => (lang.value === 'en' ? 'Plugin settings' : '插件设置'))
 const sourceOptions = PLUGIN_DOWNLOAD_SOURCES
 const loading = ref(false)
 const downloading = ref('')
 const listUpdated = ref('')
+const VIEW_MODE_KEY = 'cyrene:plugins-view-mode'
+function readViewMode() {
+  try { return localStorage.getItem(VIEW_MODE_KEY) === 'list' ? 'list' : 'grid' } catch { return 'grid' }
+}
+const viewMode = ref(readViewMode())
+const viewModeItems = computed(() => [
+  { value: 'grid', icon: 'grid-16-regular' },
+  { value: 'list', icon: 'list-16-regular' }
+])
+function setViewMode(value) {
+  viewMode.value = value
+  try { localStorage.setItem(VIEW_MODE_KEY, value) } catch { /* storage unavailable */ }
+}
 const showDetails = ref(false)
 const detailsTitle = ref('')
 const detailsReadmeHtml = ref('')
@@ -146,20 +131,6 @@ const confirmPlugin = ref(null)
 let confirmResolver = null
 const installedPlugins = computed(() => Object.values(plugins.installed))
 const contributedPages = computed(() => plugins.contributedPages)
-const nativeSelectorTargets = computed(() => new Set(contributedPages.value.flatMap(page =>
-  (page.native?.controls || [])
-    .filter(control => ['component-style-select', 'component-override-select', 'component-override-toggle', 'result-presentation-select'].includes(control.type))
-    .map(control => `${control.type}:${control.target}`)
-)))
-const stylePacks = computed(() => plugins.contributedComponentStylePacks)
-const styleTargets = computed(() => [...new Set(stylePacks.value.flatMap(pack => Object.keys(pack.targets || {})))]
-  .filter(target => !nativeSelectorTargets.value.has(`component-style-select:${target}`))
-  .sort())
-const overridePacks = computed(() => plugins.contributedComponentOverridePacks)
-const overrideTargets = computed(() => [...new Set(overridePacks.value.flatMap(pack => Object.keys(pack.targets || {})))]
-  .filter(target => !nativeSelectorTargets.value.has(`component-override-select:${target}`))
-  .sort())
-const resultPresentations = computed(() => plugins.contributedResultPresentations)
 const permissionDescriptions = {
   'draw:execute': { zh: '通过宿主 CAF 公平事务追加抽取结果', en: 'Run host-controlled CAF draws and append records', risk: 'elevated' },
   'ui:animations': { zh: '为宿主提供受控动画方案', en: 'Provide controlled host animations', risk: 'normal' },
@@ -185,30 +156,6 @@ function permissionInfo(permission) {
 }
 
 function installedVersion(id) { return plugins.installed[id]?.manifest?.version || '' }
-async function chooseStyle(target, value) {
-  try {
-    await plugins.setComponentStyleSelection(target, value)
-  } catch (error) {
-    showBanner?.({ message: error.message || String(error), icon: 'warning-16-regular', type: 'warning', duration: 6000 })
-  }
-}
-async function chooseOverride(target, value) {
-  try {
-    await plugins.setComponentOverrideSelection(target, value)
-  } catch (error) {
-    showBanner?.({ message: error.message || String(error), icon: 'warning-16-regular', type: 'warning', duration: 6000 })
-  }
-}
-async function chooseResultPresentation(value) {
-  try {
-    await plugins.setResultPresentationSelection('roller.result', value)
-  } catch (error) {
-    showBanner?.({ message: error.message || String(error), icon: 'warning-16-regular', type: 'warning', duration: 6000 })
-  }
-}
-async function resetOverrides() {
-  await plugins.resetComponentOverrides()
-}
 function compareVersion(left, right) {
   const a = String(left || '0').split('.').map(value => Number(value) || 0)
   const b = String(right || '0').split('.').map(value => Number(value) || 0)
@@ -232,7 +179,12 @@ function catalogButtonLabel(item) {
   if (compareVersion(item.version, installed) > 0) return lang.value === 'en' ? 'Update' : '更新'
   return lang.value === 'en' ? 'Installed' : '已安装'
 }
-function pagesFor(plugin) { return contributedPages.value.filter(page => page.pluginId === plugin.manifest.id && page.location === 'plugins') }
+function pagesFor(plugin) { return contributedPages.value.filter(page => page.pluginId === plugin.manifest.id && ['plugins', 'dock'].includes(page.location)) }
+function settingsFor(plugin) { return plugins.settingsFor(plugin.manifest.id) }
+/** 设置声明入口固定叫「插件设置」；该页只承载宿主渲染的插件设置。 */
+function isSettingsPage(page) { return page.native?.type === 'settings' }
+function pageLabel(page) { if (isSettingsPage(page)) return settingsEntryLabel.value; return lang.value === 'en' && page.titleEn ? page.titleEn : page.title }
+function pageIcon(page) { return isSettingsPage(page) ? 'settings-16-regular' : 'open-16-regular' }
 function pluginIcon(plugin) { return plugins.pluginAssetUrl(plugin) || plugin.manifest.iconDataUrl || '' }
 function pluginCompatibility(plugin) { return plugins.compatibilityFor(plugin) }
 function pluginProvenance(plugin) {
@@ -289,6 +241,7 @@ async function importLocal() { const input = document.createElement('input'); in
 function openDetails(plugin) { detailsTitle.value = `${plugin.manifest.name} v${plugin.manifest.version}`; detailsReadmeHtml.value = markdownToHtml(plugin.readme); detailsDependencies.value = plugin.manifest.dependencies || []; detailsPermissions.value = plugin.manifest.permissions || []; detailsCapabilities.value = capabilityDetails(plugin.manifest); detailsOperations.value = plugin.manifest.systemOperations || []; showDetails.value = true }
 async function openCatalogDetails(item) { detailsTitle.value = item.name; detailsReadmeHtml.value = markdownToHtml(lang.value === 'en' ? 'Loading README…' : '正在获取 README…'); detailsDependencies.value = item.dependencies || []; detailsPermissions.value = item.permissions || []; detailsCapabilities.value = capabilityDetails(item); detailsOperations.value = item.systemOperations || []; showDetails.value = true; try { const details = await plugins.loadCatalogDetails(item); Object.assign(item, details); detailsTitle.value = `${details.name || item.name} v${details.version || item.version}`; detailsReadmeHtml.value = markdownToHtml(details.readme || details.readmeContent || (lang.value === 'en' ? 'README is not available.' : 'README 暂未提供。')); detailsDependencies.value = details.dependencies || []; detailsPermissions.value = details.permissions || []; detailsCapabilities.value = capabilityDetails(details); detailsOperations.value = details.systemOperations || [] } catch (error) { detailsReadmeHtml.value = markdownToHtml(error.message || String(error)) } }
 function openPluginPage(page) { router.push(`/plugin/${encodeURIComponent(page.pluginId)}/${encodeURIComponent(page.id)}`) }
+function openPluginSettings(plugin) { router.push(`/plugin/${encodeURIComponent(plugin.manifest.id)}/settings`) }
 onMounted(async () => { await plugins.initialize(); plugins.setBannerHandler(showBanner); await refreshList() })
 </script>
 
@@ -298,6 +251,7 @@ onMounted(async () => { await plugins.initialize(); plugins.setBannerHandler(sho
 .page-title { margin: 0; display: flex; align-items: center; gap: 10px; color: var(--text-primary); font-size: 26px; }
 .page-subtitle { margin: 8px 0 0; color: var(--text-muted); font-size: 13px; }
 .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.view-switch :deep(.segmented-item) { flex: 1; gap: 6px; padding: 5px 10px; font-size: 12px; }
 .recovery-banner, .error-banner { display: flex; align-items: center; gap: 9px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border-default)); background: var(--accent-50); color: var(--text-primary); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 12px; font-size: 13px; }
 .error-banner { border-color: color-mix(in srgb, var(--danger) 45%, var(--border-default)); color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--bg-card)); }
 .plugin-section { margin-top: 24px; }
@@ -305,7 +259,17 @@ onMounted(async () => { await plugins.initialize(); plugins.setBannerHandler(sho
 .section-heading h2 { margin: 0; font-size: 17px; color: var(--text-primary); }
 .section-heading span { color: var(--text-muted); font-size: 12px; }
 .plugin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.plugin-grid.list { grid-template-columns: 1fr; gap: 10px; }
 .plugin-card { display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: var(--bg-card); box-shadow: var(--shadow-2); }
+.plugin-card-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.plugin-grid.list .plugin-card { display: grid; grid-template-columns: minmax(190px, 250px) minmax(0, 1fr) auto; align-items: center; gap: 10px 16px; padding: 13px 16px; }
+.plugin-grid.list .plugin-card-header { grid-column: 1; min-width: 0; }
+.plugin-grid.list .plugin-card-body { grid-column: 2; gap: 8px; }
+.plugin-grid.list .plugin-actions { grid-column: 3; grid-row: 1; margin-top: 0; }
+.plugin-grid.list .plugin-description { min-height: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.plugin-grid.list .plugin-meta { justify-content: flex-start; gap: 16px; }
+.plugin-grid.list .plugin-pages { margin: 0; padding-top: 8px; border-top-color: var(--border-subtle); }
+.plugin-grid.list .list-enable-toggle { margin-right: 4px; }
 .plugin-card-header { display: flex; align-items: center; gap: 10px; }
 .plugin-icon { width: 42px; height: 42px; flex: 0 0 42px; border-radius: 10px; display: grid; place-items: center; color: var(--accent); background: var(--accent-50); overflow: hidden; }
 .plugin-icon img { width: 100%; height: 100%; object-fit: cover; }
@@ -319,13 +283,6 @@ onMounted(async () => { await plugins.initialize(); plugins.setBannerHandler(sho
 .plugin-pages { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 -4px; padding: 10px 4px 0; border-top: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border-subtle)); color: var(--text-secondary); font-size: 12px; font-weight: 600; }
 .plugin-page-links { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .plugin-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; }
-.style-pack-list { display: grid; gap: 10px; }
-.style-pack-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--bg-card); }
-.style-pack-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.style-pack-copy strong { color: var(--text-primary); font-size: 13px; }
-.style-pack-copy small, .style-pack-copy span { color: var(--text-muted); font-size: 11px; }
-.style-pack-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.style-pack-preview { width: 42px; height: 32px; display: grid; place-items: center; border: 1px solid var(--border-default); border-radius: var(--radius-sm); color: var(--plugin-component-roller-result-foreground, var(--text-primary)); background: var(--plugin-component-roller-result-background, var(--bg-hover)); font-family: var(--plugin-component-roller-result-font-family, var(--font-display)); }
 .empty-state { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 120px; color: var(--text-muted); border: 1px dashed var(--border-default); border-radius: var(--radius-md); }
 .details-body { max-height: 62vh; overflow-y: auto; color: var(--text-secondary); line-height: 1.65; font-size: 13px; }
 .readme :deep(h1), .readme :deep(h2), .readme :deep(h3) { color: var(--text-primary); margin: 10px 0 6px; }
@@ -359,5 +316,12 @@ onMounted(async () => { await plugins.initialize(); plugins.setBannerHandler(sho
 .confirm-list li .risk-high { color: var(--danger); background: color-mix(in srgb, var(--danger) 11%, transparent); }
 .confirm-warning { padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border-default)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--danger) 7%, var(--bg-card)); }
 .confirm-warning.limited { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 35%, var(--border-default)); background: color-mix(in srgb, var(--warning) 7%, var(--bg-card)); }
-@media (max-width: 760px) { .page-header { flex-direction: column; } .header-actions { justify-content: flex-start; } .plugins-view { padding: 20px 14px; } .style-pack-row { align-items: flex-start; flex-direction: column; } .style-pack-controls { justify-content: flex-start; } }
+@media (max-width: 760px) {
+  .page-header { flex-direction: column; }
+  .header-actions { justify-content: flex-start; }
+  .plugins-view { padding: 20px 14px; }
+  .plugin-grid.list .plugin-card { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .plugin-grid.list .plugin-card-header, .plugin-grid.list .plugin-card-body, .plugin-grid.list .plugin-actions { grid-column: 1; grid-row: auto; }
+  .plugin-grid.list .plugin-actions { justify-content: flex-start; }
+}
 </style>
