@@ -1,6 +1,6 @@
 [package]
 name = "cyrene-name-roller"
-version = "26.2.3"
+version = "26.2.4"
 description = "Cyrene's Name Roller - Random name picker"
 authors = ["Cyrene2008"]
 edition = "2021"
