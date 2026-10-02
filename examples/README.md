@@ -11,4 +11,3 @@
   - 读写 settings 需要 `storage:read` / `storage:write`
 - 字段规范：`docs/compose/spec/plugin-manifest-split.md`
 - 单文件简化示例：`contributions.example.json`
-- 交互预览：`../contributions-preview.html`
