@@ -8,14 +8,18 @@
         "【插件】清理已撤销的 API 1.5 残留代码（页面桥接、进程 stub、模板、SDK 类型）；旧 1.5 插件仍会被识别并提示「已撤销，仅可查看」",
         "【桌面】Windows 悬浮窗支持触摸拖拽",
         "【Web】插件目录的 Release 解析支持 CORS 镜像回退；预热 Core Worker，加载完成后重新绑定名单选择",
-        "【界面】修复设置页滚动位置恢复与悬停时的页面抖动"
+        "【界面】修复设置页滚动位置恢复与悬停时的页面抖动",
+        "【性能】新增进程保活防冻结机制（Windows）：禁用 WebView2 遮挡/后台化冻结与后台定时器节流，并关闭系统电源节流，长时间闲置后仍保持即时响应",
+        "【点名】修复点击停止瞬间的短暂卡顿：停止时立即并行发起抽取事务，滚动持续到事务返回后再揭晓结果"
       ],
       "en": [
         "[Plugins] Plugin manifests are split into manifest.yml (identity/permissions) + contributions.json (contributions); plugin settings controls moved to the page view and are rendered by host Fluent components",
         "[Plugins] Removed revoked API 1.5 leftovers (page bridges, process stubs, template, SDK types); legacy 1.5 packages are still recognized and shown as revoked/read-only",
         "[Desktop] The Windows floating window now supports touch dragging",
         "[Web] Plugin catalog release resolution falls back through CORS mirrors; the Core Worker is prewarmed and list selection is rebound after load",
-        "[UI] Fixed settings scroll restoration and hover-induced page jitter"
+        "[UI] Fixed settings scroll restoration and hover-induced page jitter",
+        "[Performance] Added a Windows process keep-alive: WebView2 occlusion/background freezing and background timer throttling are disabled, and system power throttling is turned off, so the app stays responsive after long idle periods",
+        "[Roller] Fixed the brief stutter at the instant Stop is pressed: the draw transaction now starts in parallel immediately while the roll keeps spinning until the result returns, then reveals it"
       ]
     }
   },
