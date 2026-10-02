@@ -50,6 +50,9 @@ const MIN_FLOATING_WINDOW_SIZE: i32 = 40;
 const MAX_FLOATING_WINDOW_SIZE: i32 = 256;
 const FLOATING_WINDOW_SIZE_STEP: i32 = 4;
 
+// 进程保活：禁用 WebView2 的遮挡判定/后台化/计时器节流，防止长时间闲置后被系统或 Chromium 冻结、降级。
+const BROWSER_KEEPALIVE_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion,WebContentsOcclusion,IntensiveWakeUpThrottling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling";
+
 fn normalize_floating_window_size(value: Option<f64>) -> i32 {
     let Some(value) = value.filter(|value| value.is_finite()) else {
         return FLOATING_WINDOW_SIZE;
@@ -3055,6 +3058,7 @@ async fn open_floating_window(app: tauri::AppHandle) -> Result<(), String> {
     .shadow(false)
     .resizable(false)
     .transparent(true)
+    .additional_browser_args(BROWSER_KEEPALIVE_ARGS)
     .inner_size(size as f64, size as f64)
     .min_inner_size(
         MIN_FLOATING_WINDOW_SIZE as f64,
@@ -3954,6 +3958,21 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
+            #[cfg(target_os = "windows")]
+            {
+                use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetCurrentThread, SetPriorityClass, SetThreadPriority, SetProcessInformation, ProcessPowerThrottling, PROCESS_POWER_THROTTLING_STATE, PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED, ABOVE_NORMAL_PRIORITY_CLASS, THREAD_PRIORITY_ABOVE_NORMAL};
+                unsafe {
+                    SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
+                    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+                    let throttling = PROCESS_POWER_THROTTLING_STATE {
+                        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+                        ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+                        StateMask: 0,
+                    };
+                    SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &throttling as *const _ as *const std::ffi::c_void, std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32);
+                }
+            }
+
             let safe_mode_path = app.path().app_config_dir()?.join("safemode.json");
             app.manage(SafeModeState { status: Mutex::new(read_safe_mode_status(&safe_mode_path)) });
             let app_data_dir = app.path().app_data_dir()?;

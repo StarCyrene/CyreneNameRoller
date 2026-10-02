@@ -23,7 +23,8 @@
         "decorations": false,
         "transparent": false,
         "resizable": true,
-        "backgroundColor": "#fdf5fa"
+        "backgroundColor": "#fdf5fa",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion,WebContentsOcclusion,IntensiveWakeUpThrottling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling"
       }
     ],
     "security": {
