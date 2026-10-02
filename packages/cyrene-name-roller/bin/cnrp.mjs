@@ -1021,14 +1021,6 @@ async function templateDeclarationPath(directory) {
 }
 
 async function createTemplate(directory, kind = 'basic') {
-  if (kind === 'api15') {
-    const target = path.join(packageRoot, 'templates', 'api15')
-    await templateDeclarationPath(target)
-    await fs.mkdir(directory, { recursive: true })
-    if ((await fs.readdir(directory)).length) fail(`target directory is not empty: ${directory}`)
-    await fs.cp(target, directory, { recursive: true })
-    return
-  }
   const templateName = ['sound', 'sound-effects'].includes(kind)
     ? 'sound-effects'
     : ['ui', 'ui-customization'].includes(kind) ? 'ui-customization' : 'basic'
@@ -1044,7 +1036,7 @@ async function main() {
   const { positional, options } = parseArgs(process.argv.slice(2))
   const command = positional[0] || 'help'
   if (command === 'help' || options.help) {
-    console.log('cnrp create <dir> [--template api15|basic|sound-effects|ui-customization]')
+    console.log('cnrp create <dir> [--template basic|sound-effects|ui-customization]')
     console.log('cnrp validate <dir>')
     console.log('cnrp pack <dir> --out <file.cnrp> [--private-key key.pem]')
     return

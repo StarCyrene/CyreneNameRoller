@@ -205,18 +205,6 @@ export function summarizeInstallationRisk(manifest = {}) {
   }
 }
 
-export function resolveApi15Capabilities(manifest, platform) {
-  const runtime = typeof platform === 'string' ? platform : platform?.runtime
-  const availableOn = id => {
-    if (id.startsWith('window:') || id.startsWith('files:external:') || id === 'files:app:execute') return runtime === 'tauri'
-    if (id === 'files:app:read' || id === 'files:app:write') return runtime === 'tauri'
-    return runtime === 'web' || runtime === 'tauri'
-  }
-  return Object.fromEntries((manifest?.permissions || []).map(permission => {
-    const applies = !permission.platforms?.length || permission.platforms.includes(runtime) || (runtime === 'tauri' && permission.platforms.includes(platform?.os))
-    return [permission.id, { ...permission, applies, available: applies && availableOn(permission.id) }]
-  }))
-}
 export const CNRP_MAGIC = 'CNRP1\n'
 
 export function comparePluginVersions(left, right) {

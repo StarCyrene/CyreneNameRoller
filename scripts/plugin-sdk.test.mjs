@@ -571,11 +571,24 @@ test('legacy manifests remain display-only while API 1.5 process runtime is unav
   assert.equal(legacyManifest.activatable, false)
 
   const canonicalSource = path.join(temporary, 'api15-plugin')
-  await createTemplate(canonicalSource, 'api15')
-  const canonicalManifestPath = path.join(canonicalSource, 'manifest.json')
-  const canonical = JSON.parse(await fs.readFile(canonicalManifestPath, 'utf8'))
-  canonical.engine = { min: '9.9.9', max: '9.9.9' }
-  await fs.writeFile(canonicalManifestPath, JSON.stringify(canonical, null, 2))
+  await fs.mkdir(path.join(canonicalSource, 'src'), { recursive: true })
+  await fs.mkdir(path.join(canonicalSource, 'pages'), { recursive: true })
+  const canonical = {
+    api: '1.5',
+    id: 'cn.example.api15.plugin',
+    name: 'Cyrene API 1.5 Plugin',
+    version: '1.0.0',
+    author: 'Test',
+    description: 'A revoked API 1.5 plugin.',
+    engine: { min: '9.9.9', max: '9.9.9' },
+    entry: { runtime: 'cnrp-runner', script: 'src/worker.js', args: [] },
+    platforms: ['web', 'tauri'],
+    permissions: [{ id: 'page:read', required: true, platforms: ['web', 'tauri'] }],
+    pages: [{ id: 'main', title: 'Plugin', location: 'main', entry: 'pages/main.html', children: [] }]
+  }
+  await fs.writeFile(path.join(canonicalSource, 'manifest.json'), JSON.stringify(canonical, null, 2))
+  await fs.writeFile(path.join(canonicalSource, 'src', 'worker.js'), '// API 1.5 process entry placeholder.\n')
+  await fs.writeFile(path.join(canonicalSource, 'pages', 'main.html'), '<!doctype html><html lang="en"><head><meta charset="utf-8"></head><body></body></html>')
   const validation = await validateDirectory(canonicalSource)
   const canonicalManifest = parser.normalizePluginManifest(canonical)
   assert.equal(validation.manifest.api, '1.5')

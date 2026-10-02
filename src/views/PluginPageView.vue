@@ -134,7 +134,6 @@ async function mountPluginPage() {
   try {
     if (!frameRef.value) throw new Error(lang.value === 'en' ? 'Plugin frame is unavailable.' : '插件页面容器不可用。')
     plugins.mountPageFrame(frameRef.value, pluginId, pageId)
-    if (currentPlugin.manifest.api === '1.5') plugins.setPageSurface(frameRef.value, pluginId, pageId)
     mountedFrameKey = { pluginId, pageId }
     source.value = plugins.pluginPageSource(pluginId, pageId)
     if (!source.value) throw new Error(lang.value === 'en' ? 'The plugin page has no compatible entry.' : '插件页面没有适用于当前平台的入口。')
@@ -150,7 +149,6 @@ async function mountPluginPage() {
 }
 function onFrameLoad() {
   try {
-    if (plugin.value?.manifest.api === '1.5') plugins.setPageSurface(frameRef.value, String(route.params.pluginId || ''), String(route.params.pageId || ''))
     plugins.connectPageFrame(frameRef.value, String(route.params.pluginId || ''), String(route.params.pageId || ''))
   } catch (error) { pageError.value = error.message || String(error) }
   loading.value = false

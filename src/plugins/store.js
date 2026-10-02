@@ -21,7 +21,7 @@ import {
 import { PluginRuntime } from './runtime'
 import { PluginAnimationRegistry } from './animationRegistry'
 import { PluginPlatformBridge } from './platform'
-import { AuditLog } from './api15/permissions.js'
+import { AuditLog } from './permissions.js'
 import { isTauri, tauriAPI } from '../utils/tauriAPI.js'
 import { repositorySlug, resolveCatalogRelease, fetchRepositoryOwner } from './catalog'
 import { validateCoreDrawArgs } from './coreDraw'
@@ -140,32 +140,7 @@ export const usePluginsStore = defineStore('plugins', () => {
     selectFile,
     playAudio,
     platformBridge,
-    onFault: handleRuntimeFault,
-    pageStateAdapter: {
-      read(field) {
-        const settings = useSettingsStore().settings
-        if (field === 'language') return settings.language
-        if (field === 'theme') return settings.colorTheme || settings.theme
-        if (field === 'animation') return settings.finishAnimation
-        if (field === 'display') return settings.englishMode ? 'english' : 'native'
-        if (field === 'drawFilter') return { listId: useNamesStore().currentListId, target: settings.groupMode ? 'groups' : 'people', count: settings.multiMode ? settings.peopleCount : 1, gender: 'all', allowDuplicates: !settings.forbidDuplicates }
-      },
-      write(field, value) {
-        const settings = useSettingsStore()
-        if (field === 'language') return settings.update('language', value)
-        if (field === 'theme') return settings.update('colorTheme', value)
-        if (field === 'animation') return settings.update('finishAnimation', value)
-        if (field === 'display') return settings.update('englishMode', value === 'english')
-        if (field === 'drawFilter' && value && typeof value === 'object') return Promise.all([
-          value.listId ? useNamesStore().switchList(value.listId) : true,
-          settings.update('groupMode', value.target === 'groups'),
-          settings.update('multiMode', Number(value.count) > 1),
-          settings.update('peopleCount', Math.max(1, Number(value.count) || 1)),
-          settings.update('forbidDuplicates', value.allowDuplicates === false)
-        ])
-        throw new Error('state field is not writable')
-      }
-    }
+    onFault: handleRuntimeFault
   })
 
   const enabledPlugins = computed(() => safeModeStatus.value.enabled ? [] : Object.values(installed.value).filter(plugin => plugin.enabled))
@@ -939,7 +914,6 @@ export const usePluginsStore = defineStore('plugins', () => {
   function unregisterAnimationSurface(target, element) { animationRegistry.unregisterSurface(target, element) }
 
   function mountPageFrame(frame, pluginId, pageId) { runtime.mountFrame(frame, pluginId, pageId) }
-  function setPageSurface(surface, pluginId, pageId) { runtime.setPageSurface(pluginId, pageId, surface, globalThis.document) }
   function unmountPageFrame(pluginId, pageId) { runtime.unmountFrame(pluginId, pageId) }
   function connectPageFrame(frame, pluginId, pageId) { return runtime.connectFrame(frame, pluginId, pageId) }
   function mountVisualSurface(canvas, pluginId, surfaceId, viewport) { return runtime.mountVisualSurface(canvas, pluginId, surfaceId, viewport) }
@@ -990,7 +964,7 @@ export const usePluginsStore = defineStore('plugins', () => {
     installed, list, source, initialized, recovering, lastError, enabledPlugins, contributedPages, contributedCommands, contributedVisualSurfaces, contributedAppearancePacks, contributedComponentStylePacks, contributedComponentOverridePacks, contributedNativeViews, contributedResultPresentations, animationSelections, animationDurationScales, componentStyleSelections, componentOverrideSelections, resultPresentationSelections, safeModeStatus,
     initialize, configureSafeMode, setBannerHandler, saveState, activateEnabled, inspectPackage, installPackage, uninstall, setEnabled,
     setSource, fetchList, downloadPlugin, loadCatalogDetails, pageById, settingsFor, appearanceByValue, appearanceOptions, resolveAppearance, componentStyleByValue, componentStyleOptions, componentStyleStyle, setComponentStyleSelection, componentOverrideByValue, componentOverrideOptions, nativeViewsForSlot, resultPresentationByValue, resultPresentationOptions, resultPresentationForTarget, setResultPresentationSelection, componentOverrideState, setComponentOverrideSelection, resetComponentOverrides, pluginById, pluginAssetUrl,
-     pluginPageSource, requestPlugin, invokePluginCommand, executeRollerDraw, mountPageFrame, setPageSurface, connectPageFrame, unmountPageFrame, mountVisualSurface, resizeVisualSurface, unmountVisualSurface,
+     pluginPageSource, requestPlugin, invokePluginCommand, executeRollerDraw, mountPageFrame, connectPageFrame, unmountPageFrame, mountVisualSurface, resizeVisualSurface, unmountVisualSurface,
     animationOptions, animationSelectionValue, setAnimationSelection, hasAnimation, startAnimation, animationDurationScale, setAnimationDurationScale, registerAnimationSurface, unregisterAnimationSurface,
     dispatchEvent, handlePluginMessage, markCleanShutdown,
     compatibilityFor, platform: platformBridge.info(), platformCapabilities: platformBridge.capabilities()

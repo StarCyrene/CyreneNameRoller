@@ -1,37 +1,7 @@
-const UNSUPPORTED_PLATFORM = 'UNSUPPORTED_PLATFORM'
 const MAX_REDIRECTS = 3
 const MAX_AUDIT_RECORDS = 1000
 const MAX_AUDIT_BYTES = 1024 * 1024
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024
-
-function platformMatches(platforms, platform) {
-  return !Array.isArray(platforms) || !platforms.length || platforms.includes(platform.runtime) || (platform.runtime === 'tauri' && platforms.includes(platform.os))
-}
-
-function unavailable(id, platform) {
-  return { id, available: false, code: UNSUPPORTED_PLATFORM, platform: platform.runtime, os: platform.os }
-}
-
-function availableOn(id, platform) {
-  if (id.startsWith('window:') || id.startsWith('files:') || id === 'system:execute') return platform.runtime === 'tauri'
-  return platform.runtime === 'web' || platform.runtime === 'tauri'
-}
-
-export function resolveApi15Capabilities(manifest = {}, platform = { runtime: 'web', os: 'unknown' }) {
-  const capabilities = {}
-  const requiredUnavailable = []
-  for (const declaration of Array.isArray(manifest.permissions) ? manifest.permissions : []) {
-    if (!declaration?.id) continue
-    const applies = platformMatches(declaration.platforms, platform)
-    const available = applies && availableOn(declaration.id, platform)
-    const status = available
-      ? { id: declaration.id, available: true, code: 'AVAILABLE', applies, platform: platform.runtime, os: platform.os }
-      : { ...unavailable(declaration.id, platform), applies }
-    capabilities[declaration.id] = status
-    if (declaration.required && applies && !available) requiredUnavailable.push(status)
-  }
-  return { compatible: requiredUnavailable.length === 0, platform, capabilities, requiredUnavailable }
-}
 
 function pathError(code, message) { return Object.assign(new Error(message || code), { code }) }
 

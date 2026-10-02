@@ -1,7 +1,6 @@
 import { isTauri, tauriAPI } from '../utils/tauriAPI.js'
 import { PLUGIN_API_VERSION } from './constants.js'
-import { resolveApi15Capabilities } from './api15/permissions.js'
-import { AuditLog, NetworkLimiter, requireNetworkAddressBinding, validateExecutableDeclaration, validateNetworkUrlResolved } from './api15/permissions.js'
+import { AuditLog, NetworkLimiter, requireNetworkAddressBinding, validateExecutableDeclaration, validateNetworkUrlResolved } from './permissions.js'
 
 const MAX_SELECTED_FILE_SIZE = 32 * 1024 * 1024
 const MAX_CLIPBOARD_TEXT_LENGTH = 100000
@@ -174,7 +173,7 @@ function failed(capability, platform, error, code = 'OPERATION_FAILED') {
   })
 }
 
-function api15CapabilityForMethod(method) {
+function capabilityForMethod(method) {
   return { 'files.read': 'files:app:read', 'files.write': 'files:app:write', 'net.request': 'net:internet' }[method] || method.replace(/^system\./, 'system:')
 }
 
@@ -281,12 +280,9 @@ export class PluginPlatformBridge {
     }
     let audited = false
     const respond = result => audit(result)
-    const capability = api15CapabilityForMethod(method)
-    const declared = plugin?.manifest?.permissions?.some(item => (item?.id || item) === capability)
+    const capability = capabilityForMethod(method)
     const handlerName = { 'files.read': 'filesRead', 'files.write': 'filesWrite', 'net.request': 'netRequest' }[method]
-    const status = declared
-      ? resolveApi15Capabilities(plugin.manifest, this.platform).capabilities[capability] || capabilityStatus(capability, this.platform)
-      : capabilityStatus(capability, this.platform)
+    const status = capabilityStatus(capability, this.platform)
     if (!status.available) return respond(unsupported(capability, this.platform))
     try {
       switch (method) {
