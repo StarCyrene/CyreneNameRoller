@@ -1,9 +1,9 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { rollerRoutes } from './rollerTools'
 
 const routes = [
   { path: '/', redirect: '/roller', meta: { order: 0 } },
-  { path: '/roller', name: 'Roller', component: () => import('../views/RollerView.vue'), meta: { order: 100 } },
-  { path: '/card', name: 'Card', component: () => import('../views/CardView.vue'), meta: { order: 200 } },
+  ...rollerRoutes,
   { path: '/lottery', redirect: '/lottery/draw', meta: { order: 300 } },
   { path: '/lottery/draw', name: 'LotteryDraw', component: () => import('../views/LotteryView.vue'), props: { section: 'draw' }, meta: { order: 300 } },
   { path: '/lottery/assign', name: 'LotteryAssign', component: () => import('../views/LotteryView.vue'), props: { section: 'assign' }, meta: { order: 310 } },

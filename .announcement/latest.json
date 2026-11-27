@@ -1,5 +1,23 @@
 [
   {
+    "id": 12,
+    "title": {
+      "cn": "v26.3.0 已发布",
+      "en": "v26.3.0 Has released"
+    },
+    "important": true,
+    "pinned": true,
+    "tag": {
+      "cn": "更新",
+      "en": "Update"
+    },
+    "time": "2026/11/27 00:00",
+    "content": {
+      "cn": "v26.3.0 正式发布！这一次，八种点名工具住进了同一个工作台，抽奖也换上了更稳的记账方式。\n\n本次更新重点包括：\n\n- 点名工具整合为八合一工作台：滚动、翻牌、转盘、光轨穿梭、座次寻光、流萤传灯、花笺藏名、连星成诗\n- 座次寻光支持粘贴 Excel/CSV/TSV 座位表，标记缺席、交换座位；光轨穿梭可一次抽齐并逐个揭晓\n- 抽奖新增花信盲盒与刮开好运，支持批量抽取，抽前可看库存与概率\n- 奖品库存与记录改为统一事务：抽中即扣库存，揭晓不再重复扣减；旧数据自动迁移\n- Dock 合并为单一「点名工具」入口，窄屏导航改为抽屉，旧翻牌链接仍然可用\n\n详细内容可在「设置 → 更新日志」查看。欢迎通过 GitHub Issues 反馈问题与建议。",
+      "en": "v26.3.0 is now officially released! Eight name-picking tools now share one workspace, and prize draws use a safer, transactional inventory ledger.\n\nHighlights include:\n\n- All eight roll-call tools in one workspace: Roller, Cards, Wheel, Light Tunnel, Seat Spotlight, Firefly Relay, Petal Riddle, and Constellations\n- Seat Spotlight accepts Excel/CSV/TSV seating charts, attendance marking, and seat swaps; Light Tunnel draws a batch and reveals names together or one by one\n- Prize draws add Bloom Boxes and Scratch & Reveal, batch draws, and a live odds/stock preview\n- Prize inventory and history now commit as one transaction: drawing consumes stock once, revealing never consumes it again, and legacy data migrates automatically\n- The Dock now has a single Roller entry, narrow screens use a navigation drawer, and old Card links still work\n\nSee Settings → Changelog for the full list, and use GitHub Issues for feedback."
+    }
+  },
+  {
     "id": 11,
     "title": {
       "cn": "v26.2.4 已发布",

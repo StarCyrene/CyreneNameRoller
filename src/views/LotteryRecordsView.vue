@@ -27,7 +27,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, ref } from 'vue'
 import { usePrizesStore } from '../stores/prizes'
 import { useNamesStore } from '../stores/names'
 import { useSettingsStore } from '../stores/settings'
@@ -51,7 +51,15 @@ function resolvePerson(record) {
   if (!person) return lang.value === 'en' ? 'Deleted person' : '已删除成员'
   return settingsStore.settings.englishMode && person.en ? person.en : person.cn
 }
-function clearRecords() { prizes.clearRecords(selectedListId.value); showClear.value = false }
+const showBanner = inject('banner')
+const clearing = ref(false)
+async function clearRecords() {
+  if (clearing.value) return
+  clearing.value = true
+  try { await prizes.clearRecords(selectedListId.value); showClear.value = false }
+  catch (error) { showBanner({ message: error?.message || String(error), icon: 'warning-16-regular', type: 'warning', duration: 8000 }) }
+  finally { clearing.value = false }
+}
 onMounted(async () => { await Promise.all([prizes.initialize(), names.initialize()]); selectedListId.value = prizes.currentId })
 </script>
 

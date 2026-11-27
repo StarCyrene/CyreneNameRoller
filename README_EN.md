@@ -16,6 +16,22 @@ A random name picker desktop app built with Vue 3 + Tauri, featuring Windows 11 
 
 ## Features
 
+Open **Roller** in the Dock and use the selector at the bottom of the page to switch between eight tools. Existing Card bookmarks still work.
+
+| Tool | What it does |
+| --- | --- |
+| Roller / Cards | Call one or more names, or turn over cards. Card trays are saved separately for each list. |
+| Wheel | Spin for a single name; the pointer lands on the sector containing the drawn person. |
+| Light Tunnel | Draw several distinct names at once and reveal them together or one by one. With motion off, names appear immediately. |
+| Seat Spotlight | Use roster order immediately and skip anyone absent. Optionally paste and preview an Excel seating chart for projection. |
+| Firefly Relay | Each handoff draws and records one person who has not yet held the light this round. |
+| Petal Riddle | Guess a drawn name from clues, uncover letters, or reveal it at once. Guesses do not create additional records. |
+| Constellations | Make temporary random teams that differ in size by at most one and copy the result. Saved groups and roll call records are unchanged. |
+
+**Prize draws**
+
+Roll prizes, spin a weighted wheel, open a Bloom Box, or scratch a ticket. Preview stock and the odds of the next draw. Draw one prize or a batch, then reveal the results without consuming stock again. Scratch tickets also have a keyboard-accessible reveal button.
+
 **Random Name Roller**
 - Single/multi-player mode, forbid duplicates (sampling without replacement)
 - Balance algorithm: fewer picks = higher probability next round

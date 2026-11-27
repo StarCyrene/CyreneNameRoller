@@ -15,7 +15,11 @@ export function executePrizeRequest({ operation, input, state, caller }) {
   if (available.reduce((sum, prize) => sum + Number(prize.quantity), 0) < count) throw coreError('CORE_TRANSACTION_REJECTED', 'Prize inventory is insufficient')
   const peoplePool = operation === 'prize-assignment' ? (state.names.lists[input.peopleListId]?.names || []).filter(person => person?.id && person.cn && !person.isWhiteList && (input.gender === 'all' || person.gender === input.gender)) : []
   if (operation === 'prize-assignment' && peoplePool.length < count) throw coreError('CORE_TRANSACTION_REJECTED', 'Assignment people are invalid')
-  const people = operation === 'prize-assignment' ? [...peoplePool].sort(() => secureRandom() - 0.5).slice(0, count) : []
+  const people = peoplePool
+  for (let index = 0; index < count && index < people.length; index++) {
+    const pick = index + Math.floor(secureRandom() * (people.length - index))
+    ;[people[index], people[pick]] = [people[pick], people[index]]
+  }
   const next = structuredClone(prizeState)
   const results = []
   for (let index = 0; index < count; index += 1) {
@@ -33,9 +37,13 @@ export function executePrizeRequest({ operation, input, state, caller }) {
   return { receipt: { kind: operation, operationId: caller.operationId || `prize-${Date.now()}`, pluginId: caller.pluginId, listId: input.listId, count, results, committedAt: Date.now() }, nextPrizes: next }
 }
 
-export function executeCoreDrawRequest({ input: rawInput, caller: rawCaller, state, peopleCache }) {
+export function executeCoreDrawRequest({ input: rawInput, caller: rawCaller, state, peopleCache, singleDrawPreviousIds }) {
   const input = normalizeCoreDrawInput(rawInput)
   const caller = normalizeCoreCaller(rawCaller)
+  if (singleDrawPreviousIds !== undefined && (caller.kind !== 'core-ui' || input.target !== 'people' || input.count !== 1 ||
+    !Array.isArray(singleDrawPreviousIds) || singleDrawPreviousIds.length > 10000 || singleDrawPreviousIds.some(id => typeof id !== 'string' || !id))) {
+    throw coreError('CORE_TRANSACTION_REJECTED', 'Invalid single-person draw')
+  }
   if (!state || typeof state !== 'object' || Array.isArray(state)) throw coreError('CORE_TRANSACTION_REJECTED', 'Core 状态无效')
   const list = state.names?.lists?.[input.listId]
   if (!list) throw coreError('CORE_TRANSACTION_REJECTED', '抽取名单不存在')
@@ -64,7 +72,9 @@ export function executeCoreDrawRequest({ input: rawInput, caller: rawCaller, sta
       eligible = { people, whiteList: people.filter(person => person.isWhiteList) }
       peopleCache?.set(cacheKey, eligible)
     }
-    const { people, whiteList } = eligible
+    const previous = new Set(singleDrawPreviousIds)
+    const people = previous.size ? eligible.people.filter(person => !previous.has(person.id)) : eligible.people
+    const { whiteList } = eligible
     if (!people.length) throw coreError('CORE_TRANSACTION_REJECTED', '所选名单没有符合条件的人员')
     const count = input.allowDuplicates ? input.count : Math.min(input.count, people.length)
     picks = pickCyreneBatch(people, whiteList, state.statistics?.counts || {}, normalizeCyreneBalanceSettings(state.balance), count, input.allowDuplicates)

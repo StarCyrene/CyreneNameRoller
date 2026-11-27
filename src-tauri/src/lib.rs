@@ -541,6 +541,8 @@ struct RustDrawRequest {
     operation_id: String,
     #[serde(default = "default_true")]
     count_statistics: bool,
+    #[serde(default)]
+    single_draw_previous_ids: Option<Vec<String>>,
     input: RustDrawInput,
 }
 
@@ -597,6 +599,12 @@ fn valid_core_principal(principal: &str) -> bool {
 }
 
 fn validate_core_caller(request: &RustDrawRequest) -> Result<(), String> {
+    if let Some(previous) = &request.single_draw_previous_ids {
+        if request.caller_kind != "core-ui" || request.input.target != "people" || request.input.count != 1 ||
+            previous.len() > 10000 || previous.iter().any(String::is_empty) {
+            return Err("CORE_TRANSACTION_REJECTED".into());
+        }
+    }
     match request.caller_kind.as_str() {
         "core-ui" if request.principal == "core-ui" && (request.plugin_id.is_empty() || request.plugin_id == "core") => Ok(()),
         "plugin" if !request.plugin_id.is_empty() && request.principal == format!("plugin:{}", request.plugin_id) => Ok(()),
@@ -756,6 +764,10 @@ fn core_draw_execute(
         }
     } else if let Some(names) = list.get("names").and_then(serde_json::Value::as_array) {
         candidates.extend(names.iter().filter(|person| person["cn"].as_str().is_some_and(|name| !name.is_empty() && name != "再来一次") && (gender == "all" || person["gender"].as_str() == Some(gender))).cloned());
+    }
+    if let Some(previous) = &request.single_draw_previous_ids {
+        let seen: std::collections::HashSet<&str> = previous.iter().map(String::as_str).collect();
+        candidates.retain(|person| !person["id"].as_str().is_some_and(|id| seen.contains(id)));
     }
     if candidates.is_empty() { return Err("CORE_TRANSACTION_REJECTED".into()); }
     let limit = if request.input.allow_duplicates { count } else { count.min(candidates.len()) };
@@ -1060,7 +1072,7 @@ fn apply_core_maintenance(
         balance: balance.clone(),
         statistics: statistics.clone(),
         records: Value::Array(records.clone()),
-        prizes: envelope.state.prizes.clone(),
+        prizes: if reset_all { json!({ "lists": {}, "currentId": "default", "records": [] }) } else { envelope.state.prizes.clone() },
     };
     let next_envelope = core_state::seal(core_state::CoreStateEnvelope {
         schema_version: core_state::CORE_SCHEMA_VERSION,
@@ -1073,6 +1085,7 @@ fn apply_core_maintenance(
     if reset_all && !clear_non_core_values(&mut next_values) {
         return Err("CORE_TRANSACTION_REJECTED".into());
     }
+    next_values["prizes"] = next_envelope.state.prizes.clone();
     next_values.as_object_mut().ok_or_else(|| "CORE_TRANSACTION_REJECTED".to_string())?
         .insert(core_state::CORE_STATE_KEY.into(), core_state::to_value(&next_envelope)?);
     next_values["lists"] = names["lists"].clone();
@@ -2220,7 +2233,7 @@ fn storage_get(store: State<'_, EncryptedStore>, key: String) -> Option<serde_js
 }
 
 fn is_core_storage_key(key: &str) -> bool {
-    matches!(key, "lists" | "currentListId" | "balance" | "statistics" | "records" | core_state::CORE_STATE_KEY)
+    matches!(key, "lists" | "currentListId" | "balance" | "statistics" | "records" | "prizes" | core_state::CORE_STATE_KEY)
 }
 
 fn clear_non_core_values(values: &mut Value) -> bool {
@@ -4235,6 +4248,7 @@ mod tests {
             "balance": { "enabled": false, "algorithm": super::core_state::ALGORITHM_NAME },
             "statistics": { "counts": { "person-1": 2, "person-2": 6 }, "totalCount": 8 },
             "records": [{ "operationId": "old-operation" }],
+            "prizes": { "lists": { "pool": { "prizes": [] } }, "currentId": "pool", "records": [] },
             "pluginState": { "enabled": true }
         });
         let envelope = super::core_state::seal(super::core_state::genesis(&values), key).unwrap();
@@ -4442,10 +4456,13 @@ mod tests {
             plugin_id: "cn.example.test".into(),
             operation_id: "op-1".into(),
             count_statistics: true,
+            single_draw_previous_ids: None,
             input,
         };
         assert!(validate_core_caller(&plugin).is_ok());
-        let spoofed = RustDrawRequest { plugin_id: "cn.example.other".into(), ..plugin };
+        let plugin_relay = RustDrawRequest { single_draw_previous_ids: Some(vec![]), ..plugin };
+        assert_eq!(validate_core_caller(&plugin_relay).unwrap_err(), "CORE_TRANSACTION_REJECTED");
+        let spoofed = RustDrawRequest { plugin_id: "cn.example.other".into(), single_draw_previous_ids: None, ..plugin_relay };
         assert_eq!(validate_core_caller(&spoofed).unwrap_err(), "PLUGIN_PERMISSION_DENIED");
 
         let card = RustCardCommitRequest {
@@ -4507,11 +4524,28 @@ mod tests {
         assert!(is_core_storage_key("lists"));
         assert!(is_core_storage_key("balance"));
         assert!(is_core_storage_key("statistics"));
+        assert!(is_core_storage_key("prizes"));
         assert!(clear_non_core_values(&mut values));
         assert!(values.get("pluginState").is_none());
         assert!(values.get(super::core_state::CORE_STATE_KEY).is_some());
         assert!(values.get("statistics").is_some());
         assert!(values.get("records").is_some());
+    }
+
+    #[test]
+    fn prize_editor_snapshot_is_available_to_draw_after_reopening() {
+        let key = data_key();
+        let old_values = maintenance_values(&key);
+        let prizes = json!({
+            "lists": { "lot": { "id": "lot", "prizes": [{ "id": "tea", "name": "Tea", "quantity": 2, "weight": 1 }] } },
+            "currentId": "lot", "records": [{ "id": "earlier-win" }]
+        });
+        let saved = apply_core_state_update(&old_values, "prizes", prizes.clone(), &key).unwrap();
+        let reopened: serde_json::Value = serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
+        let envelope = super::core_state::parse(&reopened, &key).unwrap();
+        super::core_state::verify_bound_values(&reopened, &envelope).unwrap();
+        assert_eq!(envelope.state.prizes, prizes);
+        assert_eq!(reopened["prizes"], envelope.state.prizes);
     }
 
     #[test]
@@ -4564,6 +4598,8 @@ mod tests {
         assert!(next_values.get("pluginState").is_none());
         assert_eq!(next_values["currentListId"], "default");
         assert_eq!(next_values["lists"], json!({}));
+        assert_eq!(next_values["prizes"], json!({ "lists": {}, "currentId": "default", "records": [] }));
+        assert_eq!(envelope.state.prizes, next_values["prizes"]);
         assert_eq!(next_values["statistics"], json!({ "counts": {}, "totalCount": 0 }));
         assert_eq!(next_values["records"], json!([]));
         assert_eq!(next_values["balance"], json!({ "enabled": true, "algorithm": super::core_state::ALGORITHM_NAME }));

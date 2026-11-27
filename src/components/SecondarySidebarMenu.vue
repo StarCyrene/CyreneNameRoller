@@ -30,6 +30,7 @@
         :key="item.id"
         :to="item.to"
         class="secondary-sidebar-menu__item"
+        :aria-label="item.label" :title="item.label"
         :class="{ active: isItemActive(item) }"
       >
         <FluentIcon v-if="item.icon" :icon="item.icon" :width="18" />

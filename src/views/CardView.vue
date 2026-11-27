@@ -5,7 +5,7 @@
       {{ t('cardMode', lang) }}
     </h1>
 
-    <div class="cards-grid" data-plugin-component="card.deck" :style="pluginsStore.componentStyleStyle('card.deck')">
+    <div v-if="cards.length" class="cards-grid" data-plugin-component="card.deck" :style="pluginsStore.componentStyleStyle('card.deck')">
       <div
         v-for="(card, i) in cards"
         :key="card.id"
@@ -15,8 +15,9 @@
         :class="{ show: card.visible, flipped: card.flipped, 'plugin-deal': card.pluginDeal }"
         :style="pluginsStore.componentStyleStyle('card.item')"
         role="button"
-        tabindex="0"
-        :aria-label="`${lang === 'en' ? 'Card' : '牌子'} ${i + 1}${card.flipped ? (lang === 'en' ? ', revealed' : '，已翻开') : ''}`"
+        :tabindex="card.visible && !card.flipped && !controlsBusy ? 0 : -1"
+        :aria-disabled="card.flipped || !card.visible || controlsBusy"
+        :aria-label="`${lang === 'en' ? 'Card' : '牌子'} ${i + 1}${card.flipped ? ' · ' + card.displayName : ''}`"
         @click="flipCard(i)"
         @keydown.enter.space.prevent="flipCard(i)"
       >
@@ -24,9 +25,13 @@
           <div class="card-face card-back">
             <FluentIcon icon="question-24-regular" :width="48" class="card-q-icon" />
           </div>
-          <div class="card-face card-front">{{ card.displayName }}</div>
+          <div class="card-face card-front" aria-hidden="true">{{ card.displayName }}</div>
         </div>
       </div>
+    </div>
+    <div v-if="!cards.length && !loadingTray" class="card-empty" role="status">
+      <span>{{ allNonWL.length ? (lang === 'en' ? 'Every card has been drawn. Reset to start another round.' : '这份名单已经抽完，重置即可开启新一轮。') : (lang === 'en' ? 'This list has no eligible names.' : '这份名单还没有可翻牌的人员。') }}</span>
+      <RouterLink v-if="!allNonWL.length" to="/lists/manage">{{ lang === 'en' ? 'Manage names' : '前往管理人员' }} →</RouterLink>
     </div>
 
     <div class="bottom-section">
@@ -44,18 +49,18 @@
 
       <div class="card-controls" data-plugin-component="card.controls" :style="pluginsStore.componentStyleStyle('card.controls')">
         <div class="ctrl-row">
-          <FluentToggle v-model="englishMode" label="English Mode" />
+          <FluentToggle v-model="englishMode" :label="lang === 'en' ? 'English names' : '显示英文名'" @update:model-value="saveCardSettings" />
           <span class="control-sep" />
           <span class="control-label">{{ t('listLabel', lang) }}:</span>
-          <FluentSelect :model-value="namesStore.currentListId" :options="listOptions" @update:model-value="onListChange" />
+          <FluentSelect :model-value="namesStore.currentListId" :options="listOptions" :disabled="controlsBusy" @update:model-value="onListChange" />
           <span class="control-sep" />
           <span class="control-label">{{ t('cardsLabel', lang) }}:</span>
           <div class="count-control">
-            <FluentButton :aria-label="lang === 'en' ? 'Decrease card count' : '减少牌子数量'" variant="secondary" size="sm" icon-only @click="cardCount = Math.max(1, cardCount - 1); saveCardSettings()"><FluentIcon icon="subtract-16-regular" :width="14" /></FluentButton>
-            <FluentInput v-model="cardCount" type="number" :min="1" :max="maxCards" :aria-label="lang === 'en' ? 'Card count' : '牌子数量'" style="width: 60px; text-align: center;" @update:model-value="saveCardSettings" />
-            <FluentButton :aria-label="lang === 'en' ? 'Increase card count' : '增加牌子数量'" variant="secondary" size="sm" icon-only @click="cardCount = Math.min(maxCards, cardCount + 1); saveCardSettings()"><FluentIcon icon="add-16-regular" :width="14" /></FluentButton>
+            <FluentButton :aria-label="lang === 'en' ? 'Decrease card count' : '减少牌子数量'" variant="secondary" size="sm" icon-only :disabled="shownCardCount <= 1" @click="setCount(false, shownCardCount - 1)"><FluentIcon icon="subtract-16-regular" :width="14" /></FluentButton>
+            <FluentInput :model-value="shownCardCount" type="number" :min="1" :max="maxCards" :aria-label="lang === 'en' ? 'Card count' : '牌子数量'" style="width: 60px; text-align: center;" @update:model-value="setCount(false, $event)" />
+            <FluentButton :aria-label="lang === 'en' ? 'Increase card count' : '增加牌子数量'" variant="secondary" size="sm" icon-only :disabled="shownCardCount >= maxCards" @click="setCount(false, shownCardCount + 1)"><FluentIcon icon="add-16-regular" :width="14" /></FluentButton>
           </div>
-          <FluentButton variant="primary" @click="shuffle">
+          <FluentButton variant="primary" :disabled="controlsBusy || !remainingCount" @click="shuffle">
             <FluentIcon icon="arrow-shuffle-24-regular" :width="16" />
             {{ t('shuffle', lang) }}
           </FluentButton>
@@ -63,15 +68,15 @@
         <div class="ctrl-row">
           <span class="control-label">{{ t('quickDraw', lang) }}:</span>
           <div class="count-control">
-            <FluentButton :aria-label="lang === 'en' ? 'Decrease quick draw count' : '减少一键多抽数量'" variant="secondary" size="sm" icon-only @click="quickCount = Math.max(2, quickCount - 1); saveCardSettings()"><FluentIcon icon="subtract-16-regular" :width="14" /></FluentButton>
-            <FluentInput v-model="quickCount" type="number" :min="2" :max="maxCards" :aria-label="lang === 'en' ? 'Quick draw count' : '一键多抽数量'" style="width: 60px; text-align: center;" @update:model-value="saveCardSettings" />
-            <FluentButton :aria-label="lang === 'en' ? 'Increase quick draw count' : '增加一键多抽数量'" variant="secondary" size="sm" icon-only @click="quickCount = Math.min(maxCards, quickCount + 1); saveCardSettings()"><FluentIcon icon="add-16-regular" :width="14" /></FluentButton>
+            <FluentButton :aria-label="lang === 'en' ? 'Decrease quick draw count' : '减少一键多抽数量'" variant="secondary" size="sm" icon-only :disabled="shownQuickCount <= 1" @click="setCount(true, shownQuickCount - 1)"><FluentIcon icon="subtract-16-regular" :width="14" /></FluentButton>
+            <FluentInput :model-value="shownQuickCount" type="number" :min="1" :max="maxCards" :aria-label="lang === 'en' ? 'Quick draw count' : '一键多抽数量'" style="width: 60px; text-align: center;" @update:model-value="setCount(true, $event)" />
+            <FluentButton :aria-label="lang === 'en' ? 'Increase quick draw count' : '增加一键多抽数量'" variant="secondary" size="sm" icon-only :disabled="shownQuickCount >= maxCards" @click="setCount(true, shownQuickCount + 1)"><FluentIcon icon="add-16-regular" :width="14" /></FluentButton>
           </div>
-          <FluentButton variant="secondary" @click="quickDraw">
+          <FluentButton variant="secondary" :disabled="controlsBusy || !remainingCount" @click="quickDraw">
             <FluentIcon icon="flash-24-regular" :width="16" />
             {{ t('draw', lang) }}
           </FluentButton>
-          <FluentButton variant="secondary" @click="reset">
+          <FluentButton variant="secondary" :disabled="controlsBusy || !trayHistory.length" @click="reset">
             <FluentIcon icon="arrow-undo-16-regular" :width="14" />
             {{ t('reset', lang) }}
           </FluentButton>
@@ -92,6 +97,7 @@ import { dataBridge } from '../utils/dataBridge'
 import { t } from '../utils/i18n'
 import { gsap } from 'gsap'
 import { runCardDeal } from '../utils/animation.js'
+import { appendCardReceipt, cardSessionKey, readCardTray, withCardSession } from '../utils/cardSessions.mjs'
 
 const namesStore = useNamesStore()
 const settingsStore = useSettingsStore()
@@ -109,21 +115,29 @@ const cards = ref([])
 const trayHistory = ref([])
 const usedNames = ref(new Set())
 let cardIdCounter = 0
-let historyIdCounter = 0
 const cardRefs = new Map()
 const pendingOperationTimers = new Set()
 let operationGeneration = 0
 let unmounted = false
-let cardTransactionInFlight = false
+const cardTransactionInFlight = ref(false)
+const loadingTray = ref(true)
+const controlsBusy = computed(() => loadingTray.value || cardTransactionInFlight.value)
 let stopNamesLoadedWatch
 
-const TRAY_KEY = 'cardTrayHistory'
-const USED_KEY = 'cardUsedNames'
 const SETTINGS_KEY = 'cardSettings'
 
 const allNonWL = computed(() => namesStore.currentNames.filter(n => !n.isWhiteList))
-const remainingCount = computed(() => allNonWL.value.length - usedNames.value.size)
-const maxCards = computed(() => Math.max(1, allNonWL.value.length - usedNames.value.size))
+const remainingCount = computed(() => getAvailableNames().length)
+const maxCards = computed(() => Math.min(100, Math.max(1, remainingCount.value)))
+const clampCount = count => Math.max(1, Math.min(Math.trunc(Number(count) || 1), maxCards.value))
+const shownCardCount = computed(() => clampCount(cardCount.value))
+const shownQuickCount = computed(() => clampCount(quickCount.value))
+
+function setCount(quick, value) {
+  if (quick) quickCount.value = clampCount(value)
+  else cardCount.value = clampCount(value)
+  saveCardSettings()
+}
 
 function getAvailableNames() {
   return allNonWL.value.filter(person => !usedNames.value.has(person.id) && !usedNames.value.has(person.cn))
@@ -173,12 +187,12 @@ async function revealCard(card, generation = operationGeneration) {
 }
 
 function onListChange(id) {
-  namesStore.switchList(id)
-  reset()
+  if (!controlsBusy.value) namesStore.switchList(id)
 }
 
 async function saveCardSettings() {
-  await dataBridge.save(SETTINGS_KEY, { cardCount: cardCount.value, quickCount: quickCount.value })
+  try { await dataBridge.save(SETTINGS_KEY, { cardCount: cardCount.value, quickCount: quickCount.value, englishMode: englishMode.value }) }
+  catch (error) { if (!unmounted) showCardError(error) }
 }
 
 async function loadCardSettings() {
@@ -187,22 +201,57 @@ async function loadCardSettings() {
     if (saved.cardCount) cardCount.value = saved.cardCount
     if (saved.quickCount) quickCount.value = saved.quickCount
   }
+  englishMode.value = saved?.englishMode ?? settingsStore.settings.englishMode
 }
 
-async function saveTrayState() {
-  await dataBridge.save(TRAY_KEY, trayHistory.value)
-  await dataBridge.save(USED_KEY, [...usedNames.value])
+function showCardError(error) {
+  showBanner({ message: error?.message || (lang.value === 'en' ? 'Could not save the cards.' : '卡牌记录保存失败'), icon: 'warning-16-regular', type: 'warning', duration: 8000 })
 }
 
+function applyTray(tray) {
+  usedNames.value = new Set(tray.used)
+  trayHistory.value = tray.history
+}
 async function loadTrayState() {
-  const savedTray = await dataBridge.load(TRAY_KEY)
-  const savedUsed = await dataBridge.load(USED_KEY)
-  if (savedTray && Array.isArray(savedTray)) trayHistory.value = savedTray
-  if (savedUsed && Array.isArray(savedUsed)) usedNames.value = new Set(savedUsed)
-  if (trayHistory.value.length > 0) historyIdCounter = Math.max(...trayHistory.value.map(t => t.id)) + 1
+  const generation = operationGeneration
+  const listId = namesStore.currentList.id
+  const tray = await withCardSession(listId, () => readCardTray(dataBridge, listId, namesStore.allLists))
+  if (operationIsActive(generation)) applyTray(tray)
+}
+async function commitIntoTray(listId, generation, draw) {
+  const previous = { used: [...usedNames.value], history: [...trayHistory.value] }
+  const english = englishMode.value
+  cardTransactionInFlight.value = true
+  try {
+    return await withCardSession(listId, async () => {
+      const receipt = await draw()
+      const tray = appendCardReceipt(previous, receipt, english)
+      if (operationIsActive(generation)) applyTray(tray)
+      // The authoritative draw has already been recorded. Never retry the
+      // draw just because saving the auxiliary tray failed.
+      try { await dataBridge.save(cardSessionKey(listId), tray) }
+      catch (error) { if (operationIsActive(generation)) showCardError(error) }
+      return receipt
+    })
+  } finally {
+    if (operationIsActive(generation)) cardTransactionInFlight.value = false
+  }
+}
+function makeCards(count, available) {
+  const chosen = []
+  const copy = [...available]
+  while (chosen.length < count && copy.length > 0) {
+    const idx = Math.floor(Math.random() * copy.length)
+    chosen.push(copy[idx])
+    copy[idx] = copy[copy.length - 1]
+    copy.pop()
+  }
+  cards.value = chosen.map(p => ({ id: ++cardIdCounter, personId: p.id, displayName: getDisplayName(p), visible: false, flipped: false, pluginDeal: false }))
+  return chosen
 }
 
 function shuffle() {
+  if (controlsBusy.value) return
   const generation = cancelPendingOperations()
   const available = getAvailableNames()
   if (available.length === 0) {
@@ -215,22 +264,32 @@ function shuffle() {
     })
     return
   }
-  const k = Math.min(parseInt(cardCount.value) || 5, available.length)
-  if (k < 1) return
-  const chosen = []
-  const copy = [...available]
-  while (chosen.length < k && copy.length > 0) { const idx = Math.floor(Math.random() * copy.length); chosen.push(copy.splice(idx, 1)[0]) }
-  cards.value = chosen.map(p => ({ id: ++cardIdCounter, personId: p.id, cn: p.cn, en: p.en, displayName: getDisplayName(p), visible: false, flipped: false, pluginDeal: false }))
+  makeCards(shownCardCount.value, available)
   cards.value.forEach((card, i) => scheduleOperation(generation, () => { revealCard(card, generation) }, i * 80))
 }
 
 async function flipCard(index, operation = null, generation = operationGeneration) {
   if (!operationIsActive(generation)) return
   const card = cards.value[index]
-  if (!card || card.flipped) return
+  if (!card?.visible || card.flipped || loadingTray.value) return
   let activeOperation = operation || card.operation
-  if (!activeOperation && cardTransactionInFlight) return
-  const precommitted = !!activeOperation?.receipt
+  if (!activeOperation?.receipt) {
+    if (cardTransactionInFlight.value) return
+    const listId = namesStore.currentList.id
+    try {
+      const receipt = await commitIntoTray(listId, generation, () => coreClient.commitCard({
+        listId, personIds: [card.personId], operationId: globalThis.crypto?.randomUUID?.() || `card-${Date.now()}-${card.id}`
+      }))
+      if (!operationIsActive(generation)) return
+      activeOperation = { id: receipt.operationId, count: 1, index: 0, generation, receipt, globalState: {} }
+      card.operation = activeOperation
+    } catch (error) {
+      if (operationIsActive(generation)) showCardError(error)
+      return
+    }
+  }
+  const result = activeOperation.receipt.results[activeOperation.index]
+  card.displayName = (englishMode.value && result.englishName) || result.name
   card.flipped = true
   nextTick(() => {
     if (operationIsActive(generation)) pluginsStore.startAnimation('card.flip', cardRefs.get(card.id))
@@ -240,49 +299,22 @@ async function flipCard(index, operation = null, generation = operationGeneratio
     if (globalState) globalState.globalTriggered = true
     pluginsStore.startAnimation('global.transition', null, { variant: 'card' })
   }
-  const personId = card.personId || namesStore.currentNames.find(person => person.cn === card.cn && (!card.en || person.en === card.en))?.id || null
-  try {
-    if (!activeOperation?.receipt) {
-      const receipt = await coreClient.commitCard({
-        listId: namesStore.currentList.id,
-        personIds: [personId],
-        operationId: `card-${card.id}`
-      })
-      card.operation = { id: receipt.operationId, count: 1, index: 0, generation, receipt, globalState: {} }
-      activeOperation = card.operation
-    }
-  } catch (error) {
-    card.flipped = false
-    showBanner({ message: error?.message || '卡牌记录保存失败', icon: 'warning-16-regular', type: 'warning', duration: 8000 })
-    return
-  }
-  if (!precommitted) {
-    usedNames.value.add(card.personId || card.cn)
-    trayHistory.value.unshift({ id: ++historyIdCounter, name: card.displayName })
-  }
-  const receiptResult = activeOperation?.receipt?.results?.[activeOperation.index]
-  const result = receiptResult
-    ? { id: receiptResult.id || '', name: receiptResult.name || '', englishName: receiptResult.englishName || '' }
-    : { id: personId || '', name: card.cn, englishName: card.en || '' }
   pluginsStore.dispatchEvent('card:item-result', {
-    operationId: activeOperation?.id || card.operation?.id || `card-${card.id}`,
-    index: activeOperation?.index || 0,
-    count: activeOperation?.count || 1,
-    listId: namesStore.currentList.id,
+    operationId: activeOperation.id,
+    index: activeOperation.index,
+    count: activeOperation.count,
+    listId: activeOperation.receipt.listId,
     result
   })
-  if (!activeOperation || activeOperation.index === activeOperation.count - 1) {
+  if (activeOperation.index === activeOperation.count - 1) {
     pluginsStore.dispatchEvent('card:result', {
-      operationId: activeOperation?.id || card.operation?.id || `card-${card.id}`,
-      listId: namesStore.currentList.id,
-      results: activeOperation?.receipt?.results || [result]
+      operationId: activeOperation.id, listId: activeOperation.receipt.listId, results: activeOperation.receipt.results
     })
   }
-  if (!precommitted) saveTrayState()
 }
 
 async function quickDraw() {
-  if (cardTransactionInFlight) return
+  if (controlsBusy.value) return
   const generation = cancelPendingOperations()
   const available = getAvailableNames()
   if (available.length === 0) {
@@ -295,41 +327,23 @@ async function quickDraw() {
     })
     return
   }
-  let count = Math.min(parseInt(quickCount.value) || 4, maxCards.value)
-  if (available.length === 1 && count >= 2) {
-    showBanner({ message: lang.value === 'en' ? 'Only one left, drawing it for you' : '嘻...多抽嘛？可是只剩一个啦，不过人家还是帮你抽啦♪', icon: 'heart-16-regular', type: 'info', duration: 5000 })
-    count = 1
-  } else if (available.length < count) {
-    count = available.length
-  }
-  const chosen = []
-  const copy = [...available]
-  while (chosen.length < count && copy.length > 0) { const idx = Math.floor(Math.random() * copy.length); chosen.push(copy.splice(idx, 1)[0]) }
-  cards.value = chosen.map(p => ({ id: ++cardIdCounter, personId: p.id, cn: p.cn, en: p.en, displayName: getDisplayName(p), visible: false, flipped: false, pluginDeal: false }))
+  const chosen = makeCards(shownQuickCount.value, available)
+  const listId = namesStore.currentList.id
   const operationId = crypto.randomUUID?.() || `card-${Date.now()}`
   let receipt
-  cardTransactionInFlight = true
   try {
-    receipt = await coreClient.commitCard({
-      listId: namesStore.currentList.id,
+    receipt = await commitIntoTray(listId, generation, () => coreClient.commitCard({
+      listId,
       personIds: chosen.map(person => person.id),
       operationId
-    })
+    }))
   } catch (error) {
-    cardTransactionInFlight = false
-    if (operationIsActive(generation)) cards.value = []
-    if (operationIsActive(generation)) showBanner({ message: error?.message || '卡牌记录保存失败', icon: 'warning-16-regular', type: 'warning', duration: 8000 })
+    if (operationIsActive(generation)) { showCardError(error); shuffle() }
     return
   }
-  cardTransactionInFlight = false
   if (!operationIsActive(generation)) return
   const operation = { id: receipt.operationId || operationId, count: cards.value.length, globalTriggered: false, generation, receipt }
   cards.value.forEach((card, index) => { card.operation = { ...operation, index, globalState: operation } })
-  chosen.forEach(card => {
-    usedNames.value.add(card.id)
-    trayHistory.value.unshift({ id: ++historyIdCounter, name: getDisplayName(card) })
-  })
-  saveTrayState()
   cards.value.forEach((card, i) => {
     scheduleOperation(generation, () => {
       revealCard(card, generation)
@@ -342,18 +356,35 @@ function reset() {
   cancelPendingOperations()
   cards.value = []
   cardRefs.clear()
-  trayHistory.value = []
-  usedNames.value.clear()
-  saveTrayState()
+  const generation = operationGeneration
+  const listId = namesStore.currentList.id
+  const tray = { history: [], used: [] }
+  loadingTray.value = true
+  withCardSession(listId, () => dataBridge.save(cardSessionKey(listId), tray)).then(() => {
+    if (operationIsActive(generation)) applyTray(tray)
+  }).catch(error => { if (operationIsActive(generation)) showCardError(error) }).finally(() => {
+    if (!operationIsActive(generation)) return
+    loadingTray.value = false
+    if (remainingCount.value) shuffle()
+  })
 }
 
 onMounted(() => {
-  stopNamesLoadedWatch = watch(() => namesStore.isLoaded, (loaded) => {
-    if (!unmounted && loaded && remainingCount.value >= 1) shuffle()
-  })
-  Promise.all([loadCardSettings(), loadTrayState()]).then(() => {
-    if (!unmounted && namesStore.isLoaded && allNonWL.value.length > 0 && remainingCount.value >= 1) shuffle()
-  })
+  stopNamesLoadedWatch = watch([() => namesStore.isLoaded, () => namesStore.currentListId], ([loaded]) => {
+    if (!loaded) return
+    const generation = cancelPendingOperations()
+    cards.value = []
+    cardRefs.clear()
+    applyTray({ history: [], used: [] })
+    cardTransactionInFlight.value = false
+    loadingTray.value = true
+    Promise.all([loadCardSettings(), loadTrayState()]).then(() => {
+      if (!unmounted && operationIsActive(generation)) {
+        loadingTray.value = false
+        if (remainingCount.value) shuffle()
+      }
+    }).catch(error => { if (operationIsActive(generation)) showCardError(error) })
+  }, { immediate: true, flush: 'sync' })
 })
 
 onBeforeUnmount(() => {
@@ -371,6 +402,9 @@ onBeforeUnmount(() => {
 .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--plugin-component-card-deck-size, 140px), 1fr)); gap: var(--plugin-component-card-deck-gap, 20px); width: 100%; justify-items: center; flex: 1; align-content: center; padding: 0 var(--plugin-component-card-deck-padding, 0) 24px; background: var(--plugin-component-card-deck-background, transparent); color: var(--plugin-component-card-deck-foreground, inherit); }
 .card { width: var(--plugin-component-card-item-size, 140px); aspect-ratio: 7 / 10; height: auto; perspective: 1500px; cursor: pointer; opacity: 0; transform: translateY(30px); }
 .card.show { opacity: 1; transform: none; }
+.card:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: var(--radius-xl); }
+.card-empty { display: grid; gap: 10px; text-align: center; color: var(--text-secondary); margin: auto 0; padding: 20px; }
+.card-empty a { color: var(--text-primary); text-underline-offset: 4px; }
 .card-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .card:hover .card-inner { transform: translateY(-8px); }
 .card.flipped .card-inner { transform: rotateY(180deg); }
