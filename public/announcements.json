@@ -1,5 +1,23 @@
 [
   {
+    "id": 11,
+    "title": {
+      "cn": "v26.3.0 正式发布",
+      "en": "v26.3.0 Is Now Officially Released"
+    },
+    "important": true,
+    "pinned": true,
+    "tag": {
+      "cn": "正式发布",
+      "en": "Release"
+    },
+    "time": "2026/11/27 15:00",
+    "content": {
+      "cn": "v26.3.0 正式发布！这一次，八种点名工具住进了同一个工作台，抽奖也换上了更稳的记账方式。\n\n本次更新重点包括：\n\n- 点名工具整合为八合一工作台：滚动、翻牌、转盘、光轨穿梭、座次寻光、流萤传灯、花笺藏名、连星成诗\n- 座次寻光支持粘贴 Excel/CSV/TSV 座位表，标记缺席、交换座位；光轨穿梭可一次抽齐并逐个揭晓\n- 抽奖新增花信盲盒与刮开好运，支持批量抽取，抽前可看库存与概率\n- 奖品库存与记录改为统一事务：抽中即扣库存，揭晓不再重复扣减；旧数据自动迁移\n- Dock 合并为单一「点名工具」入口，窄屏导航改为抽屉，旧翻牌链接仍然可用\n\n详细内容可在「设置 → 更新日志」查看。欢迎通过 GitHub Issues 反馈问题与建议。",
+      "en": "v26.3.0 is now officially released! Eight name-picking tools now share one workspace, and prize draws use a safer, transactional inventory ledger.\n\nHighlights include:\n\n- All eight roll-call tools in one workspace: Roller, Cards, Wheel, Light Tunnel, Seat Spotlight, Firefly Relay, Petal Riddle, and Constellations\n- Seat Spotlight accepts Excel/CSV/TSV seating charts, attendance marking, and seat swaps; Light Tunnel draws a batch and reveals names together or one by one\n- Prize draws add Bloom Boxes and Scratch & Reveal, batch draws, and a live odds/stock preview\n- Prize inventory and history now commit as one transaction: drawing consumes stock once, revealing never consumes it again, and legacy data migrates automatically\n- The Dock now has a single Roller entry, narrow screens use a navigation drawer, and old Card links still work\n\nSee Settings → Changelog for the full list, and use GitHub Issues for feedback."
+    }
+  },
+  {
     "id": 10,
     "title": {
       "cn": "v26.2.4 正式发布",
@@ -69,24 +87,6 @@
     "content": {
       "cn": "v26.2.1 正式发布！本版本修复了 v26.2.0 的构建失败问题，并恢复 Release、GitHub Pages 与插件 SDK 的发布流程。\n\n本次更新重点包括：\n\n- 移除设置页中重复声明的悬浮窗样式同步函数，修复构建失败\n- 发布流程全面统一使用 bun，安装、测试与构建更加稳定\n\n详细内容可在「设置 → 更新日志」查看。欢迎通过 GitHub Issues 反馈问题与建议。",
       "en": "v26.2.1 is now officially released. This version fixes the v26.2.0 build failure and restores the Release, GitHub Pages, and Plugin SDK publishing pipelines.\n\nHighlights include:\n\n- Removed duplicate floating-window style sync declarations in Settings that broke the build\n- All publishing pipelines now consistently use bun for more stable installs, tests, and builds\n\nSee Settings → Changelog for the full list, and use GitHub Issues for feedback."
-    }
-  },
-  {
-    "id": 6,
-    "title": {
-      "cn": "v26.1.0 正式发布",
-      "en": "v26.1.0 Is Now Officially Released"
-    },
-    "important": true,
-    "pinned": true,
-    "tag": {
-      "cn": "正式发布",
-      "en": "Release"
-    },
-    "time": "2026/08/03 15:39",
-    "content": {
-      "cn": "v26.1.0 正式发布！本版本完成了插件平台、桌面运行时、导航动画与数据导入体验的集中升级，Web 与 Tauri 桌面端现已提供正式版本。\n\n本次更新重点包括：\n\n- 完整插件系统：在线安装、更新、卸载、依赖、纯净恢复模式与本地 `.cnrp` 调试\n- 宿主原生 Fluent 插件页面、跨平台能力桥接，以及名单、记录、统计和平衡数据只读保护\n- 插件可贡献独立页面和 Dock 栏功能入口，并支持插件 SDK 1.1 运行时\n- 覆盖式二级 Dock 菜单，GSAP 页面转场与 Dock 活动竖线动画\n- 官方插件模板、Fluent 组件/API Pages 与『来点音效』v1.1.0 示例插件\n- Tauri `cyrenenr` URI、Web Hash 一次性参数及指定 Roller 配置后自动开始滚动\n- 跨管理员权限单实例 IPC、双模式开机启动、启动到托盘与启动动画时序修复\n- 人员性别与 Roller 性别筛选、公平算法状态标识、新成员统计初始化策略\n- CSV/JSON/XLSX/CYRENE 智能拖入导入及名单身份信息保护\n- 通知横幅统一支持关闭，压缩 MiSans 字体以减少桌面端体积\n- 正式移除 Electron 支持，后续核心版本仅维护 Web 与 Tauri\n\n详细内容可在「设置 → 更新日志」查看。欢迎通过 GitHub Issues 反馈问题与建议。",
-      "en": "v26.1.0 is now officially released. This version brings a coordinated upgrade to the plugin platform, desktop runtime, navigation animations, and import experience. The Web and Tauri desktop builds are now available as stable releases.\n\nHighlights include:\n\n- A complete plugin system with catalog install, update, uninstall, dependencies, clean recovery, and local `.cnrp` debugging\n- Host-rendered native Fluent plugin pages, cross-platform bridges, and read-only protection for lists, records, statistics, and balance data\n- Independent plugin pages and functional Dock entries, backed by the plugin API 1.1 runtime\n- Overlay secondary Dock menus, GSAP page transitions, and animated Dock active indicators\n- The official plugin template, Fluent components/API Pages, and the usable Sound Effects v1.1.0 example plugin\n- The `cyrenenr` desktop URI scheme, Web hash one-time parameters, and direct Roller startup with supplied settings\n- Cross-elevation single-instance IPC, two startup methods, startup-to-tray, and splash timing fixes\n- Gender-aware draws, fairness status, and configurable new-member statistics initialization\n- Smart CSV/JSON/XLSX/CYRENE drag-and-drop import with identity preservation\n- Dismissible notification banners and compressed MiSans fonts for smaller desktop builds\n- Electron development and releases have ended; future core versions target Web and Tauri\n\nSee Settings → Changelog for the full list, and use GitHub Issues for feedback."
     }
   }
 ]

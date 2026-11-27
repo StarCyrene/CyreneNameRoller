@@ -1,5 +1,37 @@
 [
   {
+    "version": "26.3.0",
+    "date": "2026-11-27",
+    "logs": {
+      "zh": [
+        "【点名】八种点名工具整合为「点名工具」工作台：滚动、翻牌、转盘、光轨穿梭、座次寻光、流萤传灯、花笺藏名、连星成诗；底部工具条切换，旧翻牌链接与书签继续可用",
+        "【点名】转盘点名在名单较大时按序号区间划分扇区，指针停在实际抽中者所在扇区；光轨穿梭可一次抽齐不重复的姓名，并选择一起或逐个揭晓",
+        "【点名】座次寻光按名单直接点名，支持标记缺席、交换座位与分页；可粘贴 Excel/CSV/TSV 座位表，应用前预览并标出同名、重复与缺失",
+        "【点名】流萤传灯每轮只抽还没接过灯的人；花笺藏名按字形逐字提示并保留最后一字；连星成诗临时随机分组，组间人数最多差一人，且不改名单顺序、不记点名",
+        "【抽奖】新增「花信盲盒」与「刮开好运」两种揭晓玩法，支持 1–100 件批量抽取，并在抽前展示库存与下一件奖品的概率",
+        "【抽奖】奖品库存与抽奖记录改为统一事务：抽中即扣库存并记一条记录，揭晓动作不再重复扣库存或重复记账；并发编辑会检测冲突并提示核对",
+        "【数据】奖品单、当前奖池与记录合并为单一加密快照，旧版奖品数据自动迁移；备份导入先校验再整体替换，失败会回滚全部字节",
+        "【数据】奖品池纳入 Core 状态，备份、恢复与重置保持一致；桌面端重启后仍能读到最新库存",
+        "【稳定】翻牌托盘按名单隔离，切换页面会等待上一笔提交；座位表与奖池写入串行化，避免快速切换时读到旧数据",
+        "【界面】Dock 合并为单一「点名工具」入口；窄屏下导航改为抽屉，版本号移到工具条；`cyrenenr://page/cards` 等旧深链继续兼容",
+        "【兼容】修复 Web 端哈希深链同时包含查询参数与片段时的解析问题"
+      ],
+      "en": [
+        "[Roller] Consolidated eight roll-call tools into one workspace: Roller, Cards, Wheel, Light Tunnel, Seat Spotlight, Firefly Relay, Petal Riddle, and Constellations. Switch from the bottom tool bar; old Card links and bookmarks keep working",
+        "[Roller] The Wheel groups large rosters into numbered ranges and lands the pointer on the sector containing the drawn person; Light Tunnel draws a batch without repeats and reveals names together or one by one",
+        "[Roller] Seat Spotlight draws straight from the roster and supports marking absences, swapping seats, and paging; paste an Excel/CSV/TSV seating chart and preview name clashes, duplicates, and missing people before applying",
+        "[Roller] Firefly Relay only draws people who have not held the light this round; Petal Riddle reveals one grapheme at a time and keeps the final character hidden; Constellations forms temporary random teams that differ in size by at most one without changing roster order or recording a draw",
+        "[Prizes] Added Bloom Boxes and Scratch & Reveal; draw 1–100 items per round and preview remaining stock and the next item's odds before drawing",
+        "[Prizes] Prize inventory and draw history now commit as one transaction: drawing consumes stock and writes one record per item, while revealing never consumes stock again or duplicates history; concurrent edits detect conflicts and ask for review",
+        "[Data] Prize lists, the active pool, and history are stored as one encrypted snapshot, with automatic migration from legacy prize data; backup import validates first, replaces as a whole, and rolls back every byte on failure",
+        "[Data] The prize pool is now part of Core state, so backup, restore, and reset stay consistent; the latest inventory is still available after a desktop restart",
+        "[Stability] Card trays are isolated per list, and remounting waits for the previous commit; seating-chart and prize writes are serialized so quick switching never reads stale data",
+        "[UI] The Dock now has a single Roller entry; narrow screens use a navigation drawer, the version badge moves to the tool bar, and legacy deep links such as `cyrenenr://page/cards` still resolve",
+        "[Compatibility] Fixed Web hash deep links that contain both a query string and a fragment"
+      ]
+    }
+  },
+  {
     "version": "26.2.4",
     "date": "2026-10-02",
     "logs": {
