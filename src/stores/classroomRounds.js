@@ -48,7 +48,7 @@ export const useClassroomRounds = defineStore('classroom-rounds', () => {
       if (round !== version) return
       const receipt = await plugins.executeRollerDraw({
         listId, target: 'people', gender: 'all', count: 1, allowDuplicates: false,
-        singleDrawPreviousIds: previous, countStatistics
+        singleDrawPreviousIds: previous, countStatistics, source: 'relay'
       })
       if (round !== version) return
       const result = receipt.results[0]

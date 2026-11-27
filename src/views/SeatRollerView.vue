@@ -217,7 +217,7 @@ async function draw() {
     const operationId = globalThis.crypto?.randomUUID?.() || `seats-${Date.now()}`
     plugins.dispatchEvent('roller:start', { operationId, listId, target: 'people', count: 1 })
     const result = await plugins.executeRollerDraw({ listId, target: 'people', count: 1, gender: 'all', allowDuplicates: false,
-      singleDrawPreviousIds: exclusions, operationId, countStatistics: settings.settings.recordCounts || balance.enabled })
+      singleDrawPreviousIds: exclusions, operationId, countStatistics: settings.settings.recordCounts || balance.enabled, source: 'seats' })
     if (token !== generation) return
     receipt.value = result
     pageIndex.value = winnerAddress.value?.page || 0

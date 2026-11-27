@@ -6,6 +6,7 @@ import { usePrizesStore } from '../stores/prizes.js'
 import { commitCoreStateTransaction } from '../plugins/coreDraw.js'
 import { normalizeCoreCaller, normalizeCoreCardInput, normalizeCoreCommitState, normalizeCoreDrawInput, normalizeCoreMaintenanceInput } from './protocol.js'
 import { isTauri, tauriAPI } from '../utils/tauriAPI.js'
+import { CORE_DRAW_SOURCES } from '../utils/recordSources.mjs'
 
 class CoreClient {
   constructor() {
@@ -163,9 +164,12 @@ class CoreClient {
     return balance
   }
 
-  async executeDraw({ caller: rawCaller, input: rawInput, singleDrawPreviousIds, fixedLineup = false }) {
+  async executeDraw({ caller: rawCaller, input: rawInput, singleDrawPreviousIds, fixedLineup = false, source = '' }) {
     const caller = normalizeCoreCaller(rawCaller)
     const input = normalizeCoreDrawInput(rawInput)
+    if (source && (caller.kind !== 'core-ui' || !CORE_DRAW_SOURCES.includes(source))) {
+      throw Object.assign(new Error('无效的点名来源 / Invalid draw source'), { code: 'CORE_TRANSACTION_REJECTED' })
+    }
     const hooked = this.hookCoordinator && await this.hookCoordinator.before('name-draw', input)
     const effectiveInput = hooked ? { ...input, ...hooked.filter } : input
     if (fixedLineup && Object.keys(input).some(key => input[key] !== effectiveInput[key])) {
@@ -191,6 +195,7 @@ class CoreClient {
         operationId: caller.operationId,
         countStatistics: caller.countStatistics,
         ...singleDraw,
+        ...(source ? { source } : {}),
         input: effectiveInput
       })
       await statisticsStore.restoreState(value.statistics, { persist: false })
@@ -201,7 +206,7 @@ class CoreClient {
     }
     return this.enqueueWebTransaction(async () => {
       const balance = await this.syncWebState(namesStore, recordsStore, statisticsStore)
-      const receipt = await this.request({ type: 'draw.execute', caller, input: effectiveInput, ...singleDraw })
+      const receipt = await this.request({ type: 'draw.execute', caller, input: effectiveInput, ...singleDraw, ...(source ? { source } : {}) })
       this.lastStateSignature = this.webStateSignature(namesStore, recordsStore, statisticsStore, balance)
        const afterAudit = await this.runAfterHooks('name-draw', receipt, hooked?.audit, { originalFilter: input, finalFilter: effectiveInput })
       return JSON.parse(JSON.stringify(hooked ? { ...receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: effectiveInput } : receipt))

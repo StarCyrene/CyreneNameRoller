@@ -1,7 +1,6 @@
 <template>
   <div class="roller-workspace">
     <footer class="tool-bar">
-      <span class="tool-bar-label" aria-hidden="true">{{ toolLabel }}</span>
       <div ref="stripShell" class="tool-strip-shell" :class="{ 'has-overflow': overflow }">
         <button v-if="canScrollBack" type="button" class="strip-arrow strip-back" tabindex="-1"
           :aria-label="lang === 'en' ? 'Show previous tools' : '查看前面的工具'" aria-controls="roller-tool-picker" @mousedown.prevent @click="pageTools(-1)">
@@ -29,7 +28,11 @@
       <div :ref="attachVersionHost" class="tool-version-host" />
     </footer>
     <div ref="panel" id="roller-tool-panel" class="tool-panel" role="tabpanel" tabindex="0" :aria-labelledby="'roller-tab-' + route.name">
-      <RouterView />
+      <RouterView v-slot="{ Component }">
+        <Transition name="tool-swap" mode="out-in">
+          <component :is="Component" :key="route.name" />
+        </Transition>
+      </RouterView>
     </div>
   </div>
 </template>
@@ -129,14 +132,6 @@ function onTabKey(event) {
   border-top: 1px solid var(--border-default);
   background: var(--bg-card-solid);
 }
-.tool-bar-label {
-  flex: none;
-  padding-right: 18px;
-  border-right: 1px solid var(--border-strong);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-}
 .tool-strip-shell {
   flex: 1;
   display: grid;
@@ -199,11 +194,15 @@ function onTabKey(event) {
 }
 .tool-panel { grid-area: panel; min-width: 0; min-height: 0; overflow: auto; }
 .tool-panel:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tool-swap-enter-active, .tool-swap-leave-active { transition: opacity .17s ease, transform .17s ease; }
+.tool-swap-enter-from { opacity: 0; transform: translateY(7px) scale(.997); }
+.tool-swap-leave-to { opacity: 0; transform: translateY(-5px) scale(.997); }
+@media (prefers-reduced-motion: reduce) { .tool-swap-enter-active, .tool-swap-leave-active { transition: none; } }
+:global(.perf-no-anim) .tool-swap-enter-active, :global(.perf-no-anim) .tool-swap-leave-active { transition: none; }
 .tool-version-host { display: flex; align-items: center; justify-content: flex-end; min-width: 0; max-width: 100%; }
 .tool-version-host:empty { display: none; }
 .compact-label { display: none; }
 @container roller-workspace (max-width: 1250px) {
-  .tool-bar-label { display: none; }
   .tool-tab { padding-inline: 8px; }
 }
 @container roller-workspace (max-width: 970px) {

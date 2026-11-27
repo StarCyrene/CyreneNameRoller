@@ -21,13 +21,12 @@
       <div class="relay-meter" aria-hidden="true"><i :style="{ width:(rounds.turns.length / (rounds.relayLimit || 1) * 100) + '%' }" /></div>
     </div>
     <div class="classroom-actions">
-      <label class="classroom-field">{{ complete ? (en ? 'Next round length' : '下轮人数') : (en ? 'Round length' : '每轮人数') }}
-        <input type="number" min="1" :max="Math.min(100,rounds.people.length)" :disabled="(!!current && !complete) || rounds.busy || !rounds.people.length"
-          :value="rounds.nextTarget" @change="setSize" />
-      </label>
+      <CountStepper :label="complete ? (en ? 'Next round length' : '下轮人数') : (en ? 'Round length' : '每轮人数')"
+        :model-value="rounds.nextTarget" :min="1" :max="Math.min(100,rounds.people.length)"
+        :disabled="(!!current && !complete) || rounds.busy || !rounds.people.length" :en="en" @update:model-value="setSize" />
       <div class="button-set">
         <FluentButton v-if="current && !complete" variant="secondary" :disabled="rounds.busy" @click="rounds.resetRelay">{{ en ? 'End round' : '结束本轮' }}</FluentButton>
-        <FluentButton variant="primary" :disabled="!rounds.people.length || rounds.busy" @click="advance">
+        <FluentButton class="relay-advance" variant="primary" :disabled="!rounds.people.length || rounds.busy" @click="advance">
           {{ rounds.busy ? (en ? 'Drawing…' : '点名中…') : complete ? (en ? 'Start another round' : '开启下一轮') : current ? (en ? 'Pass the light' : '把灯传给下一位') : (en ? 'Light the first lantern' : '点亮第一盏灯') }}
         </FluentButton>
       </div>
@@ -43,6 +42,7 @@
 <script setup>
 import { computed } from 'vue'
 import ClassroomSheet from '../components/roller/ClassroomSheet.vue'
+import CountStepper from '../components/roller/CountStepper.vue'
 import { useSettingsStore } from '../stores/settings'
 import { useClassroomRounds } from '../stores/classroomRounds'
 import { boundCount } from '../utils/classroomRounds'
@@ -53,9 +53,8 @@ const en = computed(() => settings.settings.language === 'en')
 const current = computed(() => rounds.turns.at(-1))
 const complete = computed(() => !!current.value && rounds.turns.length >= rounds.relayLimit)
 const displayName = person => settings.settings.englishMode && person.englishName || person.name
-function setSize(event) {
-  rounds.relaySize = boundCount(event.target.value, Math.min(100,rounds.people.length), 5)
-  event.target.value = rounds.relaySize
+function setSize(value) {
+  rounds.relaySize = boundCount(value, Math.min(100,rounds.people.length), 5)
 }
 function advance() {
   if (complete.value) rounds.resetRelay()
