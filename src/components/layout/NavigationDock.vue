@@ -1,5 +1,5 @@
 <template>
-  <nav ref="dockRef" class="dock" data-plugin-component="navigation.dock" :class="{ collapsed: dockCollapsed, 'secondary-open': Boolean(activeSecondaryMenu) }" :style="pluginsStore.componentStyleStyle('navigation.dock')">
+  <nav ref="dockRef" class="dock" data-plugin-component="navigation.dock" :class="{ collapsed: dockCollapsed, 'secondary-open': Boolean(activeSecondaryMenu) }" :style="pluginsStore.componentStyleStyle('navigation.dock')" @keydown.esc="$emit('close-drawer')" @click="onDockClick">
     <div
       v-show="indicatorVisible"
       ref="indicatorRef"
@@ -9,7 +9,7 @@
 
     <div ref="dockPrimaryRef" class="dock-primary">
       <div v-if="!isDesktopApp" class="dock-top">
-        <button class="dock-toggle" @click="toggleDock" :title="dockCollapsed ? '展开' : '收起'">
+        <button class="dock-toggle" @click="$emit('toggle-dock')" :aria-expanded="!dockCollapsed" :title="dockCollapsed ? (lang === 'en' ? 'Expand' : '展开') : (lang === 'en' ? 'Collapse' : '收起')">
           <Icon icon="fluent:line-horizontal-3-20-regular" :width="18" />
         </button>
         <template v-if="!dockCollapsed">
@@ -168,7 +168,9 @@ const route = useRoute()
 const settingsStore = useSettingsStore()
 const pluginsStore = usePluginsStore()
 const lang = computed(() => settingsStore.settings.language)
-const dockCollapsed = computed(() => settingsStore.settings.dockCollapsed || false)
+const props = defineProps({ dockCollapsed: Boolean })
+const emit = defineEmits(['toggle-dock', 'open-drawer', 'close-drawer'])
+const dockCollapsed = computed(() => props.dockCollapsed)
 const isDesktopApp = computed(() => isTauri())
 
 const pluginDockItems = computed(() => pluginsStore.contributedPages
@@ -320,6 +322,7 @@ watch([dockCollapsed, lang, pluginDockItems], () => syncIndicatorAfterLayout(fal
 
 function openSecondaryMenu(menu) {
   activeSecondaryMenu.value = menu
+  emit('open-drawer')
 }
 
 async function closeSecondaryMenu({ restoreFocus = false } = {}) {
@@ -332,17 +335,16 @@ async function closeSecondaryMenu({ restoreFocus = false } = {}) {
 
 function isPrimaryItemActive(item) {
   if (item.menu) return secondaryMenuForRoute(route.path) === item.menu
+  if (item.id === 'roller') return route.meta.rollerWorkspace === true
   return route.path === item.to
 }
 
-function toggleDock() {
-  settingsStore.update('dockCollapsed', !dockCollapsed.value)
-  syncIndicatorAfterLayout(false)
+function onDockClick(event) {
+  if (event.target.closest('a[href]')) emit('close-drawer')
 }
 
 const mainItems = [
-  { id: 'roller', to: '/roller', icon: 'fluent:flash-24-regular', label: { zh: '随机点名', en: 'Roller' } },
-  { id: 'card', to: '/card', icon: 'fluent:card-ui-portrait-flip-24-regular', label: { zh: '翻牌点名', en: 'Card Mode' } },
+  { id: 'roller', to: '/roller', icon: 'fluent:flash-24-regular', label: { zh: '点名工具', en: 'Roller' } },
   { id: 'lottery', menu: 'lottery', icon: 'fluent:gift-24-regular', label: { zh: '抽奖模式', en: 'Lottery' } },
   { id: 'statistics', to: '/statistics', icon: 'fluent:chart-multiple-24-regular', label: { zh: '统计', en: 'Statistics' } },
   { id: 'records', menu: 'records', icon: 'fluent:history-24-regular', label: { zh: '抽取记录', en: 'Records' } },

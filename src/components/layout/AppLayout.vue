@@ -2,9 +2,11 @@
   <div class="app-layout" data-plugin-style-surface="main" :class="[themeClass, { dark: settingsStore.darkMode, 'perf-no-blur': !settingsStore.settings.perfBlur, 'perf-no-shadow': !settingsStore.settings.perfShadows, 'perf-no-anim': !settingsStore.settings.perfAnimations }]" :style="themeStyle" @contextmenu.prevent>
     <PluginVisualLayers />
     <div ref="globalAnimationSurfaceRef" class="plugin-global-animation-surface" aria-hidden="true" />
-    <TitleBar class="app-foreground-layer" />
+    <TitleBar class="app-foreground-layer" :dock-collapsed="dockCollapsed" @toggle-dock="toggleDock" />
     <div class="app-body app-foreground-layer">
-      <NavigationDock />
+      <NavigationDock :dock-collapsed="dockCollapsed" @toggle-dock="toggleDock" @open-drawer="drawerOpen = true" @close-drawer="drawerOpen = false" />
+      <button v-if="narrowDock && drawerOpen" class="dock-scrim" type="button"
+        :aria-label="lang === 'en' ? 'Close navigation' : '收起导航'" @click="drawerOpen = false" @keydown.esc="drawerOpen = false" />
       <main ref="appContentRef" class="app-content">
         <router-view v-slot="{ Component, route }">
           <div ref="routeStageRef" class="route-page-stage" :data-route-path="route.path">
@@ -14,16 +16,18 @@
       </main>
     </div>
     <FullscreenToggle />
-    <div
-      v-if="versionBadgeOverride.visibility !== 'hidden'"
-      class="version-badge"
-      data-plugin-component="app.version-badge"
-      :class="{ 'plugin-reserved': versionBadgeOverride.layout === 'reserve' }"
-      :style="pluginsStore.componentStyleStyle('app.version-badge')"
-    >
-      <span class="v-prefix">{{ APP_VERSION_PREFIX }}</span><span class="v-num">{{ APP_VERSION }}</span>
-      <span class="v-sep">build:</span><span class="v-num">{{ APP_BUILD }}</span><span class="v-sep">-{{ APP_PLATFORM }}</span>
-    </div>
+    <Teleport :to="rollerVersionHost || 'body'" :disabled="!rollerVersionHost">
+      <div
+        v-if="versionBadgeOverride.visibility !== 'hidden'"
+        class="version-badge"
+        data-plugin-component="app.version-badge"
+        :class="{ 'plugin-reserved': versionBadgeOverride.layout === 'reserve', 'version-in-footer': !!rollerVersionHost }"
+        :style="pluginsStore.componentStyleStyle('app.version-badge')"
+      >
+        <span class="v-prefix">{{ APP_VERSION_PREFIX }}</span><span class="v-num">{{ APP_VERSION }}</span>
+        <span class="v-sep">build:</span><span class="v-num">{{ APP_BUILD }}</span><span class="v-sep">-{{ APP_PLATFORM }}</span>
+      </div>
+    </Teleport>
 
     <Transition name="drop-overlay">
       <div v-if="dragActive" class="file-drop-overlay">
@@ -120,7 +124,7 @@
 </template>
 
 <script setup>
-import { onMounted, onBeforeUnmount, watch, provide, ref, computed, nextTick, reactive } from 'vue'
+import { onMounted, onBeforeUnmount, watch, provide, ref, shallowRef, computed, nextTick, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { gsap } from 'gsap'
 import { animationEnabled } from '../../utils/animation'
@@ -144,6 +148,22 @@ import { getCoreClient } from '../../core/client'
 const router = useRouter()
 const currentRoute = useRoute()
 const settingsStore = useSettingsStore()
+const rollerVersionHost = shallowRef(null)
+provide('rollerVersionHost', rollerVersionHost)
+const dockViewport = window.matchMedia('(max-width: 768px)')
+const narrowDock = ref(dockViewport.matches)
+const drawerOpen = ref(false)
+const dockCollapsed = computed(() => narrowDock.value ? !drawerOpen.value : !!settingsStore.settings.dockCollapsed)
+function handleDockViewport(event) {
+  narrowDock.value = event.matches
+  drawerOpen.value = false
+}
+function toggleDock() {
+  if (narrowDock.value) drawerOpen.value = !drawerOpen.value
+  else settingsStore.update('dockCollapsed', !dockCollapsed.value)
+}
+onMounted(() => dockViewport.addEventListener('change', handleDockViewport))
+onBeforeUnmount(() => dockViewport.removeEventListener('change', handleDockViewport))
 const namesStore = useNamesStore()
 const statisticsStore = useStatisticsStore()
 const recordsStore = useRecordsStore()
@@ -755,6 +775,12 @@ function routeAnimationOrder(route) {
 }
 
 const removeBeforeRouteGuard = router.beforeEach((to, from) => {
+  if (to.meta.rollerWorkspace && from.meta.rollerWorkspace) {
+    activeEnterRun?.cancel?.()
+    removeRouteGhost()
+    navigationCycle = null
+    return
+  }
   const toIdx = routeAnimationOrder(to)
   const fromIdx = routeAnimationOrder(from)
   const direction = toIdx >= fromIdx ? 'forward' : 'back'
@@ -932,6 +958,7 @@ watch(() => settingsStore.settings.fontFamily, (val) => {
   background: transparent;
 }
 .app-foreground-layer { position: relative; z-index: 1; }
+.dock-scrim { position: absolute; inset: 0; z-index: 90; border: 0; background: #18101826; }
 
 .app-body {
   flex: 1;
@@ -995,6 +1022,7 @@ watch(() => settingsStore.settings.fontFamily, (val) => {
   gap: 3px;
 }
 .version-badge.plugin-reserved { visibility: hidden; }
+.version-badge.version-in-footer { position: static; max-width: 100%; overflow: hidden; white-space: nowrap; line-height: 1.2; }
 
 .file-drop-overlay {
   position: fixed;

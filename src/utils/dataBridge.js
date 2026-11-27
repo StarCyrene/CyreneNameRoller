@@ -2,7 +2,7 @@ import { isTauri, tauriAPI } from './tauriAPI.js'
 import { decryptCyreneData, encryptCyreneData } from './cyreneCrypto.js'
 import { emitFileNotice } from './desktopFiles.js'
 
-const TAURI_CORE_INPUT_KEYS = new Set(['lists', 'currentListId', 'balance'])
+const TAURI_CORE_INPUT_KEYS = new Set(['lists', 'currentListId', 'balance', 'prizes'])
 
 export const dataBridge = {
   async load(key) {
@@ -118,16 +118,12 @@ export const dataBridge = {
     return new Promise((resolve) => {
       const input = document.createElement('input')
       input.type = 'file'; input.accept = '.cyrene'
+      input.oncancel = () => resolve({ success: false, cancelled: true })
       input.onchange = async (e) => {
         const file = e.target.files[0]
         if (!file) { resolve({ success: false, cancelled: true }); return }
         try {
-          const bytes = new Uint8Array(await file.arrayBuffer())
-          const data = await decryptCyreneData(bytes)
-          for (const [k, v] of Object.entries(data)) {
-            localStorage.setItem(k, JSON.stringify(v))
-          }
-          resolve({ success: true })
+          resolve(await dataBridge.importDataBytes(await file.arrayBuffer()))
         } catch (error) { resolve({ success: false, error: error.message || 'Parse error' }) }
       }
       input.click()
@@ -146,14 +142,49 @@ export const dataBridge = {
     }
     try {
       const values = await decryptCyreneData(bytes)
-      localStorage.clear()
-      for (const [key, value] of Object.entries(values)) {
-        localStorage.setItem(key, JSON.stringify(value))
-      }
+      restoreBrowserBackup(values, localStorage)
       return { success: true }
     } catch (error) {
       return { success: false, error: error.message || 'Parse error' }
     }
+  }
+}
+
+function restoreBrowserBackup(values, storage) {
+  const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+  const listsValid = lists => object(lists) && Object.values(lists).every(list =>
+    object(list) && typeof list.name === 'string' && Array.isArray(list.prizes)
+      && list.prizes.every(prize => object(prize) && typeof prize.name === 'string'))
+  if ('prizes' in values && !(object(values.prizes) && listsValid(values.prizes.lists) && Array.isArray(values.prizes.records))) {
+    throw new Error('备份中的奖池数据无效')
+  }
+  if (!Object.keys(values.prizes?.lists || {}).length
+    && (('prizeLists' in values && !listsValid(values.prizeLists)) || ('prizeRecords' in values && !Array.isArray(values.prizeRecords)))) {
+    throw new Error('备份中的旧版奖品单或抽奖记录无效')
+  }
+  const next = new Map(Object.entries(values).map(([key, value]) => [key, JSON.stringify(value)]))
+  const previous = new Map()
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i)
+    previous.set(key, storage.getItem(key))
+  }
+  // A full backup replaces the data set. In particular, an old backup without
+  // "prizes" must remove the current snapshot so its legacy pool can migrate.
+  const touched = []
+  try {
+    for (const key of previous.keys()) {
+      if (!next.has(key)) { storage.removeItem(key); touched.push(key) }
+    }
+    for (const [key, raw] of next) {
+      if (previous.get(key) === raw) continue
+      storage.setItem(key, raw)
+      touched.push(key)
+    }
+  } catch (error) {
+    // Remove the partial import first; the originals already fit the quota.
+    touched.forEach(key => storage.removeItem(key))
+    touched.forEach(key => { if (previous.has(key)) storage.setItem(key, previous.get(key)) })
+    throw error
   }
 }
 

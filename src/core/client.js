@@ -117,7 +117,6 @@ class CoreClient {
       }))
       this.commitQueue = commit
       await commit
-      if (nextPrizes) await usePrizesStore().restoreState(nextPrizes)
       worker.postMessage({ type: 'commit.resolve', requestId: message.requestId })
     } catch (error) {
       worker.postMessage({
@@ -164,11 +163,20 @@ class CoreClient {
     return balance
   }
 
-  async executeDraw({ caller: rawCaller, input: rawInput }) {
+  async executeDraw({ caller: rawCaller, input: rawInput, singleDrawPreviousIds, fixedLineup = false }) {
     const caller = normalizeCoreCaller(rawCaller)
     const input = normalizeCoreDrawInput(rawInput)
     const hooked = this.hookCoordinator && await this.hookCoordinator.before('name-draw', input)
     const effectiveInput = hooked ? { ...input, ...hooked.filter } : input
+    if (fixedLineup && Object.keys(input).some(key => input[key] !== effectiveInput[key])) {
+      throw Object.assign(new Error('插件修改了本轮点名条件 / A plugin changed the requested draw settings'), { code: 'CORE_TRANSACTION_REJECTED' })
+    }
+    // A seat, riddle or relay turn reveals exactly one person from the chosen roster.
+    if (singleDrawPreviousIds !== undefined && (caller.kind !== 'core-ui' || effectiveInput.count !== 1 ||
+      effectiveInput.target !== 'people' || effectiveInput.listId !== input.listId || effectiveInput.gender !== input.gender)) {
+      throw Object.assign(new Error('此玩法每次只从当前名单抽取一人 / This tool draws one person from the current list'), { code: 'CORE_TRANSACTION_REJECTED' })
+    }
+    const singleDraw = singleDrawPreviousIds === undefined ? {} : { singleDrawPreviousIds }
     const namesStore = useNamesStore()
     const recordsStore = useRecordsStore()
     const statisticsStore = useStatisticsStore()
@@ -182,6 +190,7 @@ class CoreClient {
         pluginId: caller.pluginId,
         operationId: caller.operationId,
         countStatistics: caller.countStatistics,
+        ...singleDraw,
         input: effectiveInput
       })
       await statisticsStore.restoreState(value.statistics, { persist: false })
@@ -192,7 +201,7 @@ class CoreClient {
     }
     return this.enqueueWebTransaction(async () => {
       const balance = await this.syncWebState(namesStore, recordsStore, statisticsStore)
-      const receipt = await this.request({ type: 'draw.execute', caller, input: effectiveInput })
+      const receipt = await this.request({ type: 'draw.execute', caller, input: effectiveInput, ...singleDraw })
       this.lastStateSignature = this.webStateSignature(namesStore, recordsStore, statisticsStore, balance)
        const afterAudit = await this.runAfterHooks('name-draw', receipt, hooked?.audit, { originalFilter: input, finalFilter: effectiveInput })
       return JSON.parse(JSON.stringify(hooked ? { ...receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: effectiveInput } : receipt))
@@ -209,21 +218,23 @@ class CoreClient {
     const normalizedCaller = normalizeCoreCaller(caller)
     const hooked = this.hookCoordinator && await this.hookCoordinator.before(operation, input)
     const effectiveInput = hooked ? { ...input, ...hooked.filter } : input
-    if (isTauri()) {
-      const value = await tauriAPI.corePrizeExecute({
-        grantToken: await tauriAPI.coreGrantTokenFor('core-ui'), principal: 'core-ui', callerKind: 'core-ui', pluginId: 'core',
-        operationId: normalizedCaller.operationId, operation, input: effectiveInput
+    const receipt = await prizesStore.transaction(async () => {
+      if (isTauri()) {
+        const value = await tauriAPI.corePrizeExecute({
+          grantToken: await tauriAPI.coreGrantTokenFor('core-ui'), principal: 'core-ui', callerKind: 'core-ui', pluginId: 'core',
+          operationId: normalizedCaller.operationId, operation, input: effectiveInput
+        })
+        await prizesStore.restoreState(value.prizes, { persist: false })
+        return value.receipt
+      }
+      return this.enqueueWebTransaction(async () => {
+        await this.syncWebState(namesStore, recordsStore, statisticsStore)
+        const value = await this.request({ type: 'prize.execute', caller: normalizedCaller, operation, input: effectiveInput })
+        return value.receipt
       })
-      await prizesStore.restoreState(value.prizes, { persist: false })
-      return hooked ? { ...value.receipt, hookAudit: [...hooked.audit, ...(await this.runAfterHooks(operation, value.receipt, hooked.audit, { originalFilter: input, finalFilter: effectiveInput }))], originalFilter: input, finalFilter: effectiveInput } : value.receipt
-    }
-    return this.enqueueWebTransaction(async () => {
-      await this.syncWebState(namesStore, recordsStore, statisticsStore)
-      const value = await this.request({ type: 'prize.execute', caller: normalizedCaller, operation, input: effectiveInput })
-      await prizesStore.restoreState(value.prizes, { persist: false })
-      const afterAudit = await this.runAfterHooks(operation, value.receipt, hooked?.audit, { originalFilter: input, finalFilter: effectiveInput })
-      return hooked ? { ...value.receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: effectiveInput } : value.receipt
     })
+    const afterAudit = await this.runAfterHooks(operation, receipt, hooked?.audit, { originalFilter: input, finalFilter: effectiveInput })
+    return hooked ? { ...receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: effectiveInput } : receipt
   }
 
   async commitCard({ listId, personIds, operationId = '' }) {

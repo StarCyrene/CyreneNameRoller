@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { dataBridge } from '../utils/dataBridge.js'
+import { withPrizeLock } from '../utils/prizeLock.mjs'
 
 const uid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
 const DEFAULT_LIST = { id: 'default', name: '默认奖品单', prizes: [] }
@@ -34,153 +35,147 @@ export const usePrizesStore = defineStore('prizes', () => {
   const totalStock = computed(() => current.value.prizes.reduce((sum, prize) => sum + prize.quantity, 0))
   const availablePrizes = computed(() => current.value.prizes.filter(prize => prize.quantity > 0))
 
+  let initializing
+  let transactionActive = false
   async function initialize() {
     if (isLoaded.value) return
-    const saved = await dataBridge.load('prizeLists')
-    if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
-      const normalized = Object.values(saved).map(list => normalizeList(list, list?.id)).filter(Boolean)
-      if (normalized.length) lists.value = Object.fromEntries(normalized.map(list => [list.id, list]))
+    if (!initializing) initializing = withPrizeLock(() => loadState(true)).catch(error => {
+      if (error.code !== 'PRIZE_LOCK_UNAVAILABLE') throw error
+      // Read-only access is still useful in an old/restricted browser; a
+      // mutation will explicitly report that safe storage is unavailable.
+      return loadState(false)
+    }).then(() => { isLoaded.value = true }).finally(() => { initializing = null })
+    return initializing
+  }
+  async function loadState(migrate) {
+    const saved = await dataBridge.load('prizes')
+    // Pre-migration Tauri envelopes can contain an empty default prize snapshot.
+    if (saved?.lists && Object.keys(saved.lists).length && Array.isArray(saved.records)) {
+      applySnapshot(saved)
+    } else {
+      const [oldLists, selectedId, oldRecords] = await Promise.all(
+        ['prizeLists', 'currentPrizeListId', 'prizeRecords'].map(key => dataBridge.load(key))
+      )
+      const normalized = Object.entries(oldLists || {}).map(([id, list]) => normalizeList(list, id)).filter(Boolean)
+      lists.value = normalized.length ? Object.fromEntries(normalized.map(list => [list.id, list])) : { default: { ...DEFAULT_LIST, prizes: [] } }
+      currentId.value = lists.value[selectedId] ? selectedId : Object.keys(lists.value)[0]
+      records.value = Array.isArray(oldRecords) ? oldRecords.slice(0, 500) : []
+      if (migrate) await dataBridge.save('prizes', snapshotState())
     }
-    const selectedId = await dataBridge.load('currentPrizeListId')
-    if (selectedId && lists.value[selectedId]) currentId.value = selectedId
-    const savedRecords = await dataBridge.load('prizeRecords')
-    if (Array.isArray(savedRecords)) records.value = savedRecords.slice(0, 500)
-    isLoaded.value = true
-    await save()
   }
-
-  async function save() {
-    await dataBridge.save('prizeLists', lists.value)
-    await dataBridge.save('currentPrizeListId', currentId.value)
-  }
-
-  async function saveRecords() {
-    await dataBridge.save('prizeRecords', records.value)
+  async function transaction(task) {
+    await initialize()
+    return withPrizeLock(async () => {
+      await loadState(true)
+      transactionActive = true
+      try { return await task() }
+      finally { transactionActive = false }
+    })
   }
   function snapshotState() { return { lists: JSON.parse(JSON.stringify(lists.value)), currentId: currentId.value, records: JSON.parse(JSON.stringify(records.value)) } }
-  async function restoreState(snapshot, { persist = true } = {}) {
+  function applySnapshot(snapshot) {
     if (!snapshot || typeof snapshot !== 'object' || !snapshot.lists || typeof snapshot.lists !== 'object' || !Array.isArray(snapshot.records)) throw new Error('invalid prize state')
     lists.value = snapshot.lists
     currentId.value = snapshot.currentId
     records.value = snapshot.records.slice(0, 500)
-    return persist ? Promise.all([save(), saveRecords()]) : undefined
+  }
+  async function commitDraw(snapshot) {
+    if (!transactionActive) throw new Error('Prize commit requires an active draw')
+    await dataBridge.save('prizes', snapshot)
+    applySnapshot(snapshot)
+  }
+  async function restoreState(snapshot, { persist = true } = {}) {
+    if (!persist) { applySnapshot(snapshot); return }
+    const baseline = JSON.stringify(snapshotState())
+    return transaction(() => {
+      if (baseline !== JSON.stringify(snapshotState())) throw new Error('奖池已更新 / Prize inventory changed')
+      return commitDraw(snapshot)
+    })
+  }
+  function edit(action) {
+    return transaction(async () => {
+      const next = snapshotState()
+      const result = action(next)
+      if (result !== false && result !== null && result?.success !== false) await commitDraw(next)
+      return result
+    })
   }
 
   function createList(name) {
     const trimmed = String(name || '').trim()
     if (!trimmed) return null
     const id = uid()
-    lists.value[id] = { id, name: trimmed, prizes: [] }
-    currentId.value = id
-    save()
-    return id
+    return edit(state => { state.lists[id] = { id, name: trimmed, prizes: [] }; state.currentId = id; return id })
   }
 
   function renameList(id, name) {
     const trimmed = String(name || '').trim()
-    if (!lists.value[id] || !trimmed) return false
-    lists.value[id].name = trimmed
-    save()
-    return true
+    return edit(state => { if (!state.lists[id] || !trimmed) return false; state.lists[id].name = trimmed; return true })
   }
 
   function switchList(id) {
-    if (!lists.value[id]) return false
-    currentId.value = id
-    save()
-    return true
+    return edit(state => { if (!state.lists[id]) return false; state.currentId = id; return true })
   }
 
   function removeList(id) {
-    if (!lists.value[id] || Object.keys(lists.value).length < 2) return false
-    delete lists.value[id]
-    if (!lists.value[currentId.value]) currentId.value = Object.keys(lists.value)[0]
-    save()
-    return true
+    return edit(state => {
+      if (!state.lists[id] || Object.keys(state.lists).length < 2) return false
+      delete state.lists[id]
+      if (!state.lists[state.currentId]) state.currentId = Object.keys(state.lists)[0]
+      return true
+    })
   }
 
   function importList(value) {
     const imported = normalizeList(value)
     if (!imported) return { success: false, error: '奖品单格式无效' }
-    imported.id = !lists.value[imported.id] ? imported.id : uid()
-    lists.value[imported.id] = imported
-    currentId.value = imported.id
-    save()
-    return { success: true, list: imported }
+    return edit(state => {
+      if (state.lists[imported.id]) imported.id = uid()
+      state.lists[imported.id] = imported; state.currentId = imported.id
+      return { success: true, list: imported }
+    })
   }
 
   function add(name, quantity = 1, weight = 1, quality = '普通') {
     const prize = normalizePrize({ name, quantity, weight, quality })
     if (!prize) return null
-    current.value.prizes.push(prize)
-    save()
-    return prize
+    const listId = current.value.id
+    return edit(state => { if (!state.lists[listId]) return null; state.lists[listId].prizes.push(prize); return prize })
   }
 
-  function update(prizeId, patch) {
-    const index = current.value.prizes.findIndex(prize => prize.id === prizeId)
-    if (index < 0) return false
-    const normalized = normalizePrize({ ...current.value.prizes[index], ...patch, id: prizeId })
+  function update(prizeId, patch, original = null) {
+    const listId = current.value.id
+    const displayed = original?.id === prizeId ? { ...original } : current.value.prizes.find(prize => prize.id === prizeId)
+    if (!displayed) return false
+    const normalized = normalizePrize({ ...displayed, ...patch, id: prizeId })
     if (!normalized) return false
-    current.value.prizes[index] = normalized
-    save()
-    return true
+    const changed = Object.keys(normalized).filter(key => normalized[key] !== displayed[key])
+    return edit(state => {
+      const stored = state.lists[listId]?.prizes.find(prize => prize.id === prizeId)
+      if (!stored) return false
+      for (const key of changed) {
+        if (stored[key] !== displayed[key] && stored[key] !== normalized[key]) throw new Error('此奖品已变更，请核对后重新保存。 / This prize changed. Review it before saving.')
+        stored[key] = normalized[key]
+      }
+      return true
+    })
   }
 
   function remove(prizeId) {
-    const index = current.value.prizes.findIndex(prize => prize.id === prizeId)
-    if (index < 0) return false
-    current.value.prizes.splice(index, 1)
-    save()
-    return true
-  }
-
-  function pickFromPool(pool) {
-    const totalWeight = pool.reduce((sum, prize) => sum + prize.weight, 0)
-    let cursor = Math.random() * totalWeight
-    return pool.find(prize => (cursor -= prize.weight) < 0) || pool.at(-1)
-  }
-
-  function draw(count = 1) {
-    const requested = Math.max(1, Math.floor(Number(count) || 1))
-    if (totalStock.value < requested) {
-      return { success: false, error: `库存不足：需要 ${requested} 件，当前仅剩 ${totalStock.value} 件` }
-    }
-    const selected = []
-    for (let index = 0; index < requested; index++) {
-      const pool = current.value.prizes.filter(prize => prize.quantity > 0)
-      const prize = pickFromPool(pool)
-      prize.quantity -= 1
-      selected.push({ ...prize, quantity: prize.quantity + 1 })
-    }
-    save()
-    return { success: true, prizes: selected }
-  }
-
-  function pick() {
-    const result = draw(1)
-    return result.success ? result.prizes[0] : null
-  }
-
-  function recordDraw({ prizeId, personId = null, peopleListId = null, mode = 'draw' }) {
-    records.value.unshift({
-      id: uid(),
-      prizeId,
-      prizeListId: currentId.value,
-      personId,
-      peopleListId,
-      mode,
-      time: Date.now()
+    const listId = current.value.id
+    return edit(state => {
+      const items = state.lists[listId]?.prizes
+      const index = items?.findIndex(p => p.id === prizeId) ?? -1
+      if (index < 0) return false
+      items.splice(index, 1); return true
     })
-    records.value = records.value.slice(0, 500)
-    saveRecords()
   }
 
   function clearRecords(prizeListId = null) {
-    records.value = prizeListId && prizeListId !== 'all'
-      ? records.value.filter(record => record.prizeListId !== prizeListId)
-      : []
-    saveRecords()
+    return edit(state => {
+      state.records = prizeListId && prizeListId !== 'all' ? state.records.filter(r => r.prizeListId !== prizeListId) : []
+      return true
+    })
   }
 
   return {
@@ -192,8 +187,8 @@ export const usePrizesStore = defineStore('prizes', () => {
     availablePrizes,
     isLoaded,
     initialize,
-    save,
-    saveRecords,
+    transaction,
+    commitDraw,
     snapshotState,
     restoreState,
     createList,
@@ -204,9 +199,6 @@ export const usePrizesStore = defineStore('prizes', () => {
     add,
     update,
     remove,
-    draw,
-    pick,
-    recordDraw,
     clearRecords
   }
 })

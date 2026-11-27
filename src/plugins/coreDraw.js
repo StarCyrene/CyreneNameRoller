@@ -8,21 +8,22 @@ export function validateCoreDrawArgs(rawArgs = {}) {
 }
 
 export async function commitCoreStateTransaction({ statisticsStore, recordsStore, prizesStore, nextStatistics, nextRecords, nextPrizes }) {
+  // Prize draws modify only inventory and prize history. Those share one
+  // storage key; writing unrelated roll-call state here would clobber changes
+  // from another page. commitDraw publishes the new state only on success.
+  if (nextPrizes) return prizesStore.commitDraw(nextPrizes)
   const statisticsSnapshot = statisticsStore.snapshotState()
   const recordsSnapshot = recordsStore.snapshotState()
-  const prizesSnapshot = prizesStore?.snapshotState()
   try {
     await statisticsStore.restoreState(nextStatistics, { persist: false })
     await recordsStore.restoreState(nextRecords, { persist: false })
-    if (nextPrizes && prizesStore) await prizesStore.restoreState(nextPrizes, { persist: false })
-    const persistence = await Promise.allSettled([statisticsStore.save(), recordsStore.save(), ...(nextPrizes && prizesStore ? [prizesStore.save(), prizesStore.saveRecords()] : [])])
+    const persistence = await Promise.allSettled([statisticsStore.save(), recordsStore.save()])
     const failed = persistence.find(result => result.status === 'rejected')
     if (failed) throw failed.reason
   } catch (error) {
     await statisticsStore.restoreState(statisticsSnapshot, { persist: false })
     await recordsStore.restoreState(recordsSnapshot, { persist: false })
-    if (prizesSnapshot && prizesStore) await prizesStore.restoreState(prizesSnapshot, { persist: false })
-    await Promise.allSettled([statisticsStore.save(), recordsStore.save(), ...(prizesSnapshot && prizesStore ? [prizesStore.save(), prizesStore.saveRecords()] : [])])
+    await Promise.allSettled([statisticsStore.save(), recordsStore.save()])
     throw Object.assign(error instanceof Error ? error : new Error(String(error)), { code: 'CORE_TRANSACTION_ROLLED_BACK' })
   }
 }

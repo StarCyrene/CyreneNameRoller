@@ -621,6 +621,7 @@ import { useSettingsStore } from '../stores/settings'
 import { usePluginsStore } from '../plugins/store'
 import { useStatisticsStore } from '../stores/statistics'
 import { getCoreClient } from '../core/client'
+import { rollerTools } from '../router/rollerTools'
 import { dataBridge } from '../utils/dataBridge'
 import { isTauri, tauriAPI } from '../utils/tauriAPI'
 import { updateState, checkForUpdates, downloadUpdate, getDownloadUrl } from '../utils/updater'
@@ -812,8 +813,7 @@ const uriRollerExample = computed(() => isTauri()
   ? 'cyrenenr://page/roller?isEN=0&isGroupMode=0&sex=all&multiMode=1&count=6&noDuplication=0'
   : `${webUrlBase.value}#/roller?isEN=0&isGroupMode=0&sex=all&multiMode=1&count=6&noDuplication=0`)
 const uriHelpRoutes = computed(() => [
-  { id: 'roller', path: isTauri() ? 'cyrenenr://page/roller' : '#/roller', label: lang.value === 'en' ? 'Random roller' : '随机点名' },
-  { id: 'card', path: isTauri() ? 'cyrenenr://page/cards' : '#/card', label: lang.value === 'en' ? 'Card draw' : '翻牌点名' },
+  ...rollerTools.map(tool => ({ id: tool.name, path: (isTauri() ? 'cyrenenr://page' : '#') + tool.fullPath, label: tool.label[lang.value] })),
   { id: 'lottery', path: isTauri() ? 'cyrenenr://page/lottery' : '#/lottery/draw', label: lang.value === 'en' ? 'Lottery draw' : '奖品抽取' },
   { id: 'lists', path: isTauri() ? 'cyrenenr://page/lists' : '#/lists', label: lang.value === 'en' ? 'People lists' : '人员名单' },
   { id: 'records', path: isTauri() ? 'cyrenenr://page/records' : '#/records', label: lang.value === 'en' ? 'Draw records' : '抽取记录' },

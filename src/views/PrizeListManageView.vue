@@ -1,5 +1,5 @@
 <template>
-  <div class="prize-list-manage-view">
+  <div class="prize-list-manage-view" :inert="saving">
     <header class="list-header">
       <div class="list-header-left">
         <FluentButton variant="subtle" size="sm" icon-only :title="lang === 'en' ? 'Back' : '返回'" @click="router.back()"><FluentIcon icon="arrow-left-16-regular" :width="18" /></FluentButton>
@@ -37,7 +37,7 @@
             </template>
           </div>
           <div v-if="editingListId !== list.id" class="list-actions">
-            <FluentButton v-if="list.id !== prizes.currentId" variant="subtle" size="sm" @click="prizes.switchList(list.id)"><FluentIcon icon="checkmark-16-regular" :width="14" />{{ lang === 'en' ? 'Switch' : '切换' }}</FluentButton>
+            <FluentButton v-if="list.id !== prizes.currentId" variant="subtle" size="sm" @click="writeList(() => prizes.switchList(list.id))"><FluentIcon icon="checkmark-16-regular" :width="14" />{{ lang === 'en' ? 'Switch' : '切换' }}</FluentButton>
             <FluentButton variant="subtle" size="sm" icon-only :title="lang === 'en' ? 'Rename' : '重命名'" @click="startRename(list)"><FluentIcon icon="edit-16-regular" :width="14" /></FluentButton>
             <FluentButton variant="subtle" size="sm" icon-only :title="lang === 'en' ? 'Export' : '导出'" @click="exportList(list)"><FluentIcon icon="arrow-download-16-regular" :width="14" /></FluentButton>
             <FluentButton variant="subtle" size="sm" icon-only :disabled="allLists.length <= 1" :title="lang === 'en' ? 'Delete' : '删除'" @click="confirmDelete(list)"><FluentIcon icon="delete-16-regular" :width="14" /></FluentButton>
@@ -83,15 +83,27 @@ const deletingList = ref(null)
 
 function stockOf(list) { return list.prizes.reduce((sum, prize) => sum + prize.quantity, 0) }
 function notifyError(message) { showBanner({ message, icon: 'warning-16-regular', type: 'warning', duration: 8000 }) }
-function createList() {
+const saving = ref(false)
+async function writeList(action) {
+  if (saving.value) return false
+  saving.value = true
+  try {
+    const value = await action()
+    if (!value) throw new Error(lang.value === 'en' ? 'The list could not be changed.' : '未能修改奖品单。')
+    return value
+  } catch (error) { notifyError(error?.message || String(error)); return false }
+  finally { saving.value = false }
+}
+async function createList() {
   if (!newListName.value.trim()) return notifyError(lang.value === 'en' ? 'Enter a prize list name' : '请输入奖品单名称')
-  prizes.createList(newListName.value)
-  newListName.value = ''
+  if (await writeList(() => prizes.createList(newListName.value))) newListName.value = ''
 }
 function startRename(list) { editingListId.value = list.id; editListName.value = list.name }
-function saveListName(id) { if (prizes.renameList(id, editListName.value)) editingListId.value = '' }
+async function saveListName(id) { if (await writeList(() => prizes.renameList(id, editListName.value))) editingListId.value = '' }
 function confirmDelete(list) { deletingList.value = list; showDelete.value = true }
-function deleteList() { if (deletingList.value) prizes.removeList(deletingList.value.id); deletingList.value = null; showDelete.value = false }
+async function deleteList() {
+  if (deletingList.value && await writeList(() => prizes.removeList(deletingList.value.id))) { deletingList.value = null; showDelete.value = false }
+}
 async function exportList(list) {
   const extension = exportFormat.value
   const safeName = list.name.replace(/[<>:"/\\|?*]/g, '_')
@@ -105,7 +117,8 @@ async function importList() {
   if (!result?.success) { if (!result?.cancelled) notifyError(result?.error || (lang.value === 'en' ? 'Import failed' : '导入失败')); return }
   try {
     const value = importFormat.value === 'csv' ? parsePrizeListCsv(result.content) : JSON.parse(result.content)
-    const imported = prizes.importList(value)
+    const imported = await writeList(() => prizes.importList(value))
+    if (!imported) return
     if (!imported.success) throw new Error(imported.error)
     if (result.filePath) emitFileNotice(`${lang.value === 'en' ? 'Prize list imported' : '奖品单已导入'}：${result.filePath}`, result.filePath)
     showBanner({ message: `${lang.value === 'en' ? 'Imported' : '导入成功'}：${imported.list.name}`, icon: 'checkmark-circle-16-regular', type: 'success', duration: 5000 })

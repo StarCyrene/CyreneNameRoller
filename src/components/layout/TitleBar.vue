@@ -1,6 +1,6 @@
 <template>
   <div v-if="isDesktopApp" class="titlebar" data-plugin-component="app.title-bar" :style="pluginsStore.componentStyleStyle('app.title-bar')">
-    <button class="titlebar-hamburger" @click="toggleDock" :title="dockCollapsed ? '展开' : '收起'">
+    <button class="titlebar-hamburger" @click="$emit('toggle-dock')" :aria-expanded="!dockCollapsed" :title="dockCollapsed ? '展开' : '收起'">
       <Icon icon="fluent:line-horizontal-3-20-regular" :width="18" />
     </button>
     <img src="/icon.png" class="titlebar-logo" alt="" draggable="false" @mousedown="startNativeDrag" />
@@ -39,14 +39,13 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { Icon } from '@iconify/vue'
 import { isTauri } from '../../utils/tauriAPI'
-import { useSettingsStore } from '../../stores/settings'
 import { usePluginsStore } from '../../plugins/store'
 import { revealFile } from '../../utils/desktopFiles'
 
-const settingsStore = useSettingsStore()
+defineProps({ dockCollapsed: Boolean })
+defineEmits(['toggle-dock'])
 const pluginsStore = usePluginsStore()
 const isMaximized = ref(false)
-const dockCollapsed = computed(() => settingsStore.settings.dockCollapsed || false)
 const notice = ref({ message: '', path: '' })
 const noticeViewport = ref(null)
 const noticeText = ref(null)
@@ -54,10 +53,6 @@ let noticeTimer
 let noticeAnimation
 
 const isDesktopApp = computed(() => isTauri())
-
-function toggleDock() {
-  settingsStore.update('dockCollapsed', !dockCollapsed.value)
-}
 
 function minimize() {
   if (isTauri()) import('@tauri-apps/api/window').then(w => w.getCurrentWindow().minimize())

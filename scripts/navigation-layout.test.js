@@ -19,7 +19,7 @@ test('primary navigation follows the approved secondary-menu order', () => {
   assert.ok(match, 'mainItems block is missing')
   assert.deepEqual(
     [...match[1].matchAll(/id: '([^']+)'/g)].map(item => item[1]),
-    ['roller', 'card', 'lottery', 'statistics', 'records', 'lists']
+    ['roller', 'lottery', 'statistics', 'records', 'lists']
   )
 })
 

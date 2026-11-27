@@ -85,6 +85,7 @@ onMounted(async () => {
     }
     await prepareTauriMainWindowShow()
   } else {
+    await router.isReady()
     await applyNavigation(parseWebHash())
     playSplashOnce()
   }

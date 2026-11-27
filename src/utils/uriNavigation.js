@@ -1,7 +1,9 @@
+import { rollerTools } from '../router/rollerTools.js'
+
 const PAGE_ALIASES = Object.freeze({
-  roller: '/roller',
-  card: '/card',
-  cards: '/card',
+  ...Object.fromEntries(rollerTools.map(tool => [tool.fullPath.slice(1), tool.fullPath])),
+  card: '/roller/card',
+  cards: '/roller/card',
   lottery: '/lottery/draw',
   'lottery-draw': '/lottery/draw',
   'lottery-assign': '/lottery/assign',
@@ -79,15 +81,19 @@ export function parseCyreneUri(value) {
     return { source: 'desktop-uri', route: null, roller: null, autoStart: false }
   }
   if (host !== 'page') return null
-  const page = decodeURIComponent(url.pathname.replace(/^\/+|\/+$/g, '')).toLowerCase()
-  return createNavigation(page, url.searchParams, 'desktop-uri')
+  try {
+    const page = decodeURIComponent(url.pathname.replace(/^\/+|\/+$/g, '')).toLowerCase()
+    return createNavigation(page, url.searchParams, 'desktop-uri')
+  } catch {
+    return null
+  }
 }
 
 export function parseWebHash(hash = globalThis.location?.hash || '') {
   const normalized = hash.startsWith('#') ? hash.slice(1) : hash
   if (!normalized.startsWith('/')) return null
-  const [path, query = ''] = normalized.split('?', 2)
-  const page = Object.entries(PAGE_ALIASES).find(([, route]) => route === path)?.[0]
+  const [path, query = ''] = normalized.split('#', 1)[0].split('?', 2)
+  const page = path === '/card' ? 'card' : Object.entries(PAGE_ALIASES).find(([, route]) => route === path)?.[0]
   if (!page) return null
   return createNavigation(page, new URLSearchParams(query), 'web-hash')
 }
