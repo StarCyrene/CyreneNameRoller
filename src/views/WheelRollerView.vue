@@ -144,7 +144,7 @@ async function spin() {
     plugins.dispatchEvent('roller:start', { operationId, listId, target: 'people', count: 1 })
     const result = await plugins.executeRollerDraw({
       listId, target: 'people', count: 1, gender: filter, allowDuplicates: false,
-      operationId, countStatistics: settings.settings.recordCounts || balance.enabled, singleDrawPreviousIds: []
+      operationId, countStatistics: settings.settings.recordCounts || balance.enabled, singleDrawPreviousIds: [], source: 'wheel'
     })
     if (token !== generation) return
     const winner = result.results[0]

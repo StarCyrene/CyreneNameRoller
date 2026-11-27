@@ -543,6 +543,8 @@ struct RustDrawRequest {
     count_statistics: bool,
     #[serde(default)]
     single_draw_previous_ids: Option<Vec<String>>,
+    #[serde(default)]
+    source: String,
     input: RustDrawInput,
 }
 
@@ -599,6 +601,12 @@ fn valid_core_principal(principal: &str) -> bool {
 }
 
 fn validate_core_caller(request: &RustDrawRequest) -> Result<(), String> {
+    if request.caller_kind != "plugin"
+        && !request.source.is_empty()
+        && !matches!(request.source.as_str(), "roller" | "wheel" | "tunnel" | "seats" | "relay" | "riddle")
+    {
+        return Err("CORE_TRANSACTION_REJECTED".into());
+    }
     if let Some(previous) = &request.single_draw_previous_ids {
         if request.caller_kind != "core-ui" || request.input.target != "people" || request.input.count != 1 ||
             previous.len() > 10000 || previous.iter().any(String::is_empty) {
@@ -818,7 +826,7 @@ fn core_draw_execute(
         statistics["totalCount"] = json!(total);
     }
     for result in receipt["results"].as_array().unwrap_or(&Vec::new()) {
-        records.insert(0, json!({ "personId": if result["isGroup"].as_bool().unwrap_or(false) { Value::Null } else { result["id"].clone() }, "listId": receipt["listId"], "groupId": if result["isGroup"].as_bool().unwrap_or(false) { result["id"].clone() } else { Value::Null }, "source": if request.caller_kind == "plugin" { format!("plugin:{}", request.plugin_id) } else { "roller".into() }, "pluginId": if request.caller_kind == "plugin" { request.plugin_id.clone() } else { String::new() }, "operationId": receipt["operationId"], "time": committed_at }));
+        records.insert(0, json!({ "personId": if result["isGroup"].as_bool().unwrap_or(false) { Value::Null } else { result["id"].clone() }, "listId": receipt["listId"], "groupId": if result["isGroup"].as_bool().unwrap_or(false) { result["id"].clone() } else { Value::Null }, "source": if request.caller_kind == "plugin" { format!("plugin:{}", request.plugin_id) } else if request.source.is_empty() { "roller".to_string() } else { request.source.clone() }, "pluginId": if request.caller_kind == "plugin" { request.plugin_id.clone() } else { String::new() }, "operationId": receipt["operationId"], "time": committed_at }));
     }
     records.truncate(500);
     let next_state = core_state::CoreState { schema_version: core_state::CORE_SCHEMA_VERSION, sequence: envelope.state.sequence + 1, previous_hash, receipt_hash: receipt_hash.clone(), algorithm: core_state::ALGORITHM_NAME.into(), algorithm_version: core_state::ALGORITHM_VERSION.into(), names: envelope.state.names.clone(), balance: envelope.state.balance.clone(), statistics: statistics.clone(), records: Value::Array(records.clone()), prizes: envelope.state.prizes.clone() };
@@ -4457,6 +4465,7 @@ mod tests {
             operation_id: "op-1".into(),
             count_statistics: true,
             single_draw_previous_ids: None,
+            source: String::new(),
             input,
         };
         assert!(validate_core_caller(&plugin).is_ok());

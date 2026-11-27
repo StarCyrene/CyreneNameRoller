@@ -1022,7 +1022,8 @@ watch(() => settingsStore.settings.fontFamily, (val) => {
   gap: 3px;
 }
 .version-badge.plugin-reserved { visibility: hidden; }
-.version-badge.version-in-footer { position: static; max-width: 100%; overflow: hidden; white-space: nowrap; line-height: 1.2; }
+/* The toolbar only changes placement; every visual token still comes from the global badge. */
+.version-badge.version-in-footer { position: static; max-width: 100%; overflow: hidden; white-space: nowrap; }
 
 .file-drop-overlay {
   position: fixed;

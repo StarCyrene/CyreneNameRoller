@@ -1,4 +1,5 @@
 import { ALGORITHM_NAME, ALGORITHM_VERSION, normalizeCyreneBalanceSettings, personKey, pickCyreneBatch, secureRandom } from '../../utils/cyrene-balance.js'
+import { CORE_DRAW_SOURCES } from '../../utils/recordSources.mjs'
 import { normalizeCoreCaller, normalizeCoreCardInput, normalizeCoreDrawInput, normalizeCoreMaintenanceInput, normalizeCorePrizeInput } from '../protocol.js'
 
 function coreError(code, message) { return Object.assign(new Error(message), { code }) }
@@ -37,12 +38,15 @@ export function executePrizeRequest({ operation, input, state, caller }) {
   return { receipt: { kind: operation, operationId: caller.operationId || `prize-${Date.now()}`, pluginId: caller.pluginId, listId: input.listId, count, results, committedAt: Date.now() }, nextPrizes: next }
 }
 
-export function executeCoreDrawRequest({ input: rawInput, caller: rawCaller, state, peopleCache, singleDrawPreviousIds }) {
+export function executeCoreDrawRequest({ input: rawInput, caller: rawCaller, state, peopleCache, singleDrawPreviousIds, source }) {
   const input = normalizeCoreDrawInput(rawInput)
   const caller = normalizeCoreCaller(rawCaller)
   if (singleDrawPreviousIds !== undefined && (caller.kind !== 'core-ui' || input.target !== 'people' || input.count !== 1 ||
     !Array.isArray(singleDrawPreviousIds) || singleDrawPreviousIds.length > 10000 || singleDrawPreviousIds.some(id => typeof id !== 'string' || !id))) {
     throw coreError('CORE_TRANSACTION_REJECTED', 'Invalid single-person draw')
+  }
+  if (caller.kind === 'core-ui' && source !== undefined && !CORE_DRAW_SOURCES.includes(source)) {
+    throw coreError('CORE_TRANSACTION_REJECTED', 'Invalid draw source')
   }
   if (!state || typeof state !== 'object' || Array.isArray(state)) throw coreError('CORE_TRANSACTION_REJECTED', 'Core 状态无效')
   const list = state.names?.lists?.[input.listId]
@@ -105,12 +109,12 @@ export function executeCoreDrawRequest({ input: rawInput, caller: rawCaller, sta
       nextStatistics.totalCount += 1
     }
   }
-  const source = caller.kind === 'plugin' ? `plugin:${caller.pluginId}` : 'roller'
+  const recordSource = caller.kind === 'plugin' ? `plugin:${caller.pluginId}` : (source || 'roller')
   const appended = picks.map(pick => ({
     personId: pick.isGroup ? null : (pick.id || null),
     listId: input.listId,
     groupId: pick.isGroup ? pick.id : null,
-    source,
+    source: recordSource,
     pluginId: caller.kind === 'plugin' ? caller.pluginId : '',
     operationId,
     time: committedAt

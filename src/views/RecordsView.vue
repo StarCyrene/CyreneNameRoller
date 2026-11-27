@@ -18,7 +18,7 @@
           <span class="ri-time">{{ formatTime(rec.time) }}</span>
           <span class="ri-name" :title="recordIdentity(rec)">{{ resolveName(rec) }}</span>
           <span class="ri-list">{{ resolveList(rec) }}</span>
-          <span class="ri-source">{{ rec.source === 'roller' ? (lang === 'en' ? 'Roller' : '随机点名') : (lang === 'en' ? 'Card' : '翻牌点名') }}</span>
+          <span class="ri-source">{{ sourceLabel(rec) }}</span>
         </div>
         <div v-if="records.length === 0" class="records-empty">
           {{ lang === 'en' ? 'No records yet' : '暂无抽取记录' }}
@@ -33,6 +33,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useSettingsStore } from '../stores/settings'
 import { useRecordsStore } from '../stores/records'
 import { useNamesStore } from '../stores/names'
+import { recordSourceLabel } from '../utils/recordSources.mjs'
 import PluginSlot from '../components/plugins/PluginSlot.vue'
 
 const settingsStore = useSettingsStore()
@@ -42,6 +43,7 @@ const namesStore = useNamesStore()
 const lang = computed(() => settingsStore.settings.language)
 const records = computed(() => recordsStore.records)
 const listRef = ref(null)
+const sourceLabel = record => recordSourceLabel(record.source, lang.value, record.pluginId)
 
 function formatTime(ts) {
   if (!ts) return ''
@@ -138,6 +140,7 @@ onMounted(() => {
 .ri-source {
   color: var(--accent);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .records-empty {

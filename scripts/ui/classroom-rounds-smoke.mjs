@@ -34,7 +34,7 @@ try {
   assert.equal(new Set(drawn.map(r=>r.personId)).size,4)
   await page.click('.tunnel-draw')
   await count('.arrivals li',2)
-  await page.click('.tunnel-controls .button-set button:not(.tunnel-draw)')
+  await page.click('.tunnel-reveal-all')
   await count('.arrivals li',4)
   assert.deepEqual(await records(),drawn)
   assert.equal(await page.$$eval('.tunnel .gate',els=>els.length),5)
@@ -44,7 +44,7 @@ try {
   await page.waitForSelector('.relay-stage')
   await change('.classroom-actions input',3)
   for(let i=1;i<=3;i++){
-    await page.click('.classroom-actions .button-set button:last-child')
+    await page.click('.relay-advance')
     await count('.relay-trail li',i)
     assert.equal((await records()).length,4+i)
   }

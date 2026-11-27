@@ -15,7 +15,7 @@ export const useLightTunnel = defineStore('light-tunnel', () => {
     error.value = ''
     try {
       const countStatistics = settings.settings.recordCounts || (await dataBridge.load('balance'))?.enabled !== false
-      const receipt = await plugins.executeRollerDraw({ listId, target:'people', gender:'all', count, allowDuplicates:false, countStatistics, fixedLineup:true })
+      const receipt = await plugins.executeRollerDraw({ listId, target:'people', gender:'all', count, allowDuplicates:false, countStatistics, fixedLineup:true, source:'tunnel' })
       rounds.value[listId] = { results:receipt.results, inSteps, shown:inSteps ? 1 : receipt.results.length }
       receipt.results.forEach((result,index)=>plugins.dispatchEvent('roller:item-result',{...receipt,index,result}))
       plugins.dispatchEvent('roller:result',receipt)

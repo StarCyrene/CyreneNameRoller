@@ -152,7 +152,7 @@ async function start() {
     if (token !== generation) return
     const operationId = globalThis.crypto?.randomUUID?.() || 'petal-' + Date.now()
     plugins.dispatchEvent('roller:start', { operationId, listId, target: 'people', count: 1 })
-    const draw = await plugins.executeRollerDraw({ operationId, listId, target: 'people', count: 1, gender: 'all', allowDuplicates: false, singleDrawPreviousIds: [], countStatistics: settings.settings.recordCounts || balance.enabled })
+    const draw = await plugins.executeRollerDraw({ operationId, listId, target: 'people', count: 1, gender: 'all', allowDuplicates: false, singleDrawPreviousIds: [], countStatistics: settings.settings.recordCounts || balance.enabled, source: 'riddle' })
     if (token !== generation) return
     receipt.value = draw
     puzzle.value = createPetalRiddle(draw.results[0], names.currentNames, settings.settings.englishMode)
