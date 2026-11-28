@@ -633,6 +633,42 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
    * Items live in "world" coords (scroller content space) or, for fixed UI,
    * in screen coords on an "over"/"under" layer.
    */
+  const unitScale = [1, 1];
+  function createScaleReader(css) {
+    const cache = new Map([[document.documentElement, unitScale]]);
+    function scaleOf(el) {
+      if (!el) return unitScale;
+      if (cache.has(el)) return cache.get(el);
+      const cs = css(el);
+      let scale = scaleOf(el.assignedSlot || el.parentElement || el.getRootNode().host);
+      if (scale && cs.display !== "contents" && (cs.display !== "inline" || REPLACED.has(el.localName) || FORMS.has(el.localName))) {
+        if ((cs.rotate && cs.rotate !== "none") || cs.perspective !== "none") scale = null;
+        if (scale && cs.transform !== "none") {
+          const m = new DOMMatrixReadOnly(cs.transform);
+          scale = m.is2D && m.a > 0 && m.d > 0 && Math.abs(m.b) < 1e-6 && Math.abs(m.c) < 1e-6
+            ? [scale[0] * m.a, scale[1] * m.d] : null;
+        }
+        if (scale && cs.scale && cs.scale !== "none") {
+          const [x, y = x, z = 1] = cs.scale.split(/\s+/).map(Number);
+          scale = x > 0 && y > 0 && z === 1 ? [scale[0] * x, scale[1] * y] : null;
+        }
+      }
+      cache.set(el, scale);
+      return scale;
+    }
+    return scaleOf;
+  }
+
+  const screenBounds = () => ({ l: 0, t: 0, r: innerWidth, b: innerHeight });
+  const worldBounds = (vp) => {
+    const port = intersect(screenBounds(), { l: vp.ox, t: vp.oy, r: vp.ox + vp.vw, b: vp.oy + vp.vh });
+    return port && {
+      l: port.l - vp.ox + vp.sx, t: port.t - vp.oy + vp.sy,
+      r: port.r - vp.ox + vp.sx, b: port.b - vp.oy + vp.sy,
+    };
+  };
+  const boxBounds = (b) => ({ l: b.x, t: b.y, r: b.x + b.w, b: b.y + b.h });
+
   function captureModel(env, shot) {
     const { ox, oy, sx, sy, vw, vh } = env.geom();
     const docW = Math.max(env.scrollWidth(), vw);
@@ -651,19 +687,23 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     };
     const inlineCache = new Map();
     const fullClip = { l: -1e9, t: -1e9, r: 1e9, b: 1e9 };
-    const viewClip = { l: 0, t: 0, r: innerWidth, b: innerHeight };
+    const viewClip = screenBounds();
     const pageBg = env.pageBg;
     const floats = [];
     const bars = [];
+    const anchors = [];
     let portKey = null;
     const html = document.documentElement;
     const body = document.body;
+    const textScale = createScaleReader(el => css(el));
     // A text leaf normally clones its whole inline subtree. Descend through
-    // ancestors of marked elements instead, so even an inline marker is omitted.
-    const persistBranches = new Set();
-    if (env.route) {
-      for (const el of document.querySelectorAll("[" + PERSIST_ATTRIBUTE + "]"))
-        for (let p = el; p && !persistBranches.has(p); p = p.parentElement) persistBranches.add(p);
+    // marked branches to omit persistent UI and capture each live glyph separately.
+    const separateBranches = new Set();
+    const glyphAttribute = "data-swarm-glyph";
+    const glyphSelector = "[" + glyphAttribute + "]";
+    const selector = env.route ? glyphSelector + ",[" + PERSIST_ATTRIBUTE + "]" : glyphSelector;
+    for (const el of document.querySelectorAll(selector)) {
+      for (let p = el; p && !separateBranches.has(p); p = p.parentElement) separateBranches.add(p);
     }
 
     const conv = (r, layer) =>
@@ -695,7 +735,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     }
 
     function allInline(el) {
-      if (persistBranches.has(el)) return false;
+      if (separateBranches.has(el)) return false;
       let v = inlineCache.get(el);
       if (v !== undefined) return v;
       v = !el.shadowRoot;
@@ -746,24 +786,33 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       return s + "margin:0;box-sizing:border-box;width:100%;height:100%;position:relative;";
     }
 
-    function textItem(base, root, tb, cs, layer, extra) {
+    function textItem(base, root, tb, cs, [scaleX, scaleY]) {
       const fs = parseFloat(cs.fontSize) || 16;
       const text = root.textContent.replace(/\s+/g, " ").trim();
+      // The overlay is outside the original transform tree. Lay the clone out at
+      // its original size inside the projected box, then project the whole clone.
+      if (scaleX !== 1 || scaleY !== 1) {
+        root.style.width = (100 / scaleX) + "%";
+        root.style.height = (100 / scaleY) + "%";
+        root.style.transformOrigin = "top left";
+        root.style.transform = `scale(${scaleX},${scaleY})`;
+      }
       return add({
         kind: "text",
         ...base,
         tb,
         full: root,
-        fs,
-        lh: lhPx(cs),
+        fs: fs * scaleY,
+        lh: lhPx(cs) * scaleY,
         align: cs.textAlign,
         text,
         sig: text,
-        ...extra,
       });
     }
 
     function emitLeaf(el, cs, r, ctx, key) {
+      const scale = textScale(el) || unitScale;
+      const [scaleX, scaleY] = scale;
       const root = document.createElement("div");
       setStyle(root, rootStyle(cs, false));
       const clone = inert().importNode(el, true);
@@ -774,13 +823,13 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       rg.selectNodeContents(el);
       const tr = rg.getBoundingClientRect();
       // table cells center their content vertically; reproduce the offset
-      if (cs.display === "table-cell" && tr.height) root.style.paddingTop = Math.max(0, tr.top - r.top) + "px";
+      if (cs.display === "table-cell" && tr.height) root.style.paddingTop = Math.max(0, tr.top - r.top) / scaleY + "px";
       // floats outside the leaf (figures, infoboxes) shape its line boxes: add invisible shims
       if (/^(block|list-item)$/.test(root.style.display)) {
-        const n = (p) => parseFloat(cs.getPropertyValue(p)) || 0;
-        const cl = r.left + n("border-left-width") + n("padding-left");
-        const ct = r.top + n("border-top-width") + n("padding-top");
-        const cr = r.right - n("border-right-width") - n("padding-right");
+        const n = (p, factor) => (parseFloat(cs.getPropertyValue(p)) || 0) * factor;
+        const cl = r.left + n("border-left-width", scaleX) + n("padding-left", scaleX);
+        const ct = r.top + n("border-top-width", scaleY) + n("padding-top", scaleY);
+        const cr = r.right - n("border-right-width", scaleX) - n("padding-right", scaleX);
         for (const f of floats) {
           if (f.b <= r.top + 1 || f.t >= r.bottom - 1 || f.r <= r.left + 1 || f.l >= r.right - 1) continue;
           if (f.el.contains(el)) continue;
@@ -788,7 +837,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
           const top = Math.max(0, f.t - ct);
           const w = f.side === "left" ? f.r - cl : cr - f.l;
           if (w <= 0) continue;
-          setStyle(shim, `float:${f.side};clear:${f.side};width:${w}px;height:${Math.max(0, f.b - Math.max(f.t, ct))}px;margin-top:${top}px;`);
+          setStyle(shim, `float:${f.side};clear:${f.side};width:${w / scaleX}px;height:${Math.max(0, f.b - Math.max(f.t, ct)) / scaleY}px;margin-top:${top / scaleY}px;`);
           root.insertBefore(shim, root.firstChild);
         }
       }
@@ -796,13 +845,14 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       const tb = tr.width > 0 && tr.height > 0 ? conv(tr, ctx.layer) : { ...box };
       tb.x = clamp(tb.x, box.x - 4, box.x + box.w);
       tb.y = clamp(tb.y, box.y - 4, box.y + box.h);
-      textItem(
+      const it = textItem(
         { ...box, layer: ctx.layer, key, op: ctx.op, clip: clipFor(r, ctx.clip, ctx.layer), parentBox: ctx.boxItem, blend: cs.mixBlendMode !== "normal" ? cs.mixBlendMode : ctx.blend || "" },
         root,
         tb,
         cs,
-        ctx.layer,
+        scale,
       );
+      if (el.hasAttribute(glyphAttribute) && /^[0-9:]$/.test(it.text)) it.glyph = el;
     }
 
     function emitRun(el, cs, run, ctx) {
@@ -814,8 +864,17 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       if (!intersect(ltrb(r), ctx.clip)) return;
       const root = document.createElement("div");
       setStyle(root, rootStyle(cs, true));
-      const single = r.height < lhPx(cs) * 1.6;
-      if (single) root.style.whiteSpace = "nowrap";
+      const scale = textScale(el) || unitScale;
+      const single = r.height < lhPx(cs) * scale[1] * 1.6;
+      if (single) {
+        root.style.whiteSpace = "nowrap";
+        // This block starts at the source text range, not its line box.
+        // Keep a plain one-line run centered in that range without adding
+        // the original leading above it a second time.
+        if (cs.writingMode === "horizontal-tb" && run.every((n) => n.nodeType === 3) && rg.getClientRects().length === 1) {
+          root.style.lineHeight = r.height / scale[1] + "px";
+        }
+      }
       for (const n of run) {
         if (n.nodeType === 3) root.appendChild(document.createTextNode(n.data));
         else root.appendChild(cloneStyled(n));
@@ -828,7 +887,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         root,
         { ...box },
         cs,
-        ctx.layer,
+        scale,
       );
     }
 
@@ -1169,7 +1228,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         root,
         { ...b },
         cs,
-        ctx.layer,
+        textScale(el) || unitScale,
       );
     }
 
@@ -1207,8 +1266,9 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       if (cs.position === "absolute" && /rect\(0px,? 0px,? 0px,? 0px\)/.test(cs.clip)) return;
       if (/inset\(50%\)|circle\(0px/.test(cs.clipPath)) return;
       if (cs.float !== "none" && r.width > 1 && r.height > 1) {
-        const n = (p) => parseFloat(cs.getPropertyValue(p)) || 0;
-        floats.push({ el, side: cs.float, l: r.left - n("margin-left"), t: r.top - n("margin-top"), r: r.right + n("margin-right"), b: r.bottom + n("margin-bottom") });
+        const [scaleX, scaleY] = textScale(el) || unitScale;
+        const n = (p, factor) => (parseFloat(cs.getPropertyValue(p)) || 0) * factor;
+        floats.push({ el, side: cs.float, l: r.left - n("margin-left", scaleX), t: r.top - n("margin-top", scaleY), r: r.right + n("margin-right", scaleX), b: r.bottom + n("margin-bottom", scaleY) });
       }
       let layer = ctx.layer;
       let clip = ctx.clip;
@@ -1221,7 +1281,8 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       } else if (pos === "sticky" && layer === "world") {
         // stuck (or sitting exactly where it would stick) at the top of its scroller
         const top = parseFloat(cs.top);
-        if (!isNaN(top) && Math.abs(r.top - oy - top) < 2 && r.height < vh * 0.4) {
+        const [, scaleY] = textScale(el) || unitScale;
+        if (!isNaN(top) && Math.abs(r.top - oy - top * scaleY) < 2 && r.height < vh * 0.4) {
           layer = "over";
           clip = viewClip;
         }
@@ -1250,6 +1311,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         start: items.length, end: items.length, kids: [], box,
       };
       (parent ? parent.kids : roots).push(node);
+      if (emit && el !== html && el !== body && intersect(ltrb(r), viewClip)) anchors.push({ el, box, layer });
 
       if (REPLACED.has(tag) || FORMS.has(tag)) {
         if (emit) {
@@ -1276,10 +1338,11 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         portKey = keyFn();
       }
       else if (el !== html && el !== body && (cs.overflowX !== "visible" || cs.overflowY !== "visible")) {
-        const bl = parseFloat(cs.borderLeftWidth) || 0;
-        const bt = parseFloat(cs.borderTopWidth) || 0;
-        const br = parseFloat(cs.borderRightWidth) || 0;
-        const bb = parseFloat(cs.borderBottomWidth) || 0;
+        const [x, y] = textScale(el) || unitScale;
+        const bl = (parseFloat(cs.borderLeftWidth) || 0) * x;
+        const bt = (parseFloat(cs.borderTopWidth) || 0) * y;
+        const br = (parseFloat(cs.borderRightWidth) || 0) * x;
+        const bb = (parseFloat(cs.borderBottomWidth) || 0) * y;
         kidClip = intersect(clip, { l: r.left + bl, t: r.top + bt, r: r.right - br, b: r.bottom - bb });
         if (!kidClip) {
           node.end = items.length;
@@ -1323,7 +1386,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         }
         let inl = false;
         const nt = n.localName;
-        if (persistBranches.has(n) || n.shadowRoot || nt === "slot") inl = false;
+        if (separateBranches.has(n) || n.shadowRoot || nt === "slot") inl = false;
         else if (nt === "br" || nt === "wbr") inl = true;
         else if (d === "inline") inl = allInline(n);
         else if (directText && d.startsWith("inline")) inl = true;
@@ -1385,6 +1448,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       for (const k of node.kids) {
         const n = k.end - k.start;
         if (n < 1 || n > 48) continue;
+        if (items.slice(k.start, k.end).some((it) => it.glyph)) continue;
         // long single paragraphs read better typed than duplicated
         if (n === 1 && items[k.start].kind === "text" && items[k.start].text.length > 40) continue;
         const sig = `${k.tag}|${k.cls}|${k.layer}|${kindsSig(k)}`;
@@ -1419,7 +1483,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
 
     const twinKey = new Map();
     for (const it of items) {
-      if (it.kind !== "text" || it.copyOf || !it.text) continue;
+      if (it.kind !== "text" || it.copyOf || it.glyph || !it.text) continue;
       const k = `${it.layer}|${Math.round(it.tb.x / 4)}|${Math.round(it.tb.y / 4)}|${it.text}`;
       const m = twinKey.get(k);
       if (m) it.twinOf = m;
@@ -1545,7 +1609,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         if (!covered) backdrops.push({ x: b.r.left, y: b.r.top, w: b.r.width, h: b.r.height, key: b.key, color: pageBg.color });
       }
 
-    return { items, tasks, groups, guides, docW, docH, backdrops, portKey };
+    return { items, tasks, groups, guides, docW, docH, backdrops, portKey, anchors };
   }
 
   // -------------------------------------------------------------- text reveal
@@ -1759,12 +1823,14 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       const all = document.body ? document.body.getElementsByTagName("*") : [];
       for (let i = 0; i < all.length && i < 20000; i++) {
         const el = all[i];
-        if (el.scrollHeight <= el.clientHeight + 40 || el.clientHeight < innerHeight * 0.4) continue;
-        const oy = getComputedStyle(el).overflowY;
-        if (!/(auto|scroll|overlay)/.test(oy)) continue;
+        if (el.scrollHeight <= el.clientHeight + 40) continue;
+        const cs = getComputedStyle(el);
+        if (cs.visibility !== "visible" || !/(auto|scroll|overlay)/.test(cs.overflowY)) continue;
         const r = el.getBoundingClientRect();
-        const area = r.width * r.height;
-        if (area > bestArea && r.width > innerWidth * 0.35) {
+        const w = Math.min(r.right, innerWidth) - Math.max(0, r.left);
+        const h = Math.min(r.bottom, innerHeight) - Math.max(0, r.top);
+        const area = w * h;
+        if (area > bestArea && w > innerWidth * 0.35 && h >= innerHeight * 0.4) {
           best = el;
           bestArea = area;
         }
@@ -1774,11 +1840,15 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         isRoot = false;
       }
     }
+    let [scaleX, scaleY] = unitScale;
+    const readScale = () => { if (!isRoot) [scaleX, scaleY] = createScaleReader(el => getComputedStyle(el))(scroller) || unitScale; };
+    readScale();
     const env = {
       scroller,
       isRoot,
       host: null,
       pageBg: pageBackground(),
+      readScale,
       geom() {
         if (isRoot) {
           return {
@@ -1792,25 +1862,25 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         }
         const r = scroller.getBoundingClientRect();
         return {
-          ox: r.left + scroller.clientLeft,
-          oy: r.top + scroller.clientTop,
-          sx: scroller.scrollLeft,
-          sy: scroller.scrollTop,
-          vw: scroller.clientWidth,
-          vh: scroller.clientHeight,
+          ox: r.left + scroller.clientLeft * scaleX,
+          oy: r.top + scroller.clientTop * scaleY,
+          sx: scroller.scrollLeft * scaleX,
+          sy: scroller.scrollTop * scaleY,
+          vw: scroller.clientWidth * scaleX,
+          vh: scroller.clientHeight * scaleY,
         };
       },
-      scrollHeight: () => (isRoot ? Math.max(se.scrollHeight, document.body ? document.body.scrollHeight : 0) : scroller.scrollHeight),
-      scrollWidth: () => (isRoot ? se.scrollWidth : scroller.scrollWidth),
+      scrollHeight: () => (isRoot ? Math.max(se.scrollHeight, document.body ? document.body.scrollHeight : 0) : scroller.scrollHeight * scaleY),
+      scrollWidth: () => (isRoot ? se.scrollWidth : scroller.scrollWidth * scaleX),
       scrollTo(y, x) {
-        const opts = { top: y, behavior: "instant" };
-        if (x != null) opts.left = x;
+        const opts = { top: y / scaleY, behavior: "instant" };
+        if (x != null) opts.left = x / scaleX;
         if (isRoot) window.scrollTo(opts);
         else scroller.scrollTo(opts);
       },
       scrollBy(dy) {
         if (isRoot) window.scrollBy({ top: dy, behavior: "instant" });
-        else scroller.scrollBy({ top: dy, behavior: "instant" });
+        else scroller.scrollBy({ top: dy / scaleY, behavior: "instant" });
       },
     };
     return env;
@@ -1844,7 +1914,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
 <div class="intro"></div>
 <svg class="ov"></svg>
 <div class="badges"></div>
-<div class="cursors"></div>
+<div class="cursors" part="worker-pointers"></div>
 <div class="rulers"></div>
 <div class="hud">
   <button data-a="hidebar" class="hidebar" title="Hide the toolbar (${MODLABEL}H)">${CHEVRON_ICON}</button>
@@ -1951,6 +2021,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     }
 
     measure() {
+      this.env.readScale();
       this.W = innerWidth;
       this.H = innerHeight;
       this.g = this.env.geom();
@@ -2029,6 +2100,10 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       } else if (it.kind === "text") {
         n.className = "it t";
         prepText(it);
+        if (it.glyph && it.units.length === 1 && it.units[0].t) {
+          n.setAttribute("data-swarm-glyph", "");
+          this.watchGlyph(it);
+        }
       } else if (it.kind === "line") {
         n.className = "it l";
         n.innerHTML = '<svg width="1" height="1"><path fill="none"/></svg>';
@@ -2036,6 +2111,28 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       if (it.op < 0.999) n.style.opacity = it.op;
       if (it.blend) n.style.mixBlendMode = it.blend;
       return n;
+    }
+
+    watchGlyph(it) {
+      if (!this.glyphObserver) {
+        this.glyphs = [];
+        this.glyphObserver = new MutationObserver(() => {
+          for (const glyph of this.glyphs) this.updateGlyph(glyph);
+        });
+      }
+      this.glyphs.push(it);
+      this.glyphObserver.observe(it.glyph, { childList: true, characterData: true, subtree: true });
+      this.updateGlyph(it);
+    }
+
+    updateGlyph(it) {
+      const value = it.glyph.textContent;
+      const unit = it.units[0];
+      if (value === unit.s || !/^[0-9:]$/.test(value)) return;
+      unit.s = it.seq = value;
+      // Updating the source never reveals an unbuilt glyph. Keep tracking it
+      // during the final fade too, when the animation loop has already stopped.
+      it._last = reveal(it, it.shown);
     }
 
     renderItem(it) {
@@ -2352,8 +2449,9 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
   // ----------------------------------------------------------------- engine
 
   class Engine {
-    constructor(view) {
+    constructor(view, viewportOnly) {
       this.view = view;
+      this.viewportOnly = viewportOnly;
       this.vp = view.vp;
       this.items = null;
       this.tasks = [];
@@ -2393,6 +2491,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       this.tasks = m.tasks;
       this.groups = m.groups;
       this.guides = m.guides;
+      this.viewportWork = null;
       this.guideDeps = new Map(m.guides.map((g) => [g, g.deps || []]));
       // A carried-over restart (see carryOverUnchanged) can hand this a model
       // whose unchanged items' tasks are already marked "done" before a
@@ -2518,9 +2617,10 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
 
     available() {
       const out = [];
-      for (const t of this.tasks) {
+      const work = this.workInViewport();
+      for (const t of work || this.tasks) {
         if (t.state !== "wait") continue;
-        if (t.layer === "world" && t.gate > this.frontier) continue;
+        if (!work && t.layer === "world" && t.gate > this.frontier) continue;
         let ok = true;
         for (const d of t.deps)
           if (d.state !== "done") {
@@ -2530,6 +2630,29 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         if (ok) out.push(t);
       }
       return out;
+    }
+
+    workInViewport() {
+      if (!this.viewportOnly || !this.items) return null;
+      const vp = this.vp;
+      const key = [vp.ox, vp.oy, vp.sx, vp.sy, vp.vw, vp.vh, innerWidth, innerHeight].join("/");
+      if (this.viewportWork?.key === key) return this.viewportWork.tasks;
+      const world = worldBounds(vp), screen = screenBounds();
+      const tasks = new Set();
+      const requireTask = (task) => {
+        if (tasks.has(task)) return;
+        tasks.add(task);
+        for (const dep of task.deps) requireTask(dep);
+      };
+      for (const it of this.items) {
+        if (!it.final) continue;
+        const viewport = it.layer === "world" ? world : screen;
+        const painted = boxBounds(it.kind === "text" ? it.tb : it);
+        const clipped = it.clip ? intersect(painted, it.clip) : painted;
+        if (viewport && clipped && intersect(clipped, viewport)) for (const t of it.final) requireTask(t);
+      }
+      this.viewportWork = { key, tasks };
+      return tasks;
     }
 
     pick(c, list) {
@@ -2553,7 +2676,8 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     // work that's unlocked but unfinished (things past the frontier need scrolling, not waiting)
     backlog() {
       let n = 0;
-      for (const t of this.tasks) if (t.state !== "done" && (t.layer !== "world" || t.gate <= this.frontier)) n++;
+      const work = this.workInViewport();
+      for (const t of work || this.tasks) if (t.state !== "done" && (work || t.layer !== "world" || t.gate <= this.frontier)) n++;
       return n;
     }
 
@@ -2586,7 +2710,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         }
       }
 
-      if (this.started && this.doneCount === this.tasks.length) {
+      if (this.started && (this.viewportOnly ? this.backlog() === 0 : this.doneCount === this.tasks.length)) {
         this.finished = true;
         this.endTime = this.time;
         if (this.onComplete) this.onComplete();
@@ -3314,8 +3438,10 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21.2s-8.4-5.3-8.4-11.2A4.7 4.7 0 0 1 12 7.1a4.7 4.7 0 0 1 8.4 2.9c0 5.9-8.4 11.2-8.4 11.2z"/></svg>';
 
   class Sound {
-    constructor() {
-      this.on = THEME.sound === false ? false : THEME.sound === true ? true : soundPref;
+    constructor(playback) {
+      this.playback = playback;
+      this.volume = playback?.volume ?? 1;
+      this.on = playback ? playback.sound : THEME.sound === false ? false : THEME.sound === true ? true : soundPref;
       this.ctx = null;
       this.bpm = 104;
       this.slots = new Map();
@@ -3336,7 +3462,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       }
       const ctx = this.ctx;
       const out = ctx.createGain();
-      out.gain.value = this.on ? 1 : 0;
+      out.gain.value = this.on ? this.volume : 0;
       const comp = ctx.createDynamicsCompressor();
       comp.threshold.value = -18;
       comp.knee.value = 14;
@@ -3393,11 +3519,12 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     }
 
     setOn(on) {
-      this.on = soundPref = on;
+      this.on = on;
+      if (!this.playback) soundPref = on;
       if (!this.ctx) return;
       const t = this.ctx.currentTime;
       this.out.gain.cancelScheduledValues(t);
-      this.out.gain.setTargetAtTime(on ? 1 : 0, t, 0.05);
+      this.out.gain.setTargetAtTime(on ? this.volume : 0, t, 0.05);
       if (on) this.resume();
     }
 
@@ -3784,7 +3911,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       // picks up a one-off "active" class that no longer matches its
       // neighbors' signature) becomes a plain item with its own task on the
       // *new* side, and it should still find its own already-drawn self here.
-      if (old.twinOf) continue;
+      if (old.twinOf || old.glyph) continue;
       const k = itemSig(old);
       let q = pool.get(k);
       if (!q) pool.set(k, (q = []));
@@ -3807,7 +3934,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       return bestIx;
     };
     for (const it of model.items) {
-      if (it.copyOf || it.twinOf || !it.task || it.task.state !== "wait") continue;
+      if (it.copyOf || it.twinOf || it.glyph || !it.task || it.task.state !== "wait") continue;
       const q = pool.get(itemSig(it));
       if (!q || !q.length) continue;
       // The closest-positioned candidate, not just the first in the queue -
@@ -3944,6 +4071,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     // new content" as fast as a real capture allows.
     async run(opts) {
       const quiet = !!(opts && opts.quiet);
+      this.viewportOnly = !!opts?.viewportOnly;
       this.env = detectEnv();
       this.env.route = !!(opts && opts.route);
       this.routerManaged = !!opts?.routerManaged;
@@ -3961,8 +4089,8 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         this.view.bg.classList.add("on");
         if (opts.covered) this.view.host.style.setProperty("visibility", "hidden", "important");
       }
-      this.engine = new Engine(this.view);
-      this.sfx = new Sound();
+      this.engine = new Engine(this.view, this.viewportOnly);
+      this.sfx = new Sound(opts?.playback);
       this.sfx.init();
       this.engine.sfx = this.sfx;
       this.engine.onStart = () => {
@@ -3996,7 +4124,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       const extra = quiet ? 0 : Math.max(0, Number(THEME.captureDelay) || 0);
       if (extra) await sleep(extra);
       if (this.dead) return;
-      if (!quiet) await this.scan();
+      if (!quiet && !opts?.playback && !this.viewportOnly) await this.scan();
       mark("scan");
       if (this.dead) return;
       try {
@@ -4029,6 +4157,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       if (opts && opts.prevModel) carryOverUnchanged(model, opts.prevModel);
       this.engine.setModel(model);
       this.model = model;
+      this.watchLiveRegions();
       mark("mount");
       if (!quiet && !this.env.route) {
         const wait = 1500 - (performance.now() - this.t0);
@@ -4036,6 +4165,48 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       }
       if (this.dead) return;
       this.engine.start();
+    }
+
+    watchLiveRegions() {
+      const regions = document.querySelectorAll("[data-swarm-live-region]");
+      if (!regions.length) return;
+      this.liveObserver = new MutationObserver((mutations) => {
+        if (!mutations.some(({ target }) => {
+          const el = target.nodeType === 1 ? target : target.parentElement;
+          return el && !el.closest("[data-swarm-glyph]");
+        })) return;
+        // Structural updates belong to the live page. Keep the app responsive
+        // and avoid crossing from a stale picture to a different layout.
+        this.handoff();
+      });
+      for (const region of regions) this.liveObserver.observe(region, {
+        subtree: true, childList: true, characterData: true, attributes: true,
+        attributeFilter: ["class", "hidden", "open", "style", "aria-hidden"],
+      });
+    }
+
+    handoff() {
+      if (app === this) stop(false, true);
+      else this.finishFade?.();
+    }
+
+    layoutMatches() {
+      if (!this.model?.anchors || !this.view.host.isConnected) return true;
+      const vp = this.view.vp;
+      const world = worldBounds(vp);
+      let checked = 0;
+      for (const { el, box, layer } of this.model.anchors) {
+        if (layer === "world" && (!world || !intersect(boxBounds(box), world))) continue;
+        const r = el.getBoundingClientRect();
+        const x = box.x + (layer === "world" ? vp.ox - vp.sx : 0);
+        const y = box.y + (layer === "world" ? vp.oy - vp.sy : 0);
+        if (!el.isConnected || Math.max(
+          Math.abs(x - r.left), Math.abs(y - r.top),
+          Math.abs(box.w - r.width), Math.abs(box.h - r.height),
+        ) > 2) return false;
+        if (++checked === 256) break;
+      }
+      return true;
     }
 
     async scan() {
@@ -4069,10 +4240,19 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       // listeners on an ancestor still see it on the way down) — not just the
       // one main scroller the capture step tracks, now that other containers
       // (a sidebar, an inner panel) are free to scroll natively too.
-      on(document, "scroll", () => {
+      on(document, "scroll", (event) => {
+        const primary = event.target === this.env.scroller || (this.env.isRoot && event.target === document);
+        if (this.model && this.viewportOnly && ((this.complete && primary) ||
+            (!primary && event.target?.closest?.("[data-swarm-live-region]")))) {
+          this.handoff();
+          return;
+        }
         if (!this.view.frozen) this.view.syncWorld();
       }, { passive: true, capture: true });
-      on(window, "resize", () => this.view.measure());
+      on(window, "resize", () => {
+        if (this.model && this.viewportOnly) this.handoff();
+        else this.view.measure();
+      });
       on(window, "wheel", () => {
         if (this.engine.ready) this.engine.start();
       }, { passive: true });
@@ -4614,6 +4794,10 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     }
 
     destroy(reveal, immediate) {
+      if (reveal && !immediate) {
+        this.view.syncWorld();
+        if (!this.layoutMatches()) immediate = true;
+      }
       if (this.recorder && this.recorder.state === "recording") this.stopRecord(true); // closing mid-record still saves the video
       unhidePage();
       if (this.sfx) {
@@ -4621,10 +4805,13 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         this.sfx.close(reveal ? 1.4 : 0.25);
       }
       const removeHost = () => {
+        this.view.glyphObserver?.disconnect();
+        this.liveObserver?.disconnect();
         this.view.host.remove();
         this.releasePersistentClip?.();
       };
       const finish = () => {
+        this.finishFade = null;
         this.dead = true;
         cancelAnimationFrame(this.raf);
         for (const u of this.unbinds || []) u();
@@ -4640,7 +4827,8 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         this.view.hud.classList.remove("on");
         this.view.host.style.setProperty("transition", "opacity .65s ease", "important");
         this.view.host.style.setProperty("opacity", "0", "important");
-        setTimeout(finish, 800);
+        this.finishFade = finish;
+        setTimeout(() => this.finishFade?.(), 800);
       } else {
         this.view.host.style.setProperty("transition", "opacity .25s ease", "important");
         this.view.host.style.setProperty("opacity", "0", "important");
@@ -4712,6 +4900,8 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       a.dead = true;
       cancelAnimationFrame(a.raf);
       for (const u of a.unbinds || []) u();
+      a.view.glyphObserver?.disconnect();
+      a.liveObserver?.disconnect();
       a.view.host.remove();
       a.releasePersistentClip?.();
       if (a.sfx) a.sfx.close(0.1);
