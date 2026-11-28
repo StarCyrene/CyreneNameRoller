@@ -211,13 +211,20 @@ async function toggleWithKeyboard(page, selector) {
   await page.keyboard.press('Space')
 }
 
-async function clickVisible(page, selector) {
-  await page.waitForFunction(selector => {
+async function visibleTarget(page, selector) {
+  const point = await page.waitForFunction(selector => {
     const target = document.querySelector(selector)
     const r = target?.getBoundingClientRect()
-    return r?.width > 0 && r.height > 0 &&
-      target.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2))
+    if (!r || r.width <= 0 || r.height <= 0) return false
+    const x = r.x + r.width / 2
+    const y = r.y + r.height / 2
+    return target.contains(document.elementFromPoint(x, y)) && { x, y }
   }, {}, selector)
+  try { return await point.jsonValue() }
+  finally { await point.dispose() }
+}
+async function clickVisible(page, selector) {
+  await visibleTarget(page, selector)
   await page.click(selector)
 }
 const clickDock = (page, path) => clickVisible(page, '.dock a[href="#' + path + '"]')
@@ -235,6 +242,58 @@ async function expectNavigationPaint(page, path, navigate) {
   await seePaint(page, path, { since })
   await reveal(page)
   await page.waitForSelector(viewForPath[path], { visible: true })
+}
+async function verifyHybridDockNavigation() {
+  const { page, context } = await makePage({ pointerEffects: true, pointerDrawingSpeed: 2 })
+  try {
+    // Keep the desktop primary pointer but report an additional touch pointer
+    // even on test runners that have no physical touchscreen.
+    await page.evaluateOnNewDocument(() => {
+      const match = window.matchMedia.bind(window)
+      window.matchMedia = query => {
+        const result = match(query)
+        if (!result.matches && query === '(any-pointer: coarse)') Object.defineProperty(result, 'matches', { value: true })
+        return result
+      }
+      const trace = window.dockInputTrace = []
+      for (const type of ['pointerdown', 'pointermove', 'click']) {
+        document.addEventListener(type, event => {
+          if (event.isTrusted) trace.push({
+            type, pointer: event.pointerType, fromTouch: Boolean(event.sourceCapabilities?.firesTouchEvents)
+          })
+        }, { capture: true, passive: true })
+      }
+    })
+    const session = await page.createCDPSession()
+    const records = '.dock button[title="Records"]'
+    const back = '.secondary-sidebar-menu.is-interactive .secondary-sidebar-menu__back'
+    const roller = '.dock a[href="#/roller"]'
+    async function tap(selector) {
+      const point = await visibleTarget(page, selector)
+      const before = await page.evaluate(() => window.dockInputTrace.length)
+      await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] })
+      await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      const events = await page.evaluate(start => window.dockInputTrace.slice(start), before)
+      assert.ok(events.some(event => event.type === 'pointerdown' && event.pointer === 'touch'), JSON.stringify(events))
+      assert.ok(events.some(event => event.type === 'click' && (event.pointer === 'touch' || event.fromTouch)), JSON.stringify(events))
+      assert.ok(!events.some(event => event.pointer === 'mouse' && !event.fromTouch), JSON.stringify(events))
+    }
+    await page.goto(origin + '/#/roller')
+    await seePaint(page, '/roller', { route: false })
+    await reveal(page)
+    assert.deepEqual(await page.evaluate(() => [
+      matchMedia('(pointer: fine)').matches, matchMedia('(any-pointer: coarse)').matches
+    ]), [true, true])
+    await expectNavigationPaint(page, '/records', () => tap(records))
+    await tap(back)
+    await expectNavigationPaint(page, '/roller', () => tap(roller))
+    await addCursorProbes(page)
+    await page.hover('#pointer-blank')
+    await waitArrow(page)
+    await expectNavigationPaint(page, '/records', () => clickVisible(page, records))
+  } finally {
+    await context.close()
+  }
 }
 const assertQuiet = async (page, { chunks, native = false } = {}) => {
   const effects = await page.evaluate(() => ({
@@ -423,6 +482,8 @@ try {
     await test.context.close()
   }
 
+  await verifyHybridDockNavigation()
+
   const preferences = await makePage()
   const prefsPage = preferences.page
   await prefsPage.goto(origin + '/#/settings/appearance')
@@ -455,7 +516,7 @@ try {
   await reveal(prefsPage)
   await preferences.context.close()
   assert.deepEqual(errors, [])
-  console.log('Pointer effects: real page painting on startup and tool/Dock navigation, unobscured splash, service worker, independent sound, stationary theme changes, teardown, and accessibility fallbacks.')
+  console.log('Pointer effects: real page painting on startup and tool/Dock navigation, hybrid touch and mouse, unobscured splash, service worker, independent sound, stationary theme changes, teardown, and accessibility fallbacks.')
 } finally {
   await browser?.close()
   server.httpServer.closeAllConnections?.()
