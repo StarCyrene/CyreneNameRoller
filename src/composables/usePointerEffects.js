@@ -54,11 +54,14 @@ const pointerTheme = {
 
 export function usePointerEffects({ router, settings, layout, theme, dark }) {
   const noMotion = window.matchMedia('(prefers-reduced-motion: reduce), (forced-colors: active)')
-  const coarse = window.matchMedia('(pointer: coarse), (hover: none) and (any-pointer: coarse)')
-  const mediaAllowed = ref(!noMotion.matches && !coarse.matches)
-  const touch = ref(false)
+  const coarse = window.matchMedia('(pointer: coarse), (any-pointer: coarse)')
+  const fine = window.matchMedia('(pointer: fine), (any-pointer: fine)')
+  // A touch-only device keeps the quiet fallback. On a hybrid device the
+  // input that activated a route is independent of the drawing preference.
+  const allowsEffects = () => !noMotion.matches && (!coarse.matches || fine.matches)
+  const mediaAllowed = ref(allowsEffects())
   const enabled = computed(() => settings.value.pointerEffects === true && settings.value.perfAnimations !== false &&
-    mediaAllowed.value && !touch.value)
+    mediaAllowed.value)
   const playing = ref(false)
   const ready = ref(false)
   const available = computed(() => ready.value && enabled.value && canDrawPage(router.currentRoute.value))
@@ -132,8 +135,8 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
     destroyDrawing()
     syncTheme()
     try {
-      // The native replacement is independent of the drawing router. It
-      // begins immediately and never requests the engine or a page cover.
+      // The native replacement tracks actual mouse input independently and
+      // clears its cursor on touch, without stopping a route drawing.
       replacement ??= createSwarmCursors({
         accent,
         colors: [accent],
@@ -183,12 +186,8 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
   }
 
   function syncMedia() {
-    mediaAllowed.value = !noMotion.matches && !coarse.matches
+    mediaAllowed.value = allowsEffects()
     if (!mediaAllowed.value) cancel()
-  }
-  function trackPointer(event) {
-    if (event.pointerType === 'touch' && !touch.value) { touch.value = true; cancel() }
-    else if (event.pointerType === 'mouse') touch.value = false
   }
   function protectEdit(event) {
     if (isEditing(event.target)) cancel()
@@ -202,8 +201,7 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
   onMounted(() => {
     noMotion.addEventListener('change', syncMedia)
     coarse.addEventListener('change', syncMedia)
-    window.addEventListener('pointerdown', trackPointer, { capture: true, passive: true })
-    window.addEventListener('pointermove', trackPointer, { capture: true, passive: true })
+    fine.addEventListener('change', syncMedia)
     window.addEventListener('focusin', protectEdit, true)
     window.addEventListener('keydown', allowAppKey, true)
     // On reconfiguration, do not replay a page that was already visible.
@@ -214,8 +212,7 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
     stopRefreshing?.()
     noMotion.removeEventListener('change', syncMedia)
     coarse.removeEventListener('change', syncMedia)
-    window.removeEventListener('pointerdown', trackPointer, true)
-    window.removeEventListener('pointermove', trackPointer, true)
+    fine.removeEventListener('change', syncMedia)
     window.removeEventListener('focusin', protectEdit, true)
     window.removeEventListener('keydown', allowAppKey, true)
     destroy()
