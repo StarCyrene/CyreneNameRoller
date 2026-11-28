@@ -1,4 +1,5 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { createSwarmCursors } from 'swarm-cursors-vue'
 import { normalizePointerDrawingSpeed } from '../utils/pointerDrawingPreferences.mjs'
 
 export const pointerEffectsKey = Symbol('pointer-effects')
@@ -65,13 +66,11 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
   const drawingCurrentRoute = computed(() => enabled.value && drawingPath.value === router.currentRoute.value.path)
   const drawingSpeed = computed(() => normalizePointerDrawingSpeed(settings.value.pointerDrawingSpeed))
   const hideWorkerPointers = computed(() => enabled.value && settings.value.pointerHideWorkerPointers === true)
+  const routeDecisions = new WeakMap()
   let replacement = null
   let core = null
-  let getEngine
   let removeState
-  let token = 0
   let stopRefreshing
-  let mounted = false
 
   function cancel() {
     core?.stop(false)
@@ -100,11 +99,11 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
   }
 
   function prepareRoute(to, from) {
-    // The lazy import can finish after navigation and draw that destination.
-    // Reserve its transition even if the drawing engine is not ready yet.
-    const willDraw = changesPage(to, from) && !!routeOptions(to)
-    drawingPath.value = willDraw ? to.path : null
-    return willDraw
+    // The route tween and Swarm must make the same decision for this navigation.
+    const options = ready.value && changesPage(to, from) && routeOptions(to)
+    routeDecisions.set(to, options)
+    drawingPath.value = options ? to.path : null
+    return !!options
   }
 
   function syncTheme() {
@@ -124,8 +123,7 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
     if (!run?.dead && run?.engine) run.engine.speed = drawingSpeed.value
   }
 
-  async function refresh(initial = false) {
-    const request = ++token
+  function refresh(initial = false) {
     if (!enabled.value || !layout.value) {
       destroy()
       syncTheme()
@@ -133,11 +131,7 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
     }
     destroyDrawing()
     syncTheme()
-    const firstPath = router.currentRoute.value.path
     try {
-      getEngine ??= import('swarm-cursors-vue').catch(error => { getEngine = null; throw error })
-      const { createSwarmCursors } = await getEngine
-      if (!mounted || request !== token || !enabled.value || !layout.value) return
       // The native replacement is independent of the drawing router. It
       // begins immediately and never requests the engine or a page cover.
       replacement ??= createSwarmCursors({
@@ -153,12 +147,11 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
         companionMode: 'replace',
         sound: false
       })
-      // If the optional import finishes after a navigation, draw its current
-      // destination. An in-place settings change still never starts a replay.
-      const playInitial = initial || firstPath !== router.currentRoute.value.path
+      // Install the cover before a destination can paint. Swarm still loads
+      // the renderer on demand, behind the cover. AppLayout mounts after Splash.
       core = createSwarmCursors({
         ...pointerTheme,
-        router: routeAdapter(router, routeOptions, playInitial),
+        router: routeAdapter(router, route => routeDecisions.get(route) ?? routeOptions(route), initial),
         auto: true,
         autoOnRoute: true,
         autoDelay: 90,
@@ -177,8 +170,8 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
       })
       ready.value = true
     } catch (error) {
-      // A missing optional chunk must not block a launch or interfere with navigation.
-      if (request === token) console.warn('[pointer effects] Could not load the animation', error)
+      destroy()
+      console.warn('[pointer effects] Could not initialize the animation', error)
     }
   }
 
@@ -206,23 +199,18 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
     if (event.key === 'Escape' || (event.ctrlKey && event.shiftKey)) cancel()
   }
 
-  onMounted(async () => {
-    mounted = true
+  onMounted(() => {
     noMotion.addEventListener('change', syncMedia)
     coarse.addEventListener('change', syncMedia)
     window.addEventListener('pointerdown', trackPointer, { capture: true, passive: true })
     window.addEventListener('pointermove', trackPointer, { capture: true, passive: true })
     window.addEventListener('focusin', protectEdit, true)
     window.addEventListener('keydown', allowAppKey, true)
-    await router.isReady()
-    if (!mounted) return
     // On reconfiguration, do not replay a page that was already visible.
     stopRefreshing = watch([enabled, () => settings.value.pointerDrawingSound], () => refresh(), { flush: 'post' })
     refresh(true)
   })
   onBeforeUnmount(() => {
-    mounted = false
-    token++
     stopRefreshing?.()
     noMotion.removeEventListener('change', syncMedia)
     coarse.removeEventListener('change', syncMedia)
