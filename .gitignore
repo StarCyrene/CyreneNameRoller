@@ -36,3 +36,4 @@ plugin-dev/
 *.cnrp
 # C# 开发线暂未推进，本地忽略
 src-csharp/
+/.workbuddy

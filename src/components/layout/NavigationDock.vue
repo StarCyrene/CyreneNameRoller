@@ -355,6 +355,7 @@ const settingsMenuItems = computed(() => [
   { id: 'general', label: lang.value === 'en' ? 'General' : '基本', icon: 'options-20-regular', to: '/settings/general' },
   { id: 'appearance', label: lang.value === 'en' ? 'Appearance' : '外观', icon: 'color-20-regular', to: '/settings/appearance' },
   { id: 'features', label: lang.value === 'en' ? 'Features' : '功能', icon: 'play-20-regular', to: '/settings/features' },
+  { id: 'tts', label: lang.value === 'en' ? 'Voice' : '语音', icon: 'megaphone-20-regular', to: '/settings/tts' },
   { id: 'data', label: lang.value === 'en' ? 'Data' : '数据', icon: 'database-20-regular', to: '/settings/data' }
 ])
 

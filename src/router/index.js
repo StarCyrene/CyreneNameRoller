@@ -25,6 +25,7 @@ const routes = [
       { path: 'general', name: 'SettingsGeneral', component: () => import('../views/SettingsView.vue'), props: { section: 'general' }, meta: { order: 800 } },
       { path: 'appearance', name: 'SettingsAppearance', component: () => import('../views/SettingsView.vue'), props: { section: 'appearance' }, meta: { order: 801 } },
       { path: 'features', name: 'SettingsFeatures', component: () => import('../views/SettingsView.vue'), props: { section: 'features' }, meta: { order: 802 } },
+      { path: 'tts', name: 'SettingsTts', component: () => import('../views/SettingsView.vue'), props: { section: 'tts' }, meta: { order: 803 } },
       { path: 'data', name: 'SettingsData', component: () => import('../views/SettingsView.vue'), props: { section: 'data' }, meta: { order: 803 } },
       { path: 'performance', redirect: '/settings/appearance' },
       { path: 'draw', redirect: '/settings/features' },
