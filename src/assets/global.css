@@ -170,3 +170,7 @@ input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+:root[data-cnr-hide-worker-pointers] div-pointers::part(worker-pointers) {
+  display: none;
+}

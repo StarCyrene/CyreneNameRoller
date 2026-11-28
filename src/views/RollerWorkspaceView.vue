@@ -1,6 +1,6 @@
 <template>
-  <div class="roller-workspace">
-    <footer class="tool-bar">
+  <div ref="workspace" class="roller-workspace">
+    <footer class="tool-bar" data-swarm-persist>
       <div ref="stripShell" class="tool-strip-shell" :class="{ 'has-overflow': overflow }">
         <button v-if="canScrollBack" type="button" class="strip-arrow strip-back" tabindex="-1"
           :aria-label="lang === 'en' ? 'Show previous tools' : '查看前面的工具'" aria-controls="roller-tool-picker" @mousedown.prevent @click="pageTools(-1)">
@@ -20,8 +20,7 @@
             @keydown.space.prevent="$event.currentTarget.click()"
           >
             <FluentIcon :icon="tool.icon" :width="17" aria-hidden="true" />
-            <span class="full-label">{{ tool.label[lang] }}</span>
-            <span class="compact-label">{{ tool.compact[lang] }}</span>
+            <span>{{ (compactLabels ? tool.compact : tool.label)[lang] }}</span>
           </RouterLink>
         </div>
         <FluentScrollBar
@@ -69,8 +68,10 @@ function setEnglishMode(value) {
   uriEnglishMode.value = null
   settings.update('englishMode', value)
 }
+const workspace = ref(null)
 const pivot = ref(null)
 const stripShell = ref(null)
+const compactLabels = ref(false)
 const overflow = ref(false)
 const stripOffset = ref(0)
 const stripLimit = ref(0)
@@ -81,6 +82,10 @@ const panel = ref(null)
 const versionHost = inject('rollerVersionHost', null)
 function attachVersionHost(element) { if (versionHost) versionHost.value = element }
 let resizeObserver
+
+function syncLabelMode() {
+  compactLabels.value = getComputedStyle(pivot.value).getPropertyValue('--tool-label-mode').trim() === 'compact'
+}
 
 function updateScrollEdges() {
   const strip = pivot.value
@@ -112,10 +117,15 @@ function showSelectedTab() {
 watch([() => route.name, lang], showSelectedTab, { flush: 'post' })
 watch(() => route.name, () => { if (panel.value) panel.value.scrollTop = 0 }, { flush: 'post' })
 onMounted(() => {
-  resizeObserver = new ResizeObserver(showSelectedTab)
+  resizeObserver = new ResizeObserver(() => {
+    syncLabelMode()
+    showSelectedTab()
+  })
+  resizeObserver.observe(workspace.value)
   resizeObserver.observe(pivot.value)
   resizeObserver.observe(stripShell.value)
   for (const tab of pivot.value.children) resizeObserver.observe(tab)
+  syncLabelMode()
   showSelectedTab()
 })
 onBeforeUnmount(() => resizeObserver?.disconnect())
@@ -253,7 +263,6 @@ function onTabKey(event) {
 .english-mode-toggle :deep(.toggle-track) { flex-shrink: 0; }
 .tool-version-host { display: flex; align-items: center; justify-content: flex-end; min-width: 0; max-width: 100%; }
 .tool-version-host:empty { display: none; }
-.compact-label { display: none; }
 @container roller-workspace (max-width: 1250px) {
   .tool-tab { padding-inline: 8px; }
 }
@@ -262,9 +271,8 @@ function onTabKey(event) {
   .tool-strip-shell { flex: 1 0 100%; }
   .tool-footer-meta { flex: 1 1 100%; justify-content: space-between; }
   .tool-version-host { margin-left: auto; }
+  .tool-pivot { --tool-label-mode: compact; }
   .tool-tab { gap: 4px; }
-  .full-label { display: none; }
-  .compact-label { display: inline; }
 }
 @media (pointer: coarse) {
   .english-mode-toggle { min-height: 44px; }

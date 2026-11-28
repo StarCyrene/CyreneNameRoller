@@ -813,8 +813,15 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     function emitLeaf(el, cs, r, ctx, key) {
       const scale = textScale(el) || unitScale;
       const [scaleX, scaleY] = scale;
-      const root = document.createElement("div");
-      setStyle(root, rootStyle(cs, false));
+      // Native buttons center their content in a browser-created box that a
+      // plain div lacks. The separate rectangle already paints the chrome.
+      const nativeButton = el.localName === "button" && !/(flex|grid)/.test(cs.display);
+      const root = document.createElement(nativeButton ? "button" : "div");
+      if (nativeButton) {
+        root.type = "button";
+        root.inert = true;
+      }
+      setStyle(root, rootStyle(cs, false) + (nativeButton ? "appearance:none;background:none;border:0;" : ""));
       const clone = inert().importNode(el, true);
       cloneDescendantsStyled(el, clone);
       while (clone.firstChild) root.appendChild(clone.firstChild);
@@ -1217,9 +1224,13 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       const pad = (side) =>
         (parseFloat(cs.getPropertyValue(`padding-${side}`)) || 0) + (parseFloat(cs.getPropertyValue(`border-${side}-width`)) || 0);
       const isButton = ["submit", "button", "reset"].includes(type);
+      const align = isButton || cs.textAlign === "-webkit-center" ? "center"
+        : /^(left|right|start|end|center)$/.test(cs.textAlign) ? cs.textAlign : "start";
       let st = styleString(cs, TEXT_PROPS);
       st += `padding:${pad("top")}px ${pad("right")}px ${pad("bottom")}px ${pad("left")}px;margin:0;box-sizing:border-box;width:100%;height:100%;overflow:hidden;`;
-      st += tag === "textarea" ? "display:block;white-space:pre-wrap;" : `display:flex;align-items:center;white-space:pre;${isButton ? "justify-content:center;" : ""}`;
+      st += tag === "textarea" ? "display:block;white-space:pre-wrap;" : `display:flex;align-items:center;justify-content:${align};white-space:pre;`;
+      // The native number editor uses its normal line height inside the control.
+      if (tag === "input" && type === "number") st += "line-height:normal;";
       if (ph) st += `color:${getComputedStyle(el, "::placeholder").color};-webkit-text-fill-color:currentColor;`;
       setStyle(root, st);
       root.textContent = text;
@@ -2648,6 +2659,14 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         if (!it.final) continue;
         const viewport = it.layer === "world" ? world : screen;
         const painted = boxBounds(it.kind === "text" ? it.tb : it);
+        if (it.kind === "line") {
+          // A horizontal or vertical path has zero area until it is stroked.
+          const pad = it.sw / 2;
+          painted.l -= pad;
+          painted.t -= pad;
+          painted.r += pad;
+          painted.b += pad;
+        }
         const clipped = it.clip ? intersect(painted, it.clip) : painted;
         if (viewport && clipped && intersect(clipped, viewport)) for (const t of it.final) requireTask(t);
       }
