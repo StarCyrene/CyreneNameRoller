@@ -1,5 +1,5 @@
 <template>
-  <div ref="layoutRef" class="app-layout" data-plugin-style-surface="main" :class="[themeClass, { dark: settingsStore.darkMode, 'compact-nav': narrowDock, 'perf-no-blur': !settingsStore.settings.perfBlur, 'perf-no-shadow': !settingsStore.settings.perfShadows, 'perf-no-anim': !settingsStore.settings.perfAnimations }]" :style="themeStyle" @contextmenu.prevent>
+  <div ref="layoutRef" class="app-layout" data-plugin-style-surface="main" :class="[themeClass, { dark: settingsStore.darkMode, 'compact-nav': narrowDock, 'drawer-open': narrowDock && drawerOpen, 'perf-no-blur': !settingsStore.settings.perfBlur, 'perf-no-shadow': !settingsStore.settings.perfShadows, 'perf-no-anim': !settingsStore.settings.perfAnimations }]" :style="themeStyle" @contextmenu.prevent>
     <PluginVisualLayers />
     <div ref="globalAnimationSurfaceRef" class="plugin-global-animation-surface" aria-hidden="true" />
     <TitleBar v-if="isDesktopApp" class="app-foreground-layer" :dock-collapsed="dockCollapsed" @toggle-dock="toggleDock" />
@@ -1285,4 +1285,6 @@ watch(() => settingsStore.settings.fontFamily, (val) => {
 .compact-nav .app-body { flex-direction: column; }
 .compact-nav .app-content { height: auto; font-size: 14px; zoom: var(--app-user-scale, 1); }
 .compact-nav .banner-container { top: calc(var(--compact-header-height) + env(safe-area-inset-top, 0px)); left: 0; }
+/* 手机抽屉打开时，横幅要退到内容层后面，不能挡住最上面的导航项。 */
+.compact-nav.drawer-open .banner-container { z-index: 0; }
 </style>

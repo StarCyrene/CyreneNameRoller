@@ -2421,6 +2421,24 @@ fn export_encrypted_data(store: State<'_, EncryptedStore>) -> Result<String, Str
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
+// 扫码同步只需要名单/记录/设置；插件数据往往有几 MB，接收端也有自己的插件。
+const SYNC_EXCLUDED_KEYS: [&str; 3] = ["pluginData", "pluginState", "tts-voice-sample"];
+
+#[tauri::command]
+fn export_sync_data(store: State<'_, EncryptedStore>) -> Result<String, String> {
+    store.persist()?;
+    let path = store.path.lock().map_err(|_| "数据路径锁定失败".to_string())?.clone();
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    let mut values = decrypt_data(&bytes)?;
+    if let Some(map) = values.as_object_mut() {
+        for key in SYNC_EXCLUDED_KEYS {
+            map.remove(key);
+        }
+    }
+    let filtered = encrypt_data(&values)?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(filtered))
+}
+
 #[tauri::command]
 fn import_encrypted_data(
     store: State<'_, EncryptedStore>,
@@ -4235,6 +4253,7 @@ pub fn run() {
             core_card_commit,
             core_maintenance_execute,
             export_encrypted_data,
+            export_sync_data,
             import_encrypted_data,
             export_data_file,
             import_data_file,

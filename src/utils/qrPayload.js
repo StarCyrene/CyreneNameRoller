@@ -65,7 +65,7 @@ export async function createQRPayload(kind, access) {
   let data
   if (kind === 'backup') {
     await authorizeBackup(access)
-    data = bytesToBase64(await convertBackup('send', await dataBridge.exportDataBytes()))
+    data = bytesToBase64(await convertBackup('send', await dataBridge.exportDataBytes({ sync: true })))
   } else if (kind === 'names' || kind === 'prizes') {
     const store = kind === 'names' ? useNamesStore() : usePrizesStore()
     await store.initialize()

@@ -124,3 +124,26 @@ test('Malformed or unrelated payloads cannot enter the lists', () => {
   assert.throws(() => validateQRPayload({ version: 1, kind: 'names', data: { ...roster, names: [null] } }), /Invalid sync data/)
   assert.throws(() => validateQRPayload({ version: 1, kind: 'prizes', data: { ...prizeList, prizes: [{ name: 'X', quantity: -1 }] } }), /Invalid sync data/)
 })
+
+test('QR backup skips plugin data and voice samples while file backup keeps them', async t => {
+  const original = globalThis.localStorage
+  t.after(() => { globalThis.localStorage = original })
+  const pluginData = { blob: 'x'.repeat(300 * 1024) }
+  boot(new TestStorage({
+    lists: { class: roster },
+    settings: { darkMode: true },
+    pluginData,
+    pluginState: { installed: [{ id: 'sound-effects' }] },
+    'tts-voice-sample': { name: 'sample.mp3', base64: 'A'.repeat(200000) }
+  }))
+  const payload = await createQRPayload('backup', { password: 'sync-only-pass', setPassword: true })
+  const streamed = await decryptCyreneData(await convertQRBackup('receive', base64ToBytes(payload.data)))
+  assert.deepEqual(streamed.lists.class, roster)
+  assert.equal(streamed.settings.darkMode, true)
+  assert.equal(streamed.pluginData, undefined, 'plugin data must not ride the QR stream')
+  assert.equal(streamed.pluginState, undefined, 'plugin state must not ride the QR stream')
+  assert.equal(streamed['tts-voice-sample'], undefined, 'voice clone sample must not ride the QR stream')
+
+  const full = await decryptCyreneData(await dataBridge.exportDataBytes())
+  assert.equal(full.pluginData.blob.length, 300 * 1024, 'file backup still keeps plugin data')
+})
