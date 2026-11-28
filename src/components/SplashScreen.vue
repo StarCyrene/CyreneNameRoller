@@ -1,5 +1,5 @@
 <template>
-  <div class="splash-root" :class="{ fading }" ref="stage">
+  <div class="splash-root" :class="{ fading, 'no-fade-motion': settingsStore.settings.perfAnimations === false }" ref="stage" @transitionend.self="onFadeEnd">
     <div class="splash-stage">
       <div class="brand" ref="brand">
         <div class="logo-shift" ref="ls">
@@ -68,8 +68,37 @@ const FALLBACK_LOGO =
   'data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20128%20128%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23ff9ecf%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e0438b%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20x%3D%228%22%20y%3D%228%22%20width%3D%22112%22%20height%3D%22112%22%20rx%3D%2228%22%20fill%3D%22url(%23g)%22%2F%3E%3Cpath%20d%3D%22M64%2092%20C44%2076%2036%2060%2044%2050%20C50%2042%2060%2044%2064%2052%20C68%2044%2078%2042%2084%2050%20C92%2060%2084%2076%2064%2092%20Z%22%20fill%3D%22%23fff%22%2F%3E%3C%2Fsvg%3E'
 
 let timers = []
+let fadeFrame = 0
+let finished = false
 function at(ms, fn) {
   timers.push(setTimeout(fn, ms))
+}
+
+function finishFade() {
+  if (finished || !fading.value || !stage.value) return
+  finished = true
+  cancelAnimationFrame(fadeFrame)
+  emit('done')
+}
+
+function onFadeEnd(event) {
+  if (event.propertyName === 'opacity') finishFade()
+}
+
+function checkFade() {
+  const element = stage.value
+  if (!element || finished) return
+  // A zero-duration or cancelled transition may not emit transitionend.
+  if (getComputedStyle(element).opacity === '0' && !element.getAnimations?.().some(animation =>
+    animation.transitionProperty === 'opacity' && (animation.pending || animation.playState === 'running')
+  )) finishFade()
+  else fadeFrame = requestAnimationFrame(checkFade)
+}
+
+async function fadeOut() {
+  fading.value = true
+  await nextTick()
+  checkFade()
 }
 
 function onLogoError(e) {
@@ -102,15 +131,13 @@ onMounted(() => {
 
   at(48, () => runSplashPop(brand.value?.querySelector('.logo-wrap')))
   at(760, () => brand.value.classList.add('expanded'))
-  at(1840, () => {
-    fading.value = true
-  })
-  at(1840 + 320, () => emit('done'))
+  at(1840, fadeOut)
 })
 
 onBeforeUnmount(() => {
   timers.forEach(clearTimeout)
   timers = []
+  cancelAnimationFrame(fadeFrame)
 })
 </script>
 
@@ -129,6 +156,12 @@ onBeforeUnmount(() => {
 }
 .splash-root.fading {
   opacity: 0;
+}
+.splash-root.no-fade-motion {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash-root { transition: none; }
 }
 /* 底部 75% Alpha 作者 + 组织信息（作者在前），Copyright 位于最底部 */
 .splash-footer {

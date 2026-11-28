@@ -1,6 +1,6 @@
 # swarm-cursors-vue
 
-上游 [nitin7213/SWARM_DIVPOINTERS-](https://github.com/nitin7213/SWARM_DIVPOINTERS-) 是 MIT 许可的 Chrome Manifest V3 扩展，原始 divPointers 引擎 © 2026 Nitin Thakur。上游没有面向 Vue、ESM 或 npm 的包入口。
+效果来自 [Joel Califa 的 Swarm](https://github.com/califa/swarm-site)；[Dhvanil Patel](https://github.com/DhvanilPatel/swarm-cursors) 将它改编成可用于任意页面的浏览器扩展。我们直接改造的是 [Nitin Thakur 的 divPointers 版本](https://github.com/nitin7213/SWARM_DIVPOINTERS-)，其中包含录屏等扩展。Nitin 的仓库附有 MIT 文件，但 Dhvanil 的 README 明确写着上游尚未授予通用许可证。我们已[向作者询问再分发条件](https://github.com/DhvanilPatel/swarm-cursors/issues/30)，npm 发布暂缓。
 
 本仓库 [Cyrene2008/swarm-cursors-vue](https://github.com/Cyrene2008/swarm-cursors-vue) 将引擎做成无需安装扩展的 Vue 3 / Nuxt 插件。Vue 封装、粉色主题、favicon 封面、陪伴光标、HUD / 音效开关、路由集成和兼容修复 © 2026 Cyrene2008。安装本仓库或本地包；Cloudflare 构建可使用随站点提交的本地包，分发时保留 [LICENSE](./LICENSE) 和 [NOTICE.md](./NOTICE.md)。
 
@@ -14,7 +14,7 @@
 - 引擎作为懒加载 chunk 打包，第一次触发时才下载
 - SSR 安全（服务端 no-op，客户端挂载）
 - CSP 友好（引擎用 adoptedStyleSheets / CSSOM，不依赖内联 `<style>`）
-- 保留原项目 MIT 许可与署名
+- 保留各层来源署名和直接来源的 MIT 文件，许可范围见 NOTICE
 
 ---
 
@@ -52,13 +52,13 @@ npm run build
 npm pack
 ```
 
-会得到 `swarm-cursors-vue-1.4.0.tgz`，别人可以：
+会得到 `swarm-cursors-vue-1.4.1.tgz`，别人可以：
 
 ```bash
-npm install ./swarm-cursors-vue-1.4.0.tgz
+npm install ./swarm-cursors-vue-1.4.1.tgz
 ```
 
-维护者使用 [npm 发布指南](./PUBLISHING.md) 将验证过的 tarball 提交到 npm 待审区，由维护者审核后才公开。正式版本可用后，应用可直接运行 `npm install swarm-cursors-vue@1.4.0`。
+维护者使用 [npm 发布指南](./PUBLISHING.md) 将验证过的 tarball 提交到 npm 待审区，由维护者审核后才公开。正式版本可用后，应用可直接运行 `npm install swarm-cursors-vue@1.4.1`。
 
 ### 开发
 
@@ -464,6 +464,6 @@ swarm-cursors-vue/
 
 ## License
 
-MIT。原始 divPointers 引擎 © 2026 Nitin Thakur；Vue 封装、主题、遮罩、陪伴光标与 CSP / 懒加载改造 © 2026 Cyrene2008。完整文本见 `LICENSE`，原项目署名见 `NOTICE.md`。
+Vue 封装与本项目修改采用 MIT；不能据此将随包引擎整体视为 MIT。完整来源、已知许可和待确认部分见 [NOTICE.md](./NOTICE.md)，MIT 原文见 [LICENSE](./LICENSE)。
 
 

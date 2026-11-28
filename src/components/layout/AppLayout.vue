@@ -226,13 +226,14 @@ const themeStyle = computed(() => {
   const settings = settingsStore.settings
   return { fontSize: (14 * (settings.uiScale || 100) / 100) + 'px', ...resolvedThemeTokens.value }
 })
-provide(pointerEffectsKey, usePointerEffects({
+const pointerEffects = usePointerEffects({
   router,
   settings: computed(() => settingsStore.settings),
   layout: layoutRef,
   theme: resolvedThemeTokens,
   dark: computed(() => settingsStore.darkMode)
-}))
+})
+provide(pointerEffectsKey, pointerEffects)
 const isDesktopApp = computed(() => isTauri())
 
 function pluginThemePayload() {
@@ -758,8 +759,8 @@ function startRouteTransition(cycle) {
     return
   }
 
-  // A selected page-transition preset is the complete transition. The host
-  // must not add its own tween or a global overlay on top of it.
+  // When Swarm is inactive for this route, a selected preset owns the entire
+  // page transition, without the host tween or a global overlay on top.
   if (pluginsStore.hasAnimation('page.transition')) {
     const enter = startPageVisual(element, 'enter', cycle.direction)
     const leave = ghost ? startPageVisual(ghost.element, 'leave', cycle.direction) : null
@@ -809,7 +810,9 @@ function routeAnimationOrder(route) {
 }
 
 const removeBeforeRouteGuard = router.beforeEach((to, from) => {
-  if (to.meta.rollerWorkspace && from.meta.rollerWorkspace) {
+  // Swarm captures the destination, so there must be no departing clone or
+  // partially transparent page tween in its snapshot.
+  if (pointerEffects.prepareRoute(to, from) || (to.meta.rollerWorkspace && from.meta.rollerWorkspace)) {
     activeEnterRun?.cancel?.()
     removeRouteGhost()
     navigationCycle = null

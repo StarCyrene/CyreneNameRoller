@@ -1,9 +1,10 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 export const pointerEffectsKey = Symbol('pointer-effects')
-const INFO_ROUTES = new Set(['About', 'Contributors', 'Announcement', 'Download'])
 const EDITABLE = 'input:not([type="button"]):not([type="submit"]):not([type="reset"]), textarea, select, [role="textbox"]'
 const isEditing = element => !!(element?.isContentEditable || element?.closest?.(EDITABLE))
+const canDrawPage = route => !!route?.name && route.meta.swarmCursors !== false
+const changesPage = (to, from) => to.path !== from.path
 const PALETTE = {
   '--cnr-pointer-accent': '--accent',
   '--cnr-pointer-accent-dark': '--accent-dark',
@@ -28,6 +29,7 @@ function routeAdapter(router, options, playInitial) {
   return {
     currentRoute: { get value() { return view(router.currentRoute.value, true) } },
     beforeEach: handler => router.beforeEach((to, from) => {
+      if (!changesPage(to, from)) skipped.add(to)
       const next = view(to)
       if (next.meta.swarmCursors === false) skipped.add(to)
       return handler(next, from)
@@ -56,7 +58,9 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
     mediaAllowed.value && !touch.value)
   const playing = ref(false)
   const ready = ref(false)
-  const available = computed(() => ready.value && enabled.value && INFO_ROUTES.has(router.currentRoute.value.name))
+  const available = computed(() => ready.value && enabled.value && canDrawPage(router.currentRoute.value))
+  const drawingPath = ref(null)
+  const drawingCurrentRoute = computed(() => enabled.value && drawingPath.value === router.currentRoute.value.path)
   let replacement = null
   let core = null
   let getEngine
@@ -77,6 +81,7 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
     core = null
     ready.value = false
     playing.value = false
+    drawingPath.value = null
   }
 
   function destroy() {
@@ -86,8 +91,16 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
   }
 
   function routeOptions(route) {
-    if (!enabled.value || !INFO_ROUTES.has(route.name) || isEditing(document.activeElement)) return false
+    if (!enabled.value || !canDrawPage(route) || isEditing(document.activeElement)) return false
     return { sound: settings.value.pointerDrawingSound === true }
+  }
+
+  function prepareRoute(to, from) {
+    // The lazy import can finish after navigation and draw that destination.
+    // Reserve its transition even if the drawing engine is not ready yet.
+    const willDraw = changesPage(to, from) && !!routeOptions(to)
+    drawingPath.value = willDraw ? to.path : null
+    return willDraw
   }
 
   function syncTheme() {
@@ -108,7 +121,7 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
     }
     destroyDrawing()
     syncTheme()
-    const firstRoute = router.currentRoute.value
+    const firstPath = router.currentRoute.value.path
     try {
       getEngine ??= import('swarm-cursors-vue').catch(error => { getEngine = null; throw error })
       const { createSwarmCursors } = await getEngine
@@ -128,7 +141,9 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
         companionMode: 'replace',
         sound: false
       })
-      const playInitial = initial && firstRoute === router.currentRoute.value
+      // If the optional import finishes after a navigation, draw its current
+      // destination. An in-place settings change still never starts a replay.
+      const playInitial = initial || firstPath !== router.currentRoute.value.path
       core = createSwarmCursors({
         ...pointerTheme,
         router: routeAdapter(router, routeOptions, playInitial),
@@ -205,5 +220,5 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
   })
   watch([theme, dark], syncTheme, { flush: 'post' })
 
-  return { available, playing, replay }
+  return { available, playing, replay, prepareRoute, drawingCurrentRoute }
 }

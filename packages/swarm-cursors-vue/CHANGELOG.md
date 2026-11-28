@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.1
+
+- Use the same folded, stemless dart for the native arrow, companion, and
+  drawing tools. Its light seam and dark outline stay legible on either surface.
+- Covers follow the system color scheme when the app does not force one, and
+  can inherit the actual page surface via a CSS variable in both color options.
+- Correct attribution for the bundled engine; see NOTICE.md before distributing.
+
 ## 1.4.0
 
 - Set `companionMode: "replace"` to use the themed, stemless arrow from entry

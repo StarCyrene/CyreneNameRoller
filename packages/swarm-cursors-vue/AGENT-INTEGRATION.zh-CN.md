@@ -4,7 +4,7 @@
 
 ## 1. 固定安装来源
 
-上游 [nitin7213/SWARM_DIVPOINTERS-](https://github.com/nitin7213/SWARM_DIVPOINTERS-) 是 MIT 许可的 Chrome Manifest V3 扩展，原始引擎 © 2026 Nitin Thakur；上游没有 Vue 插件、ESM 库或 npm 包入口。下列安装命令针对 [Cyrene2008/swarm-cursors-vue](https://github.com/Cyrene2008/swarm-cursors-vue)。这个包的 Vue 封装、粉色主题、favicon 封面、陪伴光标、HUD / 音效开关、路由集成和兼容修复 © 2026 Cyrene2008。随项目分发时保留 [LICENSE](./LICENSE) 和 [NOTICE.md](./NOTICE.md)。
+效果来自 Joel Califa 的 Swarm；浏览器扩展来自 Dhvanil Patel，我们在 Nitin Thakur 的 divPointers 改编版上开发了 Vue 封装。下列安装命令针对 [Cyrene2008/swarm-cursors-vue](https://github.com/Cyrene2008/swarm-cursors-vue)。直接来源的 MIT 文件不代表整个引擎获得 MIT 授权；再分发前核对 [NOTICE](./NOTICE.md) 和[上游许可讨论](https://github.com/DhvanilPatel/swarm-cursors/issues/30)。Vue 封装与本项目修改 © 2026 Cyrene2008。保留 [LICENSE](./LICENSE) 和 [NOTICE.md](./NOTICE.md)。
 
 宿主项目需要 Vue 3。Vue Router 示例使用宿主已有的 Vue Router 4；Nuxt 使用自带的 router。包内已包含引擎和类型，从根入口 `swarm-cursors-vue` 导入即可。
 
@@ -43,6 +43,8 @@ export const swarmOptions = {
 要让普通位置的系统箭头直接使用应用的主题，选择 `companionMode: 'replace'`；默认 `'follow'` 保留系统箭头，在旁边显示陪伴光标。将 `accent` 和 `colors[0]` 都指向应用根元素上已有的同一个 CSS 变量（例如 `accent: 'var(--app-accent)', colors: ['var(--app-accent)']`）。如果主题只存在于 Vue 状态或组件内部，在已有的换肤逻辑里执行 `document.documentElement.style.setProperty('--app-accent', 当前主题色值)`。这样即使鼠标不动，绘制光标和页面内的主题箭头也会随换肤更新。保留 `sound: false`，除非该应用明确开启音效。
 
 替换从进入已启用的页面开始，在封面、重建和恢复真实页面时持续生效，采用主题色、浅描边和没有尾柄的箭头。只作用于支持精细鼠标的网页普通区域。文字、表单、链接、拖拽/调整大小、自定义光标和第三方 iframe 保留浏览器或应用自己的反馈；`core.setPageEnabled(false)`、`swarmCursors: false`、页面设置 `companion: false` 或离开网页时即恢复原光标。触摸、减少动态效果及系统强制配色不替换。系统窗口和浏览器外部不受影响。
+
+封面也应跟随项目主题。如果项目已有根背景变量，可以把 `coverColor` 和 `coverColorDark` 都设为 `'var(--app-surface)'`（换成真实变量名），这样切页不会闪成另一种底色。未指定主题的页面跟随系统深浅设置。
 
 **Vue 3 + Vue Router 4**：把插件加入现有应用入口，传入模板里 `<RouterLink>` 使用的同一个 router 实例。下例先解析首个路由，使插件安装时就能读到首屏的禁用配置，然后挂载应用。
 

@@ -89,11 +89,11 @@
         <p>GNU General Public License v3.0</p>
         <p class="license-note">
           {{ lang === 'en'
-            ? 'This is free software: you are free to change and redistribute it.'
-            : '这是自由软件：你可以自由修改和分发它。' }}
+            ? 'The project’s own code is free software. Third-party components have their own terms.'
+            : '本项目的原创代码是自由软件。第三方组件适用各自的许可条款。' }}
         </p>
         <details class="swarm-license">
-          <summary>{{ lang === 'en' ? 'Swarm Cursors Vue · MIT license and credits' : 'Swarm Cursors Vue · MIT 许可证与署名' }}</summary>
+          <summary>{{ lang === 'en' ? 'Swarm Cursors Vue · Credits and license terms' : 'Swarm Cursors Vue · 署名与许可说明' }}</summary>
           <pre translate="no">{{ swarmNotice }}{{ swarmLicense }}</pre>
         </details>
       </div>

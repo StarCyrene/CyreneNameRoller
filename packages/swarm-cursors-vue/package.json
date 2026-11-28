@@ -1,6 +1,6 @@
 {
   "name": "swarm-cursors-vue",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
@@ -59,8 +59,8 @@
     "vue-plugin",
     "nuxt"
   ],
-  "license": "MIT",
-  "author": "Cyrene2008; original divPointers by Nitin Thakur"
+  "license": "SEE LICENSE IN NOTICE.md",
+  "author": "Cyrene2008"
 }
 
 
