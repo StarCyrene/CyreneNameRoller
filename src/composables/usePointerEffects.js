@@ -54,12 +54,9 @@ const pointerTheme = {
 
 export function usePointerEffects({ router, settings, layout, theme, dark }) {
   const noMotion = window.matchMedia('(prefers-reduced-motion: reduce), (forced-colors: active)')
-  const coarse = window.matchMedia('(pointer: coarse), (any-pointer: coarse)')
-  const fine = window.matchMedia('(pointer: fine), (any-pointer: fine)')
-  // A touch-only device keeps the quiet fallback. On a hybrid device the
-  // input that activated a route is independent of the drawing preference.
-  const allowsEffects = () => !noMotion.matches && (!coarse.matches || fine.matches)
-  const mediaAllowed = ref(allowsEffects())
+  // The drawing preference applies to touch-only screens too. The native
+  // companion separately requires an actual mouse before replacing the cursor.
+  const mediaAllowed = ref(!noMotion.matches)
   const enabled = computed(() => settings.value.pointerEffects === true && settings.value.perfAnimations !== false &&
     mediaAllowed.value)
   const playing = ref(false)
@@ -186,7 +183,7 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
   }
 
   function syncMedia() {
-    mediaAllowed.value = allowsEffects()
+    mediaAllowed.value = !noMotion.matches
     if (!mediaAllowed.value) cancel()
   }
   function protectEdit(event) {
@@ -200,8 +197,6 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
 
   onMounted(() => {
     noMotion.addEventListener('change', syncMedia)
-    coarse.addEventListener('change', syncMedia)
-    fine.addEventListener('change', syncMedia)
     window.addEventListener('focusin', protectEdit, true)
     window.addEventListener('keydown', allowAppKey, true)
     // On reconfiguration, do not replay a page that was already visible.
@@ -211,8 +206,6 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
   onBeforeUnmount(() => {
     stopRefreshing?.()
     noMotion.removeEventListener('change', syncMedia)
-    coarse.removeEventListener('change', syncMedia)
-    fine.removeEventListener('change', syncMedia)
     window.removeEventListener('focusin', protectEdit, true)
     window.removeEventListener('keydown', allowAppKey, true)
     destroy()

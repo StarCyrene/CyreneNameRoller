@@ -228,6 +228,34 @@ async function clickVisible(page, selector) {
   await page.click(selector)
 }
 const clickDock = (page, path) => clickVisible(page, '.dock a[href="#' + path + '"]')
+async function makeTrustedTap(page) {
+  await page.evaluateOnNewDocument(() => {
+    const trace = window.pointerInputTrace = []
+    for (const type of ['pointerdown', 'pointermove', 'click']) {
+      document.addEventListener(type, event => {
+        if (event.isTrusted) trace.push({
+          type, pointer: event.pointerType, fromTouch: Boolean(event.sourceCapabilities?.firesTouchEvents),
+          hit: event.composedPath().includes(window.pointerTapTarget)
+        })
+      }, { capture: true, passive: true })
+    }
+  })
+  const session = await page.createCDPSession()
+  return async selector => {
+    const point = await visibleTarget(page, selector)
+    const before = await page.evaluate(selector => {
+      window.pointerTapTarget = document.querySelector(selector)
+      return window.pointerInputTrace.length
+    }, selector)
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] })
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    const events = await page.evaluate(start => window.pointerInputTrace.slice(start), before)
+    const detail = selector + ': ' + JSON.stringify(events)
+    assert.ok(events.some(event => event.hit && event.type === 'pointerdown' && event.pointer === 'touch'), detail)
+    assert.ok(events.some(event => event.hit && event.type === 'click' && (event.pointer === 'touch' || event.fromTouch)), detail)
+    assert.ok(!events.some(event => event.pointer === 'mouse' && !event.fromTouch), detail)
+  }
+}
 async function closeDockGroup(page) {
   if (await page.$('.secondary-sidebar-menu.is-interactive')) {
     await clickVisible(page, '.secondary-sidebar-menu.is-interactive .secondary-sidebar-menu__back')
@@ -255,29 +283,11 @@ async function verifyHybridDockNavigation() {
         if (!result.matches && query === '(any-pointer: coarse)') Object.defineProperty(result, 'matches', { value: true })
         return result
       }
-      const trace = window.dockInputTrace = []
-      for (const type of ['pointerdown', 'pointermove', 'click']) {
-        document.addEventListener(type, event => {
-          if (event.isTrusted) trace.push({
-            type, pointer: event.pointerType, fromTouch: Boolean(event.sourceCapabilities?.firesTouchEvents)
-          })
-        }, { capture: true, passive: true })
-      }
     })
-    const session = await page.createCDPSession()
+    const tap = await makeTrustedTap(page)
     const records = '.dock button[title="Records"]'
     const back = '.secondary-sidebar-menu.is-interactive .secondary-sidebar-menu__back'
     const roller = '.dock a[href="#/roller"]'
-    async function tap(selector) {
-      const point = await visibleTarget(page, selector)
-      const before = await page.evaluate(() => window.dockInputTrace.length)
-      await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] })
-      await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
-      const events = await page.evaluate(start => window.dockInputTrace.slice(start), before)
-      assert.ok(events.some(event => event.type === 'pointerdown' && event.pointer === 'touch'), JSON.stringify(events))
-      assert.ok(events.some(event => event.type === 'click' && (event.pointer === 'touch' || event.fromTouch)), JSON.stringify(events))
-      assert.ok(!events.some(event => event.pointer === 'mouse' && !event.fromTouch), JSON.stringify(events))
-    }
     await page.goto(origin + '/#/roller')
     await seePaint(page, '/roller', { route: false })
     await reveal(page)
@@ -291,6 +301,36 @@ async function verifyHybridDockNavigation() {
     await page.hover('#pointer-blank')
     await waitArrow(page)
     await expectNavigationPaint(page, '/records', () => clickVisible(page, records))
+  } finally {
+    await context.close()
+  }
+}
+async function verifyTouchDrawing() {
+  const { page, context } = await makePage({ pointerEffects: true, pointerDrawingSpeed: 2 }, { touch: true })
+  try {
+    const tap = await makeTrustedTap(page)
+    const waitForDrawingEnd = () => page.waitForSelector('div-pointers', { hidden: true })
+    await page.goto(origin + '/#/roller')
+    assert.deepEqual(await page.evaluate(() => [
+      matchMedia('(pointer: coarse)').matches, matchMedia('(hover: none)').matches, matchMedia('(any-pointer: fine)').matches
+    ]), [true, true, false])
+    await seePaint(page, '/roller', { route: false })
+    await waitForDrawingEnd()
+
+    await page.reload()
+    await seePaint(page, '/roller', { route: false })
+    await waitForDrawingEnd()
+
+    for (const [path, selector] of [
+      ['/roller/card', '#roller-tab-Card'], ['/about', '.dock a[href="#/about"]']
+    ]) {
+      const since = await paintCount(page)
+      await tap(selector)
+      await waitRoute(page, path)
+      await seePaint(page, path, { since })
+      await waitForDrawingEnd()
+      await page.waitForSelector(viewForPath[path], { visible: true })
+    }
   } finally {
     await context.close()
   }
@@ -311,7 +351,7 @@ try {
     executablePath: process.env.CHROME_PATH || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
     headless: true
   })
-  const { page, chunks } = await makePage()
+  const { page, chunks, context } = await makePage()
   await page.goto(origin + '/#/settings/appearance')
   await page.waitForSelector(effectsToggle)
   assert.equal(await page.$eval(effectsToggle + ' input', input => input.checked), false)
@@ -455,6 +495,7 @@ try {
   await page.goto(origin + '/?pointer-off#/about')
   await page.waitForSelector('.about-view')
   await assertQuiet(page)
+  await context.close()
 
   const startup = await makePage({ disableSplash: false, pointerEffects: true })
   await startup.page.goto(origin + '/?pointer-splash#/roller/wheel', { waitUntil: 'domcontentloaded' })
@@ -472,7 +513,7 @@ try {
   for (const overrides of [
     { media: { name: 'prefers-reduced-motion', value: 'reduce' } },
     { media: { name: 'forced-colors', value: 'active' } },
-    { touch: true }
+    { touch: true, media: { name: 'prefers-reduced-motion', value: 'reduce' } }
   ]) {
     const test = await makePage({ pointerEffects: true, pointerDrawingSound: true }, overrides)
     await test.page.goto(origin + '/#/about')
@@ -482,6 +523,7 @@ try {
     await test.context.close()
   }
 
+  await verifyTouchDrawing()
   await verifyHybridDockNavigation()
 
   const preferences = await makePage()
@@ -516,7 +558,7 @@ try {
   await reveal(prefsPage)
   await preferences.context.close()
   assert.deepEqual(errors, [])
-  console.log('Pointer effects: real page painting on startup and tool/Dock navigation, hybrid touch and mouse, unobscured splash, service worker, independent sound, stationary theme changes, teardown, and accessibility fallbacks.')
+  console.log('Pointer effects: real page painting on startup, reload, and tool/Dock navigation with touch and mouse; unobscured splash, service worker, independent sound, stationary theme changes, teardown, and accessibility fallbacks.')
 } finally {
   await browser?.close()
   server.httpServer.closeAllConnections?.()
