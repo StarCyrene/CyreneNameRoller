@@ -8,6 +8,12 @@
       </div>
       <div class="list-header-right">
         <I18nDataSelect :model-value="namesStore.currentListId" :options="listOptions" @update:model-value="namesStore.switchList" />
+        <FluentButton variant="primary" size="sm" @click="router.push({ name: 'QRSend', query: { kind: 'names' } })">
+          {{ lang === 'en' ? 'Sync to phone' : '同步到手机' }}
+        </FluentButton>
+        <FluentButton variant="secondary" size="sm" @click="router.push({ name: 'QRReceive' })">
+          {{ lang === 'en' ? 'Scan to receive' : '扫码接收' }}
+        </FluentButton>
         <FluentButton variant="secondary" size="sm" @click="router.push('/lists/manage')">
           <FluentIcon icon="settings-16-regular" :width="14" /> {{ t('listManager', lang) }}
         </FluentButton>
@@ -298,6 +304,8 @@ function batchDelete() {
 .list-header-right {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -495,4 +503,15 @@ function batchDelete() {
 .fade-enter-active { transition: opacity 0.2s; }
 .fade-leave-active { transition: opacity 0.15s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+@media (orientation: portrait) and (max-width: 700px) {
+  .lists-view { padding: 12px; gap: 10px; }
+  .list-header { align-items: stretch; flex-direction: column; gap: 8px; }
+  .list-header-right { justify-content: flex-start; }
+  .add-person-row, .batch-actions, .person-list-header { flex-wrap: wrap; }
+  .add-person-row .fluent-input-wrapper { flex: 1 1 40%; }
+  .person-list-header, .person-item { padding: 8px; }
+  .person-info { flex-wrap: wrap; }
+  .person-identity { min-width: 5rem; }
+}
 </style>

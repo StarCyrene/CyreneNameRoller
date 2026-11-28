@@ -157,6 +157,7 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
         autoDelay: 90,
         routeDelay: 100,
         captureDelay: 160,
+        liveInteractions: true,
         autoReveal: true,
         autoRevealDelay: 380,
         button: false,

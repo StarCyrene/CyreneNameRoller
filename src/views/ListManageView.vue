@@ -185,7 +185,7 @@ async function importList() {
   }
   try {
     const { list: data } = parseListFile(result.content)
-    const imported = namesStore.importList(data)
+    const imported = await namesStore.importList(data)
     if (!imported) throw new Error(lang.value === 'en' ? 'Invalid list structure' : '名单结构无效')
     if (result.filePath) emitFileNotice(`${lang.value === 'en' ? 'List imported' : '名单已导入'}：${result.filePath}`, result.filePath)
     showBanner({ message: lang.value === 'en' ? 'Imported' : '导入成功', privateDetail: data.name, icon: 'checkmark-circle-16-regular', type: 'success', duration: 5000 })

@@ -14,13 +14,19 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+#[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem};
+#[cfg(desktop)]
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, EventTarget, Manager, PhysicalPosition, State};
 use tauri_plugin_dialog::DialogExt;
 
 mod core_state;
 mod core_algorithm;
+#[cfg(target_os = "android")]
+mod android;
+#[cfg(target_os = "android")]
+pub use android::run;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::{ffi::OsStrExt, process::CommandExt};
@@ -198,6 +204,7 @@ fn acquire_instance_listener(
     }
 }
 
+#[cfg(desktop)]
 fn start_instance_listener(listener: TcpListener, app: tauri::AppHandle) {
     std::thread::spawn(move || {
         for incoming in listener.incoming() {
@@ -356,6 +363,7 @@ fn floating_window_client_bounds(
     ))
 }
 
+#[cfg(desktop)]
 #[cfg(target_os = "windows")]
 fn set_floating_window_physical_size<R: tauri::Runtime>(
     window: &tauri::WebviewWindow<R>,
@@ -383,6 +391,7 @@ fn set_floating_window_physical_size<R: tauri::Runtime>(
     Ok(())
 }
 
+#[cfg(desktop)]
 #[cfg(not(target_os = "windows"))]
 fn set_floating_window_physical_size<R: tauri::Runtime>(
     window: &tauri::WebviewWindow<R>,
@@ -394,6 +403,7 @@ fn set_floating_window_physical_size<R: tauri::Runtime>(
         .map_err(|error| error.to_string())
 }
 
+#[cfg(desktop)]
 fn set_floating_window_square_size<R: tauri::Runtime>(
     window: &tauri::WebviewWindow<R>,
     logical_size: i32,
@@ -1638,6 +1648,7 @@ fn clamp_main_window_size(
 }
 
 // 主窗口出现时的合法性检查：非法则切回习惯尺寸，否则回到默认 1280×720。
+#[cfg(desktop)]
 fn ensure_main_window_size(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
@@ -1687,6 +1698,7 @@ fn ensure_main_window_size(app: &tauri::AppHandle) {
 }
 
 // 恢复尺寸后重新居中，并限制在当前显示器内，避免高 DPI 下窗口被挤到屏幕边缘。
+#[cfg(desktop)]
 fn restore_window_state(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let store = app.state::<EncryptedStore>();
@@ -2211,6 +2223,7 @@ fn installer_temp_path(file_name: &str) -> Result<PathBuf, String> {
     Ok(update_dir.join(safe_name))
 }
 
+#[cfg(desktop)]
 fn launch_installer(path: &Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
@@ -2602,6 +2615,7 @@ async fn plugin_select_file(
     }))
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn plugin_select_directory(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     let Some(selected) = app
@@ -3032,6 +3046,7 @@ async fn fetch_announcements() -> Result<serde_json::Value, String> {
     Err("无法获取公告内容".into())
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn download_and_launch_update(
     app: tauri::AppHandle,
@@ -3062,6 +3077,7 @@ async fn download_and_launch_update(
     }))
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn open_floating_window(app: tauri::AppHandle) -> Result<(), String> {
     let size = floating_window_size(&app);
@@ -3119,6 +3135,7 @@ async fn open_floating_window(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn close_floating_window(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("floating") {
@@ -3127,6 +3144,7 @@ async fn close_floating_window(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn save_floating_window_position(app: tauri::AppHandle) -> Result<(), String> {
     let win = app
@@ -3139,6 +3157,7 @@ async fn save_floating_window_position(app: tauri::AppHandle) -> Result<(), Stri
     persist_tauri_floating_position(&app, position.x, position.y)
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn reset_floating_window_position(app: tauri::AppHandle) -> Result<(), String> {
     if app.get_webview_window("floating").is_none() {
@@ -3160,6 +3179,7 @@ async fn reset_floating_window_position(app: tauri::AppHandle) -> Result<(), Str
     Ok(())
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn set_floating_window_style(
     app: tauri::AppHandle,
@@ -3192,6 +3212,7 @@ async fn set_floating_window_style(
     .map_err(|error| error.to_string())
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn set_floating_window_size(app: tauri::AppHandle, size: f64) -> Result<i32, String> {
     let size = normalize_floating_window_size(Some(size));
@@ -3258,6 +3279,7 @@ async fn set_floating_window_size(app: tauri::AppHandle, size: f64) -> Result<i3
     Ok(size)
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn focus_main_window(app: tauri::AppHandle) -> Result<(), String> {
     request_reveal_main_window(&app)
@@ -3349,6 +3371,7 @@ async fn end_touch_drag(x: f64, y: f64) -> Result<(), String> {
     }
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn hide_to_tray(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("main") {
@@ -3357,6 +3380,7 @@ async fn hide_to_tray(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 fn reveal_file(path: String) -> bool {
     let path = PathBuf::from(path);
@@ -3384,6 +3408,7 @@ fn reveal_file(path: String) -> bool {
     }
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 fn show_data_location(store: State<'_, EncryptedStore>) -> bool {
     store
@@ -3865,6 +3890,7 @@ fn is_uri_scheme_enabled() -> bool {
     false
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 async fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
     app.state::<MainWindowRevealState>()
@@ -3897,6 +3923,7 @@ fn main_window_ready(app: tauri::AppHandle) -> Result<bool, String> {
     Ok(had_pending_uri)
 }
 
+#[cfg(desktop)]
 fn show_main_window_now(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         window.unminimize().map_err(|error| error.to_string())?;
@@ -3918,6 +3945,7 @@ fn request_reveal_main_window(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 // 构建系统托盘：左键无菜单，右键弹出“显示主窗口 / 退出”
+#[cfg(desktop)]
 fn create_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
@@ -3954,7 +3982,16 @@ fn create_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+fn manage_core_store(app: &tauri::App, store: EncryptedStore) {
+    let readonly = store.is_healthy().is_err() || core_data_key().and_then(|key| {
+        let values = store.values.lock().map_err(|_| "CORE_INTEGRITY_CHECK_FAILED".to_string())?;
+        core_state::parse(&values, &key).map(|_| ())
+    }).is_err();
+    app.manage(CoreAuthorityState::new(readonly));
+    app.manage(store);
+}
+
+#[cfg(desktop)]
 pub fn run() {
     let arguments: Vec<String> = std::env::args().collect();
     let launch_uri = launch_uri_from_arguments(&arguments);
@@ -4015,11 +4052,7 @@ pub fn run() {
             if stale_marker.is_file() {
                 let _ = fs::remove_file(stale_marker);
             }
-            let encrypted_store = EncryptedStore::load(data_path);
-            let core_readonly = encrypted_store.is_healthy().is_err()
-                || core_data_key().and_then(|key| encrypted_store.values.lock().map_err(|_| "CORE_INTEGRITY_CHECK_FAILED".to_string()).and_then(|values| core_state::parse(&values, &key).map(|_| ()))).is_err();
-            app.manage(CoreAuthorityState::new(core_readonly));
-            app.manage(encrypted_store);
+            manage_core_store(app, EncryptedStore::load(data_path));
             app.manage(MainWindowRevealState::new());
             app.manage(UriRequestState::new());
             let handle = app.handle().clone();

@@ -1,5 +1,5 @@
 <template>
-  <nav ref="dockRef" class="dock" data-swarm-persist data-plugin-component="navigation.dock" :class="{ collapsed: dockCollapsed, 'secondary-open': Boolean(activeSecondaryMenu) }" :style="pluginsStore.componentStyleStyle('navigation.dock')" @keydown.esc="$emit('close-drawer')" @click="onDockClick">
+  <nav ref="dockRef" class="dock" :data-swarm-persist="phoneDrawer ? null : ''" data-plugin-component="navigation.dock" :class="{ collapsed: dockCollapsed, 'secondary-open': Boolean(activeSecondaryMenu) }" :style="pluginsStore.componentStyleStyle('navigation.dock')" @keydown.esc="$emit('close-drawer')" @click="onDockClick">
     <div
       v-show="indicatorVisible"
       ref="indicatorRef"
@@ -78,7 +78,7 @@
           <span v-if="!dockCollapsed" class="dock-item-label">{{ lang === 'en' ? 'Announcements' : '公告' }}</span>
         </router-link>
 
-        <template v-if="!isDesktopApp">
+        <template v-if="webRuntime">
           <router-link
             to="/download"
             class="dock-item"
@@ -145,7 +145,7 @@
       :open="Boolean(activeSecondaryMenu)"
       :collapsed="dockCollapsed"
       :items="activeSecondaryConfig.items"
-      :navigate-on-open="activeSecondaryConfig.navigateOnOpen"
+      :navigate-on-open="!phoneDrawer && activeSecondaryConfig.navigateOnOpen"
       :back-label="lang === 'en' ? 'Back' : '返回'"
       @back="closeSecondaryMenu({ restoreFocus: true })"
     />
@@ -163,15 +163,17 @@ import { useSettingsStore } from '../../stores/settings'
 import { t } from '../../utils/i18n'
 import { getIndicatorDirection, getIndicatorGeometry, getIndicatorTransition } from '../../utils/navigationIndicator.mjs'
 import { isTauri } from '../../utils/tauriAPI'
+import { getDesktopPlatform } from '../../utils/desktopRuntime'
 
 const route = useRoute()
 const settingsStore = useSettingsStore()
 const pluginsStore = usePluginsStore()
 const lang = computed(() => settingsStore.settings.language)
-const props = defineProps({ dockCollapsed: Boolean })
+const props = defineProps({ dockCollapsed: Boolean, phoneDrawer: Boolean })
 const emit = defineEmits(['toggle-dock', 'open-drawer', 'close-drawer'])
 const dockCollapsed = computed(() => props.dockCollapsed)
-const isDesktopApp = computed(() => isTauri())
+const isDesktopApp = computed(() => getDesktopPlatform().desktop)
+const webRuntime = !isTauri()
 
 const pluginDockItems = computed(() => pluginsStore.contributedPages
   .filter(page => page.location === 'dock')
@@ -192,11 +194,11 @@ function secondaryMenuForRoute(path) {
   if (path.startsWith('/settings')) return 'settings'
   if (path === '/lottery/draw' || path === '/lottery/assign') return 'lottery'
   if (path === '/records' || path === '/lottery/records') return 'records'
-  if (path === '/lists' || path.startsWith('/lists/') || path === '/group-manage' || path.startsWith('/lottery/prizes')) return 'lists'
+  if (path.startsWith('/sync/') || path === '/lists' || path.startsWith('/lists/') || path === '/group-manage' || path.startsWith('/lottery/prizes')) return 'lists'
   return null
 }
 
-const activeSecondaryMenu = ref(secondaryMenuForRoute(route.path))
+const activeSecondaryMenu = ref(props.phoneDrawer ? null : secondaryMenuForRoute(route.path))
 const dockRef = ref(null)
 const dockPrimaryRef = ref(null)
 const indicatorRef = ref(null)
@@ -308,8 +310,8 @@ function animatePrimaryPanel(open) {
   })
 }
 
-watch(() => route.path, path => {
-  activeSecondaryMenu.value = secondaryMenuForRoute(path)
+watch([() => route.path, () => props.phoneDrawer], ([path, phoneDrawer]) => {
+  activeSecondaryMenu.value = phoneDrawer ? null : secondaryMenuForRoute(path)
   syncIndicatorAfterLayout(true)
 })
 
@@ -318,11 +320,16 @@ watch(activeSecondaryMenu, menu => {
   syncIndicatorAfterLayout(false)
 }, { flush: 'post' })
 
-watch([dockCollapsed, lang, pluginDockItems], () => syncIndicatorAfterLayout(false))
+watch(dockCollapsed, collapsed => {
+  if (collapsed && props.phoneDrawer) activeSecondaryMenu.value = null
+  syncIndicatorAfterLayout(false)
+})
+watch([lang, pluginDockItems], () => syncIndicatorAfterLayout(false))
 
 function openSecondaryMenu(menu) {
   activeSecondaryMenu.value = menu
   emit('open-drawer')
+  if (props.phoneDrawer) nextTick(() => dockRef.value?.querySelector('.secondary-sidebar-menu__back')?.focus())
 }
 
 async function closeSecondaryMenu({ restoreFocus = false } = {}) {
@@ -377,6 +384,8 @@ const secondaryMenus = computed(() => ({
     navigateOnOpen: true,
     items: [
       { id: 'people', label: t('personnelList', lang.value), icon: 'person-20-regular', to: '/lists' },
+      { id: 'sync-send', label: lang.value === 'en' ? 'Sync to phone' : '同步到手机', icon: 'qr-code-20-regular', to: '/sync/send' },
+      { id: 'sync-receive', label: lang.value === 'en' ? 'Scan to receive' : '扫码接收', icon: 'camera-20-regular', to: '/sync/receive' },
       { id: 'groups', label: lang.value === 'en' ? 'Groups' : '小组名单', icon: 'people-team-20-regular', to: '/group-manage' },
       { id: 'prizes', label: lang.value === 'en' ? 'Prizes' : '奖品管理', icon: 'clipboard-bullet-list-20-regular', to: '/lottery/prizes' }
     ]
@@ -536,19 +545,19 @@ onBeforeUnmount(() => {
   border-top: 1px solid var(--border-subtle);
 }
 
-@media (max-width: 768px) {
+@media (orientation: portrait) and (max-width: 767px) {
   .dock {
-    position: fixed;
+    position: absolute;
     top: 0;
     bottom: 0;
     left: 0;
     z-index: 100;
-    width: 48px;
     box-shadow: var(--shadow-8);
   }
 
-  .dock:not(.collapsed) { width: var(--dock-width); }
-  .dock.collapsed { width: 48px; }
+  .dock:not(.collapsed) { width: min(18rem, 84vw); }
+  .dock-top { display: none; }
+  .dock-item { min-height: 44px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

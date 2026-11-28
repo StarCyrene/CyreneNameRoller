@@ -1,6 +1,7 @@
 {
   "identifier": "default",
   "description": "Capability for the main window",
+  "platforms": ["windows", "linux", "macOS"],
   "windows": ["main", "floating"],
   "permissions": [
     "core:default",

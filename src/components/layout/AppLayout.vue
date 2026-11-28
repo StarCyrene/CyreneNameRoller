@@ -2,12 +2,23 @@
   <div ref="layoutRef" class="app-layout" data-plugin-style-surface="main" :class="[themeClass, { dark: settingsStore.darkMode, 'perf-no-blur': !settingsStore.settings.perfBlur, 'perf-no-shadow': !settingsStore.settings.perfShadows, 'perf-no-anim': !settingsStore.settings.perfAnimations }]" :style="themeStyle" @contextmenu.prevent>
     <PluginVisualLayers />
     <div ref="globalAnimationSurfaceRef" class="plugin-global-animation-surface" aria-hidden="true" />
-    <TitleBar class="app-foreground-layer" :dock-collapsed="dockCollapsed" @toggle-dock="toggleDock" />
+    <TitleBar v-if="isDesktopApp" class="app-foreground-layer" :dock-collapsed="dockCollapsed" @toggle-dock="toggleDock" />
+    <header v-if="narrowDock" class="mobile-nav app-foreground-layer">
+      <button ref="mobileNavTrigger" type="button" @click="toggleDock" :aria-expanded="drawerOpen" aria-controls="main-navigation"
+        :aria-label="lang === 'en' ? 'Navigation menu' : '导航菜单'">
+        <FluentIcon icon="line-horizontal-3-20-regular" :width="22" />
+      </button>
+      <span>{{ lang === 'en' ? 'Name Roller' : '随机点名器' }}</span>
+      <router-link v-if="currentRoute.path !== '/sync/receive'" to="/sync/receive" class="scan-shortcut" @click="drawerOpen = false">
+        <FluentIcon icon="qr-code-20-regular" :width="20" />{{ lang === 'en' ? 'Scan' : '扫码接收' }}
+      </router-link>
+    </header>
     <div class="app-body app-foreground-layer">
-      <NavigationDock :dock-collapsed="dockCollapsed" @toggle-dock="toggleDock" @open-drawer="drawerOpen = true" @close-drawer="drawerOpen = false" />
+      <NavigationDock id="main-navigation" v-show="!narrowDock || drawerOpen" :dock-collapsed="dockCollapsed" :phone-drawer="narrowDock"
+        @toggle-dock="toggleDock" @open-drawer="drawerOpen = true" @close-drawer="closeMobileDrawer" />
       <button v-if="narrowDock && drawerOpen" class="dock-scrim" type="button"
-        :aria-label="lang === 'en' ? 'Close navigation' : '收起导航'" @click="drawerOpen = false" @keydown.esc="drawerOpen = false" />
-      <main ref="appContentRef" class="app-content" data-swarm-pageview>
+        :aria-label="lang === 'en' ? 'Close navigation' : '收起导航'" @click="closeMobileDrawer" @keydown.esc="closeMobileDrawer" />
+      <main ref="appContentRef" class="app-content" data-swarm-pageview :inert="narrowDock && drawerOpen">
         <router-view v-slot="{ Component, route }">
           <div ref="routeStageRef" class="route-page-stage" :data-route-path="route.path">
             <component :is="Component" :key="route.matched[0]?.path || route.path" />
@@ -15,7 +26,7 @@
         </router-view>
       </main>
     </div>
-    <FullscreenToggle />
+    <FullscreenToggle v-if="!narrowDock" />
     <Teleport :to="rollerVersionHost || 'body'" :disabled="!rollerVersionHost">
       <div
         v-if="versionBadgeOverride.visibility !== 'hidden'"
@@ -129,6 +140,8 @@ import { useRouter, useRoute } from 'vue-router'
 import { gsap } from 'gsap'
 import { animationEnabled } from '../../utils/animation'
 import TitleBar from './TitleBar.vue'
+import '../../assets/mobile-portrait.css'
+import { getDesktopPlatform } from '../../utils/desktopRuntime'
 import NavigationDock from './NavigationDock.vue'
 import FullscreenToggle from '../FullscreenToggle.vue'
 import PluginVisualLayers from '../plugins/PluginVisualLayers.vue'
@@ -153,17 +166,25 @@ const settingsStore = useSettingsStore()
 const layoutRef = ref(null)
 const rollerVersionHost = shallowRef(null)
 provide('rollerVersionHost', rollerVersionHost)
-const dockViewport = window.matchMedia('(max-width: 768px)')
+const dockViewport = window.matchMedia('(orientation: portrait) and (max-width: 767px)')
 const narrowDock = ref(dockViewport.matches)
 const drawerOpen = ref(false)
+const mobileNavTrigger = ref(null)
 const dockCollapsed = computed(() => narrowDock.value ? !drawerOpen.value : !!settingsStore.settings.dockCollapsed)
 function handleDockViewport(event) {
   narrowDock.value = event.matches
   drawerOpen.value = false
 }
 function toggleDock() {
-  if (narrowDock.value) drawerOpen.value = !drawerOpen.value
-  else settingsStore.update('dockCollapsed', !dockCollapsed.value)
+  if (!narrowDock.value) { settingsStore.update('dockCollapsed', !dockCollapsed.value); return }
+  if (drawerOpen.value) { closeMobileDrawer(); return }
+  drawerOpen.value = true
+  nextTick(() => document.querySelector('#main-navigation .dock-item')?.focus({ preventScroll: true }))
+}
+function closeMobileDrawer() {
+  if (!narrowDock.value || !drawerOpen.value) return
+  drawerOpen.value = false
+  nextTick(() => mobileNavTrigger.value?.focus({ preventScroll: true }))
 }
 onMounted(() => dockViewport.addEventListener('change', handleDockViewport))
 onBeforeUnmount(() => dockViewport.removeEventListener('change', handleDockViewport))
@@ -234,7 +255,7 @@ const pointerEffects = usePointerEffects({
   dark: computed(() => settingsStore.darkMode)
 })
 provide(pointerEffectsKey, pointerEffects)
-const isDesktopApp = computed(() => isTauri())
+const isDesktopApp = computed(() => getDesktopPlatform().desktop)
 
 function pluginThemePayload() {
   const theme = settingsStore.settings.colorTheme || 'peach'
@@ -499,13 +520,13 @@ async function routeSmartImport(fileName, bytes) {
     return
   }
   if (parsed.kind === 'names') {
-    const imported = namesStore.importList(parsed.list)
+    const imported = await namesStore.importList(parsed.list)
     if (!imported) throw new Error(lang.value === 'en' ? 'Invalid people list' : '人员名单格式无效')
     await router.push('/lists')
     showBanner({ message: lang.value === 'en' ? 'People list imported' : '人员名单已导入', privateDetail: imported.name, icon: 'checkmark-circle-16-regular', type: 'success', duration: 6000 })
     return
   }
-  const result = prizesStore.importList(parsed.list)
+  const result = await prizesStore.importList(parsed.list)
   if (!result?.success) throw new Error(result?.error || (lang.value === 'en' ? 'Invalid prize list' : '奖品单格式无效'))
   await router.push('/lottery/prizes/manage')
   showBanner({ message: lang.value === 'en' ? 'Prize list imported' : '奖品单已导入', privateDetail: result.list.name, icon: 'checkmark-circle-16-regular', type: 'success', duration: 6000 })
@@ -567,7 +588,8 @@ function onBrowserDrop(event) {
 }
 
 async function setupFileDrop() {
-  if (isTauri()) {
+  if (isTauri() && !isDesktopApp.value) return
+  if (isDesktopApp.value) {
     const { getCurrentWebview } = await import('@tauri-apps/api/webview')
     removeDropListener = await getCurrentWebview().onDragDropEvent(event => {
       if (event.payload.type === 'enter' || event.payload.type === 'over') dragActive.value = true
@@ -896,7 +918,7 @@ onMounted(async () => {
   window.addEventListener('beforeunload', onBeforeWindowUnload)
   window.addEventListener('resize', onPluginResize)
   await setupFileDrop()
-  if (isTauri()) {
+  if (isDesktopApp.value) {
     systemAccent.value = normalizeHex(await tauriAPI.systemAccent(), DEFAULT_ACCENT)
   }
   if (isDesktopApp.value) checkForUpdates(true, showBanner)
@@ -1262,9 +1284,8 @@ watch(() => settingsStore.settings.fontFamily, (val) => {
 
 /* Page transitions */
 
-@media (max-width: 768px) {
+@media (orientation: portrait) and (max-width: 767px) {
   .app-body { flex-direction: column; }
-  .app-content { padding-left: 56px; }
-  .banner-container { left: 56px; }
+  .banner-container { top: calc(44px + env(safe-area-inset-top, 0px)); left: 0; }
 }
 </style>

@@ -1,0 +1,7 @@
+{
+  "identifier": "android",
+  "description": "Local Android application window",
+  "platforms": ["android"],
+  "windows": ["main"],
+  "permissions": ["core:default", "store:default"]
+}

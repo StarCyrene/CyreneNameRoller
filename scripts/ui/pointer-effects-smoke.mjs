@@ -325,6 +325,7 @@ async function verifyTouchDrawing() {
       ['/roller/card', '#roller-tab-Card'], ['/about', '.dock a[href="#/about"]']
     ]) {
       const since = await paintCount(page)
+      if (path === '/about') await tap('.mobile-nav button[aria-controls="main-navigation"]')
       await tap(selector)
       await waitRoute(page, path)
       await seePaint(page, path, { since })

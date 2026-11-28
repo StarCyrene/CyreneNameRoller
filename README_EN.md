@@ -48,6 +48,10 @@ Roll prizes, spin a weighted wheel, open a Bloom Box, or scratch a ticket. Previ
 - List manager: CRUD, batch delete (10s undo), import/export
 - SHA-256 password protection
 
+**QR Sync**
+- In the desktop roster, select **Sync to phone** and choose the active people list, active prize list, or a full backup. The stream defaults to 10 FPS, supports 3–30 FPS, and repeats to recover missing frames.
+- On Android or the mobile site over HTTPS, select **Scan to receive** and allow camera access. Lists are added and selected. A full backup requires the receiving device's data password and confirmation before replacing its data. No shared network is required.
+
 **Personalization**
 - UI scale (75%-200%), name font size adjustment
 - Dark/Light mode, Chinese/English switch
@@ -100,6 +104,14 @@ bun run tauri:build
 ```
 
 Desktop installers are written to `target/release/bundle/`.
+
+With the Android SDK, NDK, JDK and Rust targets installed, build an Android 9+ test APK with:
+
+```bash
+bun run tauri android build --apk --debug
+```
+
+APK output is under `src-tauri/gen/android/app/build/outputs/apk/`. Use an updated Android System WebView for device testing.
 
 ## Tech Stack
 

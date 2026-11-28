@@ -19,6 +19,7 @@ export const useNamesStore = defineStore('names', () => {
   const isLoaded = ref(false)
   const revision = ref(0)
   let saveQueue = Promise.resolve()
+  let initializing
 
   const currentList = computed(() => {
     return nameLists.value[currentListId.value] || nameLists.value[DEFAULT_LIST_ID] || getDefaultList()
@@ -58,6 +59,11 @@ export const useNamesStore = defineStore('names', () => {
 
   async function initialize() {
     if (isLoaded.value) return
+    if (!initializing) initializing = loadLists().finally(() => { initializing = null })
+    return initializing
+  }
+
+  async function loadLists() {
     try {
       const savedLists = await dataBridge.load('lists')
       const savedCurrentId = await dataBridge.load('currentListId')
@@ -176,14 +182,27 @@ export const useNamesStore = defineStore('names', () => {
     save()
   }
 
-  function importList(listData) {
+  async function importList(listData) {
     if (!listData || !listData.name || !Array.isArray(listData.names)) return null
+    await initialize()
     const imported = JSON.parse(JSON.stringify(listData))
     imported.id = !imported.id || nameLists.value[imported.id] ? generateId() : imported.id
     migrateList(imported)
     nameLists.value[imported.id] = imported
+    const previousId = currentListId.value
     currentListId.value = imported.id
-    save()
+    try {
+      await save()
+    } catch (error) {
+      delete nameLists.value[imported.id]
+      if (currentListId.value === imported.id) {
+        currentListId.value = nameLists.value[previousId] ? previousId : Object.keys(nameLists.value)[0] || DEFAULT_LIST_ID
+      }
+      // The list write may have succeeded before the selection write failed.
+      // Put both keys back without dropping unrelated lists changed meanwhile.
+      await save()
+      throw error
+    }
     return imported
   }
 

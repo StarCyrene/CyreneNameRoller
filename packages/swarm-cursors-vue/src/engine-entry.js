@@ -28,6 +28,11 @@ export function stop(reveal, immediate) {
   if (a && a.app) a.stop(reveal !== false, immediate);
 }
 
+export function setWorkerPointersHidden(hidden) {
+  const layer = api()?.app?.view?.cursorsEl;
+  if (layer) layer.hidden = hidden;
+}
+
 export function toggle() {
   const a = api();
   if (!a) throw new Error("[swarm-cursors] engine did not initialise");

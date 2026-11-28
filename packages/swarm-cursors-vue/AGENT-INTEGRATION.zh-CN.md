@@ -96,7 +96,7 @@ definePageMeta({ swarmCursors: false })
 </script>
 ```
 
-在 Nuxt 演示页面中，对应写法是 `definePageMeta({ swarmCursors: { hud: true, sound: true } })`。对象还支持 `enabled`、`companion`、`autoReveal`、`captureDelay`。打开 HUD 后通常会保留控制栏；希望完成后仍自动退出，就在**该页**显式加 `autoReveal: true`。浏览器可能要求用户先交互才能播放声音。
+在 Nuxt 演示页面中，对应写法是 `definePageMeta({ swarmCursors: { hud: true, sound: true } })`。对象还支持 `enabled`、`companion`、`drawScope`、`autoReveal`、`captureDelay`。打开 HUD 后通常会保留控制栏；希望完成后仍自动退出，就在**该页**显式加 `autoReveal: true`。浏览器可能要求用户先交互才能播放声音。
 
 如果 TypeScript 需要推断路由配置，在宿主 `tsconfig` 包含的声明文件中扩展现有接口：
 
@@ -153,9 +153,13 @@ const { toggle, running, loading, pageEnabled } = useSwarmCursors()
 
 所有宽度都需要按正文居中时，直接写 `<main data-swarm-pageview>`。没有标记、或标记元素被隐藏时，切页封面仍以视口为中心。首次进入和刷新也使用视口中心，并在首次重建中绘制 Dock。
 
-隐藏 HUD 且开启 `autoReveal` 时，播放只等待可视区完成，不会为捕获长列表主动滚动。对于可能在绘制期间换行、插入记录或生成结果的区域，在不会被替换的局部容器上加 `data-swarm-live-region`。区域内容发生变化时，立即显示真实页面。`data-swarm-glyph` 仍用于持续绘制时钟一类的单字符更新。
+默认隐藏 HUD 且开启 `autoReveal` 时，画完当前视口就会恢复真实页面，适合表单和长列表应用。希望访客逐屏阅读的站点，使用 `{ drawScope: 'scroll', autoReveal: true }`，也可以在单页 `meta.swarmCursors` 中覆盖。它不会预先滚动页面：先画第一屏，再随访客滚动解锁后面的内容。长页应验证停在顶部不提前退出，快速滚到底后正常交还；短页不必滚动。该模式绘制捕获时已存在的内容，不会替应用预加载尚未挂载的行。`replay()` 不受该选项影响。
+
+对于可能在绘制期间换行、插入记录或生成结果的区域，在不会被替换的局部容器上加 `data-swarm-live-region`。区域内容发生变化时，立即显示真实页面。`data-swarm-glyph` 仍用于持续绘制时钟一类的单字符更新。
 
 ## 5. 在真实页面验收
+
+如果有需要参与绘制的菜单或手风琴，把 `liveInteractions: true` 传给插件。只把不需要重绘的顶栏标记为 `data-swarm-persist`，不要把待绘制的折叠菜单也放进这个标记里。宿主自己的点击波纹、调试浮层等装饰可以标记 `data-swarm-ignore`。测试时在首屏还没画完时展开、马上收起、再展开一次：新选项应能画出和点击，收起不应留下残影，已经画好的正文不应重播；整页画完后再开菜单应直接使用原界面。
 
 1. 用宿主原有命令构建并启动预览，确认浏览器没有引擎 chunk 404 或水合错误。直接打开一个启用页和一个禁用页，再分别刷新。站点应声明可访问的 `<link rel="icon" href="…">`；未声明时插件会尝试同源 `/favicon.ico`，图片加载失败时显示爱心。
 2. 在正常动态效果设置下，用 `<RouterLink>` 或 `<NuxtLink>` 从一个启用页进入另一个启用页，再按浏览器后退。录下从点击到出现第一批绘制的过程：封面或开场应连续覆盖页面，不能先闪现完整新正文再擦掉；随后应能看到多个绘制阶段。等待完成，点一次真实链接，确认内容恢复交互。

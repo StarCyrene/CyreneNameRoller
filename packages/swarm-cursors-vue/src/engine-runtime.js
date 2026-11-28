@@ -1,4 +1,6 @@
 import { bindRouteLayout, PERSIST_ATTRIBUTE } from "./persist.js";
+import { watchInteractionChanges } from "./interaction-updates.js";
+import { reconcileInteraction } from "./interaction-model.js";
 import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
 
 /*
@@ -701,7 +703,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     const separateBranches = new Set();
     const glyphAttribute = "data-swarm-glyph";
     const glyphSelector = "[" + glyphAttribute + "]";
-    const selector = env.route ? glyphSelector + ",[" + PERSIST_ATTRIBUTE + "]" : glyphSelector;
+    const selector = glyphSelector + ",[data-swarm-ignore]" + (env.route ? ",[" + PERSIST_ATTRIBUTE + "]" : "");
     for (const el of document.querySelectorAll(selector)) {
       for (let p = el; p && !separateBranches.has(p); p = p.parentElement) separateBranches.add(p);
     }
@@ -721,7 +723,9 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         ? b.x + b.w > 0 && b.x < docW && b.y + b.h > 0 && b.y < docH
         : b.x + b.w > 0 && b.x < innerWidth && b.y + b.h > 0 && b.y < innerHeight;
 
+    let source;
     function add(it) {
+      if (env.liveInteractions) it.source = source;
       it.id = items.length;
       it.v = 1;
       it.rv = 0;
@@ -1244,9 +1248,15 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     }
 
     function walk(el, ctx, parent) {
+      const before = source;
+      source = el;
+      walkElement(el, ctx, parent);
+      source = before;
+    }
+    function walkElement(el, ctx, parent) {
       if (items.length >= MAX_ITEMS) return;
       const tag = el.localName;
-      if (SKIP.has(tag) || el === env.host || (env.route && el.hasAttribute(PERSIST_ATTRIBUTE))) return;
+      if (SKIP.has(tag) || el === env.host || el.hasAttribute("data-swarm-ignore") || (env.route && el.hasAttribute(PERSIST_ATTRIBUTE))) return;
       const cs = css(el);
       const disp = cs.display;
       if (disp === "none") return;
@@ -1743,6 +1753,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
 .sa{background-color:rgba(13,153,255,.28)!important}
 .ov{position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible;pointer-events:none}
 .badges,.cursors{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.cursors[hidden]{display:none}
 .badge{position:absolute;transform:translate(-50%);padding:1px 4px;border-radius:2px;color:#fff;font:600 11px/16px Inter,system-ui,-apple-system,"Segoe UI",sans-serif;white-space:nowrap;font-variant-numeric:tabular-nums}
 .cursor{position:absolute;left:0;top:0;will-change:transform}
 .cursor svg{position:absolute;overflow:visible;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.28));transition:filter .25s ease}
@@ -2054,36 +2065,51 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       this.world.style.transform = `translate(${-vp.sx}px,${-vp.sy}px)`;
     }
 
-    mount(model) {
+    mount(model, updating = false) {
       this.world.style.width = model.docW + "px";
       this.world.style.height = model.docH + "px";
+      if (updating) {
+        this.glyphObserver?.disconnect();
+        this.glyphObserver = null;
+        for (const d of this.backdrops || []) d.remove();
+      }
+      const place = (parent, nodes) => {
+        if (!updating) {
+          const frag = document.createDocumentFragment();
+          for (const n of nodes) frag.appendChild(n);
+          parent.appendChild(frag);
+          return;
+        }
+        let after = null;
+        for (let i = nodes.length - 1; i >= 0; i--) {
+          const n = nodes[i];
+          if (n.parentNode !== parent || n.nextSibling !== after) parent.insertBefore(n, after);
+          after = n;
+        }
+      };
       const by = { world: [], under: [], over: [] };
       for (const it of model.items) by[it.layer].push(it);
       if (model.portKey != null) {
         // inner scroller: its scrolling content sits at the scroller's own place in
         // the stacking order (above its dialog/panel background, below later UI)
         const screen = [...by.under, ...by.over].sort((a, b) => a.key - b.key);
-        const frag = document.createDocumentFragment();
+        const nodes = [];
         let placed = false;
         for (const it of screen) {
           if (!placed && it.key > model.portKey) {
-            frag.appendChild(this.port);
+            nodes.push(this.port);
             placed = true;
           }
-          frag.appendChild(this.makeNode(it));
+          nodes.push(this.makeNode(it));
         }
-        if (!placed) frag.appendChild(this.port);
-        this.over.appendChild(frag);
+        if (!placed) nodes.push(this.port);
+        place(this.over, nodes);
         const wl = by.world.sort((a, b) => a.key - b.key);
-        const wf = document.createDocumentFragment();
-        for (const it of wl) wf.appendChild(this.makeNode(it));
-        this.world.appendChild(wf);
+        place(this.world, wl.map(it => this.makeNode(it)));
       } else
         for (const layer of ["under", "world", "over"]) {
           const list = by[layer].sort((a, b) => a.key - b.key);
-          const frag = document.createDocumentFragment();
-          for (const it of list) frag.appendChild(this.makeNode(it));
-          (layer === "world" ? this.world : this[layer]).appendChild(frag);
+          place(this[layer], list.map(it => this.makeNode(it)));
         }
       this.backdrops = (model.backdrops || []).map((b) => {
         const d = document.createElement("div");
@@ -2097,6 +2123,17 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     }
 
     makeNode(it) {
+      if (it.node) {
+        if (it.kind === "text") {
+          if (!it.live) prepText(it);
+          else it.shown = 0;
+          if (it.glyph && it.units.length === 1 && it.units[0].t) this.watchGlyph(it);
+        }
+        if (it.sameMedia) it.node._src = it;
+        it.node.style.opacity = it.op < 0.999 ? it.op : "";
+        it.node.style.mixBlendMode = it.blend || "";
+        return it.node;
+      }
       const n = document.createElement("div");
       n.style.display = "none";
       it.node = n;
@@ -2683,7 +2720,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       for (const t of list) {
         const y = this.taskY(t);
         const u = y >= top && y <= bot ? 0 : y < top ? 1 : 2;
-        const s = u * 1e6 + (u === 1 ? top - y : y) * 0.6 + Math.abs(y - cy) * 0.4 - (t.spec.type === "guide" ? 5e5 : 0);
+        const s = u * 1e6 + (u === 1 ? top - y : y) * 0.6 + Math.abs(y - cy) * 0.4 - (t.spec.type === "guide" ? 5e5 : 0) - (t.interaction ? 4e6 : 0);
         if (s < bestS) {
           bestS = s;
           best = t;
@@ -2729,7 +2766,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         }
       }
 
-      if (this.started && (this.viewportOnly ? this.backlog() === 0 : this.doneCount === this.tasks.length)) {
+      if (this.started && !this.pendingInteraction && (this.viewportOnly ? this.backlog() === 0 : this.doneCount === this.tasks.length)) {
         this.finished = true;
         this.endTime = this.time;
         if (this.onComplete) this.onComplete();
@@ -3283,7 +3320,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     }
 
     *duplicate(c, g, k) {
-      const dst = g.dst[k];
+      const dst = g.dst[k].pendingItems ? { ...g.dst[k], items: g.dst[k].pendingItems } : g.dst[k];
       let src = g.src;
       const cand = [g.src, ...g.dst.filter((d) => d.task.state === "done")];
       const dd = (a) => Math.hypot(a.box.x - dst.box.x, a.box.y - dst.box.y);
@@ -4090,12 +4127,16 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     // new content" as fast as a real capture allows.
     async run(opts) {
       const quiet = !!(opts && opts.quiet);
-      this.viewportOnly = !!opts?.viewportOnly;
+      this.drawScope = opts?.drawScope;
+      this.viewportOnly = this.drawScope ? this.drawScope === "viewport" : !!opts?.viewportOnly;
       this.env = detectEnv();
+      this.env.liveInteractions = opts?.liveInteractions === true;
+      this.startUrl = location.href;
       this.env.route = !!(opts && opts.route);
       this.routerManaged = !!opts?.routerManaged;
       const shotP = this.loadShot();
       this.view = new View(this.env);
+      this.view.cursorsEl.hidden = !!opts?.hideWorkerPointers;
       if (this.env.route) {
         this.releasePersistentClip = bindRouteLayout(this.view.host);
         // The cover owns the first frames. Never fade through the real page
@@ -4143,7 +4184,9 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       const extra = quiet ? 0 : Math.max(0, Number(THEME.captureDelay) || 0);
       if (extra) await sleep(extra);
       if (this.dead) return;
-      if (!quiet && !opts?.playback && !this.viewportOnly) await this.scan();
+      // An explicit scope captures in place. In scroll mode, the native scroll
+      // position advances the existing task frontier; a pre-scan would move it.
+      if (!quiet && !opts?.playback && !this.viewportOnly && !this.drawScope) await this.scan();
       mark("scan");
       if (this.dead) return;
       try {
@@ -4177,6 +4220,19 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       this.engine.setModel(model);
       this.model = model;
       this.watchLiveRegions();
+      if (this.env.liveInteractions) {
+        this.interactionUpdates = watchInteractionChanges({
+          host: this.view.host,
+          finished: () => this.dead || this.complete,
+          handoff: () => { if (this.complete && !THEME.hud) this.handoff(); },
+          pending: value => { this.engine.pendingInteraction = value; },
+          refresh: () => {
+            try { this.refreshInteraction(); }
+            catch (error) { console.warn("[divPointers] interactive capture failed", error); this.handoff(); }
+          },
+        });
+        this.unbinds.push(() => this.interactionUpdates.dispose());
+      }
       mark("mount");
       if (!quiet && !this.env.route) {
         const wait = 1500 - (performance.now() - this.t0);
@@ -4190,7 +4246,9 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       const regions = document.querySelectorAll("[data-swarm-live-region]");
       if (!regions.length) return;
       this.liveObserver = new MutationObserver((mutations) => {
-        if (!mutations.some(({ target }) => {
+        if (!mutations.some(record => {
+          if (this.interactionUpdates?.relevant(record)) return false;
+          const { target } = record;
           const el = target.nodeType === 1 ? target : target.parentElement;
           return el && !el.closest("[data-swarm-glyph]");
         })) return;
@@ -4202,6 +4260,32 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         subtree: true, childList: true, characterData: true, attributes: true,
         attributeFilter: ["class", "hidden", "open", "style", "aria-hidden"],
       });
+    }
+
+    refreshInteraction() {
+      if (this.dead || this.complete || !this.model) return;
+      this.view.measure();
+      const next = captureModel(this.env, null);
+      const painted = reconcileInteraction(this.model, next);
+      if (!painted) return;
+      // Generators own references into the previous dependency graph. Leave
+      // each worker where it is, but release its obsolete assignment. Items
+      // already on screen keep their nodes and settle atomically before paint.
+      const e = this.engine, vp = this.view.vp;
+      for (const c of e.cursors) {
+        if (!c.task) continue;
+        if (c.sticky) { c.x -= vp.ox - vp.sx; c.y -= vp.oy - vp.sy; c.sticky = false; }
+        c.task = c.gen = c.ov = null;
+        c.shape = "arrow";
+        c.press = 0;
+      }
+      e.editLines.clear();
+      e.rulers.want = 0;
+      this.view.mount(next, true);
+      for (const it of painted) finishItemInstantly(it);
+      e.setModel(next);
+      this.model = next;
+      this.view.render(e);
     }
 
     handoff() {
@@ -4261,7 +4345,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
       // (a sidebar, an inner panel) are free to scroll natively too.
       on(document, "scroll", (event) => {
         const primary = event.target === this.env.scroller || (this.env.isRoot && event.target === document);
-        if (this.model && this.viewportOnly && ((this.complete && primary) ||
+        if (this.model && (this.viewportOnly || this.drawScope) && ((this.complete && primary) ||
             (!primary && event.target?.closest?.("[data-swarm-live-region]")))) {
           this.handoff();
           return;
@@ -4269,8 +4353,13 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
         if (!this.view.frozen) this.view.syncWorld();
       }, { passive: true, capture: true });
       on(window, "resize", () => {
-        if (this.model && this.viewportOnly) this.handoff();
-        else this.view.measure();
+        const width = this.view.W, portWidth = this.view.g.vw;
+        this.view.measure();
+        // Mobile browser chrome changes the height as the visitor scrolls.
+        // Re-measure that scrollport and keep its progress. A width change
+        // can wrap captured text, so hand that new layout to the real page.
+        if (this.model && (this.viewportOnly || (this.drawScope === "scroll" &&
+            (width !== this.view.W || Math.abs(portWidth - this.view.g.vw) > 1)))) this.handoff();
       });
       on(window, "wheel", () => {
         if (this.engine.ready) this.engine.start();
@@ -4795,6 +4884,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
 
     onComplete() {
       this.complete = true;
+      this.interactionUpdates?.complete();
       if (this.sfx) this.sfx.finale();
       const E = this.engine;
       const v = this.view;
@@ -4909,6 +4999,8 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     if (app) {
       const a = app;
       if (a.routerManaged) opts = { ...opts, routerManaged: true };
+      if (a.env.liveInteractions) opts = { ...opts, liveInteractions: true };
+      if (quiet && a.drawScope) opts = { ...opts, drawScope: a.drawScope };
       // Hand the outgoing build's model to the new one so it can carry
       // forward whatever didn't actually change (see carryOverUnchanged) -
       // only worth doing for a quiet, auto-triggered restart; a deliberate
@@ -5002,8 +5094,11 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
   // (the debounce already coalesces those into one restart) - it only stops
   // a SECOND, separate restart from following too soon after the last one.
   const SPA_RESTART_COOLDOWN_MS = 2500;
+  function canRestartForNavigation() {
+    return app && !app.dead && !app.routerManaged && (!app.env.liveInteractions || app.startUrl !== location.href);
+  }
   function fireSpaRestart() {
-    if (!app || app.dead || app.routerManaged) return;
+    if (!canRestartForNavigation()) return;
     // Typing into a real field is exactly the moment NOT to interrupt with a
     // rebuild: a live search box, an autocomplete dropdown, a comment box
     // with a running character count - any of these can easily add/remove
@@ -5050,7 +5145,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
   const SPA_RESTART_DEBOUNCE_MS = 400;
   const SPA_RESTART_MAX_COALESCE_MS = 1200;
   function scheduleSpaRestart() {
-    if (!app || app.dead || app.routerManaged) return;
+    if (!canRestartForNavigation()) return;
     const now = performance.now();
     if (!spaRestartTimer) spaRestartArmedAt = now; // a fresh burst, not a continuation of one
     clearTimeout(spaRestartTimer);
@@ -5157,7 +5252,7 @@ import { ARROW as ARROW_D, arrowArtwork } from "./arrow.js";
     true
   );
   const spaObserver = new MutationObserver((mutations) => {
-    if (!app || app.dead || app.routerManaged) return;
+    if (!canRestartForNavigation()) return;
     const now = performance.now();
     if (now - spaMutationWindowStart > 1000) {
       spaMutationWindowStart = now;

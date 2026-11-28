@@ -406,6 +406,9 @@
         <FluentButton variant="secondary" :disabled="!hasPassword" @click="doExport">
           <FluentIcon icon="arrow-download-16-regular" :width="14" /> {{ lang === 'en' ? 'Export' : '导出数据' }}
         </FluentButton>
+        <FluentButton variant="secondary" @click="$router.push({ name: 'QRSend', query: { kind: 'backup' } })">
+          {{ lang === 'en' ? 'Send full backup by QR' : '通过二维码同步全部数据' }}
+        </FluentButton>
         <FluentButton variant="secondary" :disabled="!hasPassword" @click="doImport">
           <FluentIcon icon="arrow-upload-16-regular" :width="14" /> {{ lang === 'en' ? 'Import' : '导入数据' }}
         </FluentButton>

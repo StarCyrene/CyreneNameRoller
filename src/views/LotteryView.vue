@@ -5,6 +5,9 @@
         <h1 class="page-title"><FluentIcon :icon="pageIcon" :width="28" />{{ pageTitle }}</h1>
         <p class="page-meta"><span translate="no">{{ prizes.current.name }}</span> · {{ lang === 'en' ? `${displayStock} remaining` : `剩余 ${displayStock} 件` }}</p>
       </div>
+      <FluentButton v-if="section === 'prizes'" variant="secondary" size="sm" @click="router.push({ name: 'QRSend', query: { kind: 'prizes' } })">
+        {{ tr('同步奖品单到手机', 'Sync prizes to phone') }}
+      </FluentButton>
     </header>
 
     <main v-if="section === 'draw'" class="draw-workspace">

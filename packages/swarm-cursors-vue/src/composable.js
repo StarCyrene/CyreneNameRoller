@@ -49,6 +49,7 @@ export function useSwarmCursors() {
     stop: core.stop,
     toggle: core.toggle,
     setPageEnabled: core.setPageEnabled,
+    setWorkerPointersHidden: core.setWorkerPointersHidden,
     running,
     loading,
     loaded,

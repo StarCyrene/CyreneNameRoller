@@ -14,6 +14,8 @@ const routes = [
   { path: '/records', name: 'Records', component: () => import('../views/RecordsView.vue'), meta: { order: 500 } },
   { path: '/lists', name: 'Lists', component: () => import('../views/ListsView.vue'), meta: { order: 600 } },
   { path: '/lists/manage', name: 'ListManage', component: () => import('../views/ListManageView.vue'), meta: { order: 601 } },
+  { path: '/sync/send', name: 'QRSend', component: () => import('../views/QRSyncView.vue'), props: { mode: 'send' }, meta: { order: 603 } },
+  { path: '/sync/receive', name: 'QRReceive', component: () => import('../views/QRSyncView.vue'), props: { mode: 'receive' }, meta: { order: 604 } },
   { path: '/group-manage', name: 'GroupManage', component: () => import('../views/GroupManageView.vue'), meta: { order: 610 } },
   {
     path: '/settings',

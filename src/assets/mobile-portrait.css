@@ -1,0 +1,36 @@
+/* Only the gutters in this stylesheet are scaled by the Vite px-to-viewport plugin.
+   Keep tap targets, text and desktop layout in CSS pixels / rem. */
+@media (orientation: portrait) and (max-width: 767px) {
+  #app .app-layout {
+    height: 100%;
+    height: 100dvh;
+    width: 100%;
+    transform: none;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  }
+  .mobile-nav {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 8px;
+    padding-inline: 12px;
+    min-height: 44px;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    background: var(--bg-card);
+    font-weight: 600;
+  }
+  .mobile-nav button, .mobile-nav a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 44px;
+    min-height: 44px;
+    color: var(--text-primary);
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .mobile-nav .scan-shortcut { margin-left: auto; color: var(--accent-dark); }
+}

@@ -1,0 +1,16 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Cyreneの随机点名器",
+        "visible": true,
+        "useHttpsScheme": true,
+        "backgroundColor": "#fdf5fa"
+      }
+    ]
+  },
+  "bundle": {
+    "android": { "minSdkVersion": 28 }
+  }
+}

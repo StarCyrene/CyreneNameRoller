@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import pxToViewport from 'postcss-px-to-viewport-8-plugin'
 import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { execSync } from 'node:child_process'
@@ -73,6 +74,16 @@ try {
 export default defineConfig({
   base: './',
   plugins: [fluentIconSubset(), vue(), i18nCatalogPlugin(projectRoot)],
+  css: {
+    postcss: {
+      plugins: [pxToViewport({
+        viewportWidth: 390,
+        exclude: /^(?!.*[\\/]mobile-portrait\.css(?:[?#].*)?$)/,
+        propList: ['padding-inline', 'gap', 'column-gap'],
+        mediaQuery: true
+      })]
+    }
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,

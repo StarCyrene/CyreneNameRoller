@@ -5,6 +5,7 @@
 import { createPill } from "./pill.js";
 import { createCompanion } from "./companion.js";
 import { createCover } from "./cover.js";
+import { trackLinkNavigation } from "./route-links.js";
 
 const DEFAULT_POSITION = "bottom-right";
 
@@ -31,6 +32,7 @@ function defaults() {
     sound: false,
     companion: true,
     companionMode: "follow",
+    hideWorkerPointers: false,
     autoReveal: true,
     autoRevealDelay: 1600,
     captureDelay: 0,
@@ -51,6 +53,10 @@ function defaults() {
   };
 }
 
+function drawScope(value) {
+  return value === "viewport" || value === "scroll" ? value : undefined;
+}
+
 function resolveOptions(options) {
   const d = defaults();
   const o = options || {};
@@ -66,7 +72,7 @@ function resolveOptions(options) {
     ...o,
     button: o.button !== false,
     auto: !!o.auto,
-    autoOnRoute: !!o.autoOnRoute,
+    autoOnRoute: o.autoOnRoute === "link" ? "link" : !!o.autoOnRoute,
     once: !!o.once,
     preload: !!o.preload,
     position: o.position || d.position,
@@ -79,6 +85,9 @@ function resolveOptions(options) {
     sound: !!o.sound,
     companion: o.companion !== false,
     companionMode: o.companionMode === "replace" ? "replace" : "follow",
+    hideWorkerPointers: o.hideWorkerPointers === true,
+    liveInteractions: o.liveInteractions === true,
+    drawScope: drawScope(o.drawScope),
     autoReveal: o.autoReveal !== false,
     autoRevealDelay: Math.max(
       0,
@@ -124,6 +133,7 @@ function noopCore() {
     stop() {},
     toggle() {},
     setPageEnabled() {},
+    setWorkerPointersHidden() {},
     attachRouter() {
       return () => {};
     },
@@ -240,6 +250,7 @@ export function createSwarmCursors(options) {
     hud: opts.hud,
     sound: opts.sound,
     companion: opts.companion,
+    drawScope: opts.drawScope,
     autoReveal: opts.autoReveal,
     captureDelay: opts.captureDelay,
   };
@@ -260,6 +271,7 @@ export function createSwarmCursors(options) {
   let routerOff = null;
   let routerBeforeOff = null;
   let routerErrorOff = null;
+  let routerInputOff = null;
   let routerAttached = false;
   let routerEpoch = 0;
   let pendingRoute = null;
@@ -540,8 +552,11 @@ export function createSwarmCursors(options) {
         applyTheme();
         mod.start({
           route, covered: !!cover && cover.el.style.opacity === "1",
+          hideWorkerPointers: opts.hideWorkerPointers,
+          liveInteractions: opts.liveInteractions,
           routerManaged: routerAttached || !!options?.playback,
           viewportOnly: pageOpts.autoReveal && !pageOpts.hud && !options?.playback,
+          drawScope: options?.playback ? undefined : pageOpts.drawScope,
           playback: options?.playback,
           onDrawing() {
             if (destroyed || id !== runId) return;
@@ -643,6 +658,7 @@ export function createSwarmCursors(options) {
         hud: v.hud,
         sound: v.sound,
         companion: v.companion,
+        drawScope: v.drawScope,
         autoReveal: v.autoReveal,
         captureDelay: v.captureDelay,
       };
@@ -674,6 +690,11 @@ export function createSwarmCursors(options) {
     emit("state", snapshot());
   }
 
+  function setWorkerPointersHidden(hidden) {
+    opts.hideWorkerPointers = hidden === true;
+    engine?.setWorkerPointersHidden(opts.hideWorkerPointers);
+  }
+
   function applyPageOptions(next) {
     const enabled = next.enabled !== false;
     const hud = next.hud !== undefined ? !!next.hud : opts.hud;
@@ -682,6 +703,7 @@ export function createSwarmCursors(options) {
       hud,
       sound: next.sound !== undefined ? !!next.sound : opts.sound,
       companion: next.companion !== undefined ? next.companion !== false : opts.companion,
+      drawScope: drawScope(next.drawScope) ?? opts.drawScope,
       autoReveal:
         next.autoReveal !== undefined
           ? next.autoReveal !== false
@@ -702,14 +724,14 @@ export function createSwarmCursors(options) {
     emit("state", snapshot());
   }
 
-  function applyRoute(route, first) {
+  function applyRoute(route, first, fromLink = false) {
     const page = routePageOptions(route);
     // A confirmed destination supersedes the outgoing import, capture and reveal.
     if (!first) interruptRun();
     applyPageOptions(page);
     if (!page.enabled) { hideCover(true); return; }
 
-    const wantsAuto = opts.autoOnRoute || (first && opts.auto);
+    const wantsAuto = opts.autoOnRoute === true || (first ? opts.auto : fromLink);
     if (!wantsAuto) {
       hideCover(true);
       return;
@@ -747,6 +769,10 @@ export function createSwarmCursors(options) {
     detachRouter();
     routerAttached = true;
     const epoch = routerEpoch;
+    const links = opts.autoOnRoute === "link" ? trackLinkNavigation(router) : null;
+    const linkRoutes = new WeakSet();
+    const hasBefore = typeof router.beforeEach === "function";
+    if (links) routerInputOff = links.dispose;
     let initialized = false;
     let firstLocation = null;
     // Nuxt can force-replace the very same location after router.isReady().
@@ -767,11 +793,15 @@ export function createSwarmCursors(options) {
       restoreCover();
     };
 
-    if (typeof router.beforeEach === "function") {
+    if (hasBefore) {
       routerBeforeOff = router.beforeEach(function (to, from) {
         if (destroyed || reconfirmsFirst(to, from)) return;
         pendingRoute = to;
         routeArrow(to);
+        if (links) {
+          if (!links.consume(to)) return;
+          linkRoutes.add(to);
+        }
         if (!opts.autoOnRoute || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
         const page = routePageOptions(to);
         if (page.enabled === false || autoAlreadyPlayed(to, false)) return;
@@ -792,7 +822,7 @@ export function createSwarmCursors(options) {
       if (!initialized) applyFirst(to);
       else {
         firstLocation = null;
-        applyRoute(to, false);
+        applyRoute(to, false, !!links && (hasBefore ? linkRoutes.has(to) : links.consume(to)));
       }
     });
     if (typeof router.onError === "function") routerErrorOff = router.onError((err, to) => canceled(to));
@@ -815,6 +845,8 @@ export function createSwarmCursors(options) {
     routerAttached = false;
     routerEpoch++;
     pendingRoute = null;
+    routerInputOff?.();
+    routerInputOff = null;
     if (routerErrorOff) {
       try { routerErrorOff(); } catch (_) {}
       routerErrorOff = null;
@@ -875,7 +907,7 @@ export function createSwarmCursors(options) {
   ensurePill();
   if (!state.pageEnabled && pill) pill.hide();
 
-  if (hasRouter && (opts.auto || opts.autoOnRoute) && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+  if (hasRouter && (opts.auto || opts.autoOnRoute === true) && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
     const initial = opts.router.currentRoute && opts.router.currentRoute.value;
     if (!initial || !initial.meta || routePageOptions(initial).enabled !== false) {
       showCover();
@@ -915,6 +947,7 @@ export function createSwarmCursors(options) {
     stop,
     toggle,
     setPageEnabled,
+    setWorkerPointersHidden,
     on,
     attachRouter,
     detachRouter,

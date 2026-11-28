@@ -31,7 +31,7 @@
 - [x] 多平台支持
   - [x] Windows10+
   - [x] Web
-  - [ ] Android
+  - [x] Android 9+（测试版）
   - [x] Linux(早期测试阶段，不作稳定性和性能保证，Linux平台仍然建议先使用Web版)
 - [x] 悬浮窗启动
 - [ ] 更多功能正在路上♪
@@ -75,6 +75,11 @@ Dock 中的 **Roller** 是点名入口。在页面底部可切换八个工具，
 - 名单管理：CRUD、批量删除（10秒撤销）、CSV/JSON 自动识别导入与可选格式导出
 - 小组绑定随名单文件完整导入导出，人员 UUID 保持稳定
 - SHA-256 密码保护
+
+**二维码同步**
+- 在电脑的名单页点击「同步到手机」，可切换发送当前人员名单、当前奖品单或完整备份。默认 10 FPS，可手动调节到 3–30 FPS；漏扫的帧会在循环播放中补齐。
+- 在 Android App 或 HTTPS 手机网页打开「扫码接收」并允许相机访问。名单和奖品单会新增并选中；完整备份须验证本机数据操作密码、确认覆盖。两台设备无需连同一网络。
+- 完整备份较大时可以适度提高帧率；如果扫码进度不稳定就调低。超过二维码传输上限的数据可继续使用文件备份。
 
 **抽奖模式**
 - 滚动抽取、幸运转盘、花信盲盒、刮开好运。盲盒可点选拆开；刮刮卡支持鼠标、触屏或按键直接揭晓。
@@ -147,6 +152,14 @@ bun run tauri:build
 ```
 
 桌面安装包位于 `target/release/bundle/`。
+
+安装 Android SDK / NDK、JDK 与对应 Rust 目标后，可构建 Android 9+ 测试 APK：
+
+```bash
+bun run tauri android build --apk --debug
+```
+
+APK 位于 `src-tauri/gen/android/app/build/outputs/apk/`。真机测试时使用已更新的 Android System WebView。
 
 ## 技术栈
 

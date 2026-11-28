@@ -26,6 +26,16 @@ export const dataBridge = {
     }
   },
 
+  // Password checks must distinguish an absent password from a failed read.
+  async loadDataPassword() {
+    const value = isTauri()
+      ? await tauriAPI.invokeStrict('storage_get', { key: 'password' })
+      : JSON.parse(localStorage.getItem('password'))
+    if (value == null) return null
+    if (!/^[a-f0-9]{64}$/.test(value.hash)) throw new Error('数据操作密码记录无效 / Invalid password record')
+    return value.hash
+  },
+
   async save(key, data) {
     // Tauri
     if (isTauri()) {
@@ -115,13 +125,23 @@ export const dataBridge = {
     }
 
     // Browser fallback: keep the same encrypted container format.
-    const allData = {}
+    downloadEncryptedFile(await dataBridge.exportDataBytes())
+    return { success: true }
+  },
+
+  // QR and file backups use the same .cyrene bytes, including native core state.
+  async exportDataBytes() {
+    if (isTauri()) {
+      const encoded = await tauriAPI.exportEncryptedData()
+      if (!encoded || typeof encoded !== 'string') throw new Error('未能读取程序备份 / Could not read backup')
+      return base64ToBytes(encoded)
+    }
+    const allData = Object.create(null)
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
       try { allData[key] = JSON.parse(localStorage.getItem(key)) } catch {}
     }
-    downloadEncryptedFile(await encryptCyreneData(allData))
-    return { success: true }
+    return encryptCyreneData(allData)
   },
 
   async importData() {
@@ -213,14 +233,14 @@ function downloadEncryptedFile(bytes) {
   URL.revokeObjectURL(url)
 }
 
-function base64ToBytes(value) {
+export function base64ToBytes(value) {
   const binary = atob(value)
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index)
   return bytes
 }
 
-function bytesToBase64(bytes) {
+export function bytesToBase64(bytes) {
   let binary = ''
   const chunkSize = 0x8000
   for (let index = 0; index < bytes.length; index += chunkSize) {

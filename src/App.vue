@@ -10,7 +10,8 @@ import { useRoute, useRouter } from 'vue-router'
 import AppLayout from './components/layout/AppLayout.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import { useSettingsStore } from './stores/settings'
-import { isTauri, tauriAPI } from './utils/tauriAPI'
+import { tauriAPI } from './utils/tauriAPI'
+import { getDesktopPlatform } from './utils/desktopRuntime'
 import { dispatchUriNavigation, parseCyreneUri, parseWebHash } from './utils/uriNavigation'
 import { usePluginsStore } from './plugins/store'
 
@@ -63,7 +64,7 @@ async function handleDesktopUri(uri) {
 }
 
 async function listenForMainWindowShow() {
-  if (isTauri()) {
+  if (getDesktopPlatform().desktop) {
     const { listen } = await import('@tauri-apps/api/event')
     unlistenMainShown = await listen('main-window-show-requested', prepareTauriMainWindowShow)
     unlistenUriOpen = await listen('uri-open-requested', event => handleDesktopUri(event.payload))
@@ -76,7 +77,7 @@ onMounted(async () => {
   if (typeof window !== 'undefined' && window.__CYRENE_SAFE_MODE__) pluginsStore.configureSafeMode(window.__CYRENE_SAFE_MODE__)
   await nextTick()
   if (isFloatingRoute.value) return
-  if (isTauri()) {
+  if (getDesktopPlatform().desktop) {
     const initialUriPending = await listenForMainWindowShow()
     if (initialUriPending) return
     const autoStart = await tauriAPI.isAutoStartLaunch()
