@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { execSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { i18nCatalogPlugin } from './scripts/i18n-catalog.mjs'
 
 const projectRoot = dirname(fileURLToPath(import.meta.url))
 
@@ -71,7 +72,7 @@ try {
 
 export default defineConfig({
   base: './',
-  plugins: [fluentIconSubset(), vue()],
+  plugins: [fluentIconSubset(), vue(), i18nCatalogPlugin(projectRoot)],
   build: {
     outDir: 'dist',
     emptyOutDir: true,

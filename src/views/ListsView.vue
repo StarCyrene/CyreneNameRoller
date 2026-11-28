@@ -7,7 +7,7 @@
         <h1 class="page-title">{{ t('listManager', lang) }}</h1>
       </div>
       <div class="list-header-right">
-        <FluentSelect :model-value="namesStore.currentListId" :options="listOptions" @update:model-value="namesStore.switchList" />
+        <I18nDataSelect :model-value="namesStore.currentListId" :options="listOptions" @update:model-value="namesStore.switchList" />
         <FluentButton variant="secondary" size="sm" @click="router.push('/lists/manage')">
           <FluentIcon icon="settings-16-regular" :width="14" /> {{ t('listManager', lang) }}
         </FluentButton>
@@ -61,7 +61,7 @@
             <div class="edit-row">
               <FluentInput v-model="editCn" style="flex:1;" :placeholder="t('cnName', lang)" />
               <FluentInput v-model="editEn" style="flex:1;" :placeholder="t('enName', lang)" />
-              <FluentSelect v-model="editGroup" :options="groupOptions" :placeholder="t('groupOf', lang)" style="min-width: 150px;" />
+              <I18nDataSelect v-model="editGroup" :options="groupOptions" :placeholder="t('groupOf', lang)" style="min-width: 150px;" />
               <FluentTabs v-model="editGender" :options="genderOptions" class="gender-tabs" />
               <FluentToggle v-model="editWhite" :label="t('whitelist', lang)" :title="t('whitelistHint', lang)" />
               <FluentButton variant="primary" size="sm" icon-only @click="saveEdit(index)"><FluentIcon icon="checkmark-16-regular" :width="14" /></FluentButton>
@@ -80,7 +80,7 @@
               </div>
               <span v-if="person.isWhiteList" class="whitelist-badge">{{ lang === 'en' ? 'WL' : '白名单' }}</span>
               <span class="gender-badge" :class="person.gender === 'female' ? 'female' : 'male'">{{ person.gender === 'female' ? (lang === 'en' ? 'Female' : '女') : (lang === 'en' ? 'Male' : '男') }}</span>
-              <span v-if="person.groupId" class="group-badge">{{ groupNameOf(person.groupId) }}</span>
+              <span v-if="person.groupId" class="group-badge" translate="no">{{ groupNameOf(person.groupId) }}</span>
             </div>
             <div class="person-actions">
               <FluentButton variant="subtle" size="sm" icon-only @click="startEdit(index, person)">
@@ -102,7 +102,7 @@
     <FluentModal v-model="showBatchModal" :title="t('batchAssignGroup', lang)">
       <div class="field">
         <label class="field-label">{{ t('groupOf', lang) }}</label>
-        <FluentSelect v-model="batchGroup" :options="groupOptions" :placeholder="t('unassigned', lang)" />
+        <I18nDataSelect v-model="batchGroup" :options="groupOptions" :placeholder="t('unassigned', lang)" />
       </div>
       <p class="batch-note">{{ t('selectedCount', lang).replace('{n}', selectedIndices.length) }}</p>
       <template #footer>
@@ -123,6 +123,7 @@
 </template>
 
 <script setup>
+import I18nDataSelect from '../components/I18nDataSelect.vue'
 import { ref, computed, inject } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNamesStore } from '../stores/names'
@@ -141,7 +142,7 @@ const listOptions = computed(() => namesStore.allLists.map(l => ({ value: l.id, 
 
 const currentGroups = computed(() => namesStore.currentList.groups || [])
 const groupOptions = computed(() => [
-  { value: '', label: t('unassigned', lang.value) },
+  { value: '', uiLabel: true, label: t('unassigned', lang.value) },
   ...currentGroups.value.map(g => ({ value: g.id, label: g.name }))
 ])
 function groupNameOf(id) {

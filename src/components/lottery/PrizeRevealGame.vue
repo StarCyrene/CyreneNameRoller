@@ -28,7 +28,7 @@
       <div class="scratch-ticket" :class="{ready,opened}">
         <span class="ticket-top">{{ tr('好运花签','LUCKY TICKET') }}</span>
         <div class="scratch-field">
-          <strong aria-hidden="true">{{ ready ? prizes[0]?.name : '✧　✧　✧' }}</strong>
+          <strong aria-hidden="true" translate="no">{{ ready ? prizes[0]?.name : '✧　✧　✧' }}</strong>
           <canvas v-if="ready && !opened" ref="foil" width="480" height="144" aria-hidden="true"
             @pointerdown="startStroke" @pointermove="moveStroke" @pointerup="endStroke" @pointercancel="endStroke" @lostpointercapture="endStroke" />
         </div>

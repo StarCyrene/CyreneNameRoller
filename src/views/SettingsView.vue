@@ -8,9 +8,19 @@
     <!-- 基本设置 -->
     <FluentCard v-if="section === 'general'" class="settings-section">
       <h3 class="section-title"><FluentIcon icon="options-24-regular" :width="20" /> {{ lang === 'en' ? 'General' : '基本设置' }}</h3>
-      <div class="setting-row">
-        <span class="setting-label">{{ lang === 'en' ? 'Language' : '语言' }}</span>
-        <FluentSelect :model-value="settings.language" :options="langOptions" width="200px" @update:model-value="update('language', $event)" />
+      <div class="setting-row language-setting">
+        <div class="setting-label-group">
+          <span id="interface-language-label" class="setting-label">{{ lang === 'en' ? 'Interface language' : '界面语言' }}</span>
+          <p id="interface-language-hint" class="setting-desc">{{ extraLanguageHint }}</p>
+        </div>
+        <div class="language-controls">
+          <I18nDataSelect id="interface-language" class="language-select" :model-value="localeChoice" :options="localeOptions" width="100%"
+            role="group" aria-labelledby="interface-language-label" aria-describedby="interface-language-hint"
+            @update:model-value="changeInterfaceLanguage" />
+          <FluentButton v-if="settings.extraLanguage" class="translation-cache-action" variant="subtle" size="sm" @click="clearExtraLanguageCache">
+            {{ lang === 'en' ? 'Clear cache' : '清除缓存' }}
+          </FluentButton>
+        </div>
       </div>
       <div class="setting-row">
         <div class="setting-label-group">
@@ -616,6 +626,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } from 'vue'
+import I18nDataSelect from '../components/I18nDataSelect.vue'
 import { useNamesStore } from '../stores/names'
 import { useSettingsStore } from '../stores/settings'
 import { usePluginsStore } from '../plugins/store'
@@ -627,6 +638,8 @@ import { isTauri, tauriAPI } from '../utils/tauriAPI'
 import { updateState, checkForUpdates, downloadUpdate, getDownloadUrl } from '../utils/updater'
 import { fetchCompassReleases, formatBytes, COMPASS_GITHUB_URL } from '../utils/compass'
 import { t } from '../utils/i18n'
+import { clearTranslationCache } from '../utils/i18nAuto'
+import { EXTRA_LANGUAGES, NATIVE_LANGUAGES, interfaceLanguage } from '../utils/settingsLocale.mjs'
 import {
   DEFAULT_CYRENE_BALANCE_SETTINGS,
   normalizeCyreneBalanceSettings,
@@ -727,10 +740,40 @@ watch(() => settings.value.floatingWindowOpacity, value => {
   floatingOpacityDraft.value = normalizeFloatingWindowOpacity(value)
 })
 
-const langOptions = [
-  { value: 'zh', label: '中文' },
-  { value: 'en', label: 'English' }
-]
+const localeChoice = computed(() => interfaceLanguage(settings.value))
+const localeOptions = [...NATIVE_LANGUAGES, ...EXTRA_LANGUAGES]
+const extraLanguageHint = computed(() => lang.value === 'en'
+  ? 'Beta languages use Microsoft Edge to translate the interface. Names, lists, prizes and records are never sent. Encrypted translations can be reused offline.'
+  : 'Beta 语言由 Microsoft Edge 翻译界面文字，名单、奖品与记录不会上传。译文在本机加密保存，离线时可继续使用。')
+async function changeInterfaceLanguage(value) {
+  try {
+    await settingsStore.setInterfaceLanguage(value)
+  } catch {
+    showBanner({
+      message: lang.value === 'en' ? 'The language setting could not be saved.' : '未能保存界面语言设置。',
+      icon: 'warning-16-regular',
+      type: 'warning',
+      duration: 4000
+    })
+  }
+}
+async function clearExtraLanguageCache() {
+  const target = settings.value.extraLanguage
+  if (!target) return
+  const confirmed = window.confirm(lang.value === 'en'
+    ? 'Clear the cached translations for this language? They will be fetched again when needed.'
+    : '确定清除该语言的本地翻译缓存吗？之后需要时会重新获取。')
+  if (!confirmed) return
+  const ok = await clearTranslationCache(target)
+  showBanner({
+    message: ok
+      ? (lang.value === 'en' ? 'Translation cache cleared' : '翻译缓存已清除')
+      : (lang.value === 'en' ? 'Could not clear the translation cache' : '翻译缓存清除失败'),
+    icon: ok ? 'checkmark-circle-16-regular' : 'warning-16-regular',
+    type: ok ? 'success' : 'warning',
+    duration: 4000
+  })
+}
 const scaleDraft = ref(settings.value.uiScale)
 watch(() => settings.value.uiScale, (v) => { scaleDraft.value = v })
 const scaleChanged = computed(() => {
@@ -1442,6 +1485,10 @@ function onBalanceEnabledChange(enabled) {
 .readonly-id { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .setting-label-group { display: flex; flex-direction: column; gap: 2px; }
 .setting-desc { font-size: 12px; color: var(--text-muted); }
+.language-setting { align-items: flex-start; }
+.language-setting .setting-desc { max-width: 540px; margin: 2px 0 0; line-height: 1.6; }
+.language-controls { display: grid; justify-items: end; gap: 5px; flex: 0 0 clamp(140px, 29%, 200px); }
+.language-select { width: 100%; min-width: 0; }
 .uri-setting-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .uri-help-body { display: flex; flex-direction: column; gap: 16px; color: var(--text-secondary); }
 .uri-help-intro { margin: 0; font-size: 13px; line-height: 1.65; }
@@ -1525,6 +1572,9 @@ function onBalanceEnabledChange(enabled) {
 @keyframes toggle-in { from { opacity: 0; transform: translateY(-8px); max-height: 0; } to { opacity: 1; transform: translateY(0); max-height: 300px; } }
 
 @media (max-width: 720px) {
+  .language-setting { flex-direction: column; align-items: stretch; gap: 8px; }
+  .language-controls { display: flex; flex: auto; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .language-select { flex: 1 1 135px; width: auto; }
   .settings-view { padding: 20px 16px 28px; }
   .setting-row { align-items: stretch; flex-direction: column; gap: 8px; }
   .setting-row:has(> .fluent-toggle) { align-items: center; flex-direction: row; }

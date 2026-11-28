@@ -2,17 +2,17 @@
   <div class="lottery-records-view">
     <header class="page-header">
       <div><h1><FluentIcon icon="history-24-regular" :width="28" />{{ lang === 'en' ? 'Lottery Records' : '抽奖记录' }}</h1><p>{{ recordSummary }}</p></div>
-      <div class="record-filter"><span>{{ lang === 'en' ? 'Prize list' : '奖品单' }}</span><FluentSelect v-model="selectedListId" :options="listOptions" width="240px" /></div>
+      <div class="record-filter"><span>{{ lang === 'en' ? 'Prize list' : '奖品单' }}</span><I18nDataSelect v-model="selectedListId" :options="listOptions" width="240px" /></div>
     </header>
 
     <FluentCard class="records-card">
-      <div class="records-toolbar"><strong>{{ selectedListName }}</strong><FluentButton v-if="filteredRecords.length" variant="subtle" size="sm" @click="showClear = true"><FluentIcon icon="delete-16-regular" :width="14" />{{ lang === 'en' ? 'Clear' : '清空记录' }}</FluentButton></div>
+      <div class="records-toolbar"><strong :translate="selectedListId === 'all' ? null : 'no'">{{ selectedListName }}</strong><FluentButton v-if="filteredRecords.length" variant="subtle" size="sm" @click="showClear = true"><FluentIcon icon="delete-16-regular" :width="14" />{{ lang === 'en' ? 'Clear' : '清空记录' }}</FluentButton></div>
       <div class="records-header"><span>{{ lang === 'en' ? 'Time' : '时间' }}</span><span>{{ lang === 'en' ? 'Prize' : '奖品' }}</span><span>{{ lang === 'en' ? 'Person' : '人员' }}</span><span>{{ lang === 'en' ? 'Mode' : '方式' }}</span></div>
       <div class="records-list">
         <div v-for="record in filteredRecords" :key="record.id" class="record-row">
           <span class="record-time">{{ formatTime(record.time) }}</span>
-          <strong>{{ resolvePrize(record) }}</strong>
-          <span :title="record.personId || ''">{{ resolvePerson(record) || '-' }}</span>
+          <strong class="lottery-record-prize" :translate="prizeName(record) ? 'no' : null">{{ prizeName(record) || (lang === 'en' ? 'Deleted prize' : '已删除奖品') }}</strong>
+          <span class="lottery-record-person" data-i18n-private-attrs="title" :translate="personName(record) ? 'no' : null" :title="record.personId || ''">{{ personName(record) || (record.personId ? (lang === 'en' ? 'Deleted person' : '已删除成员') : '-') }}</span>
           <span class="record-mode">{{ record.mode === 'assign' ? (lang === 'en' ? 'Assignment' : '人员分配') : (lang === 'en' ? 'Prize draw' : '直接抽奖') }}</span>
         </div>
         <div v-if="!filteredRecords.length" class="empty-state"><FluentIcon icon="history-24-regular" :width="24" />{{ lang === 'en' ? 'No lottery records for this prize list' : '该奖品单暂无抽奖记录' }}</div>
@@ -20,13 +20,14 @@
     </FluentCard>
 
     <FluentModal v-model="showClear" :title="lang === 'en' ? 'Clear lottery records' : '清空抽奖记录'">
-      <p>{{ lang === 'en' ? `Clear records for ${selectedListName}?` : `确定清空「${selectedListName}」中的抽奖记录吗？` }}</p>
+      <p>{{ lang === 'en' ? 'Clear lottery records for this selection?' : '确定清空当前筛选范围的抽奖记录吗？' }} <strong :translate="selectedListId === 'all' ? null : 'no'">{{ selectedListName }}</strong></p>
       <template #footer><FluentButton variant="secondary" @click="showClear = false">{{ lang === 'en' ? 'Cancel' : '取消' }}</FluentButton><FluentButton variant="danger" @click="clearRecords">{{ lang === 'en' ? 'Clear' : '清空' }}</FluentButton></template>
     </FluentModal>
   </div>
 </template>
 
 <script setup>
+import I18nDataSelect from '../components/I18nDataSelect.vue'
 import { computed, inject, onMounted, ref } from 'vue'
 import { usePrizesStore } from '../stores/prizes'
 import { useNamesStore } from '../stores/names'
@@ -38,17 +39,17 @@ const settingsStore = useSettingsStore()
 const lang = computed(() => settingsStore.settings.language)
 const selectedListId = ref('all')
 const showClear = ref(false)
-const listOptions = computed(() => [{ value: 'all', label: lang.value === 'en' ? 'All prize lists' : '全部奖品单' }, ...Object.values(prizes.lists).map(list => ({ value: list.id, label: list.name }))])
+const listOptions = computed(() => [{ value: 'all', uiLabel: true, label: lang.value === 'en' ? 'All prize lists' : '全部奖品单' }, ...Object.values(prizes.lists).map(list => ({ value: list.id, label: list.name }))])
 const selectedListName = computed(() => listOptions.value.find(option => option.value === selectedListId.value)?.label || '')
 const filteredRecords = computed(() => selectedListId.value === 'all' ? prizes.records : prizes.records.filter(record => record.prizeListId === selectedListId.value))
 const recordSummary = computed(() => lang.value === 'en' ? `${filteredRecords.value.length} records` : `${filteredRecords.value.length} 条记录`)
 
 function formatTime(timestamp) { return new Date(timestamp).toLocaleString(lang.value === 'en' ? 'en-US' : 'zh-CN') }
-function resolvePrize(record) { return prizes.lists[record.prizeListId]?.prizes?.find(prize => prize.id === record.prizeId)?.name || (lang.value === 'en' ? 'Deleted prize' : '已删除奖品') }
-function resolvePerson(record) {
+function prizeName(record) { return prizes.lists[record.prizeListId]?.prizes?.find(prize => prize.id === record.prizeId)?.name }
+function personName(record) {
   if (!record.personId) return ''
   const person = names.nameLists[record.peopleListId]?.names?.find(item => item.id === record.personId)
-  if (!person) return lang.value === 'en' ? 'Deleted person' : '已删除成员'
+  if (!person) return ''
   return settingsStore.settings.englishMode && person.en ? person.en : person.cn
 }
 const showBanner = inject('banner')

@@ -47,18 +47,48 @@ try {
     assert.ok(Math.abs(initial.bottom - initial.height) <= 1 && Math.abs(initial.panelBottom - initial.top) <= 1, JSON.stringify(initial))
     assert.ok(initial.besideDock && initial.panelUsesTop && initial.badgeClear && initial.selectedVisible, JSON.stringify(initial))
     assert.ok(await clickable('.start-btn'), 'start button must remain above the tools')
+    assert.equal(await page.$eval('.tool-pivot', strip => getComputedStyle(strip).scrollbarWidth), 'none')
     if (viewport.width === 390) {
       await page.waitForSelector('.strip-next')
+      const scrollbar = '.tool-scrollbar.fluent-scroll-bar.orientation-horizontal'
+      await page.waitForSelector(scrollbar)
       assert.equal(await page.$('.strip-back'), null)
+      const thumb = scrollbar + ' .scroll-bar-thumb'
+      const thumbStart = await page.$eval(thumb, t => t.style.left)
       for (let i = 0; i < 12 && await page.$('.strip-next'); i++) await page.click('.strip-next')
       assert.equal(await page.$('.strip-next'), null, 'no forward hint at the last tool')
       assert.ok(await page.$('.strip-back'))
+      assert.ok(parseFloat(await page.$eval(thumb, t => t.style.left)) > parseFloat(thumbStart), 'arrows move the library thumb')
       assert.equal(await page.$eval('.tool-tab[aria-selected=true]', t => t.id), 'roller-tab-Roller', 'paging must not switch tools')
       assert.equal((await measure()).top, initial.top, 'overflow controls must not change footer height')
       await page.click('.strip-back')
+      const track = await page.$eval(scrollbar + ' .scroll-bar-track', t => {
+        const r = t.getBoundingClientRect()
+        return { x: r.left + 1, y: r.top + r.height / 2 }
+      })
+      await page.mouse.click(track.x, track.y)
+      await page.waitForFunction(() => document.querySelector('.tool-pivot').scrollLeft < 10)
+      const grip = await page.$eval(thumb, t => {
+        const r = t.getBoundingClientRect()
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+      })
+      await page.mouse.move(grip.x, grip.y)
+      await page.mouse.down()
+      await page.mouse.move(grip.x + 28, grip.y, { steps: 5 })
+      await page.waitForFunction(() => document.querySelector('.tool-pivot').scrollLeft > 20)
+      await page.mouse.up()
       await page.waitForSelector('.strip-next')
     } else {
       assert.equal(await page.$('.strip-arrow'), null, 'no paging controls when all tabs fit')
+      assert.equal(await page.$('.tool-scrollbar'), null)
+      const widenLabels = width => page.$$eval('.tool-tab', (tabs, width) => {
+        for (const tab of tabs) tab.style.minWidth = width
+      }, width)
+      await widenLabels('250px')
+      await page.waitForSelector('.tool-scrollbar.fluent-scroll-bar.orientation-horizontal')
+      assert.equal((await measure()).top, initial.top, 'the scrollbar fits within the existing footer height')
+      await widenLabels('')
+      await page.waitForSelector('.tool-scrollbar', { hidden: true })
     }
     await page.focus('#roller-tab-Roller')
     await page.keyboard.press('ArrowRight')

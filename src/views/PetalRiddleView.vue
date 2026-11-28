@@ -30,33 +30,33 @@
             <div class="letter-tiles" :aria-label="en ? 'Hidden name' : '藏起的名字'">
               <template v-for="(letter, i) in puzzle.letters" :key="i">
                 <span v-if="!letter.trim()" class="letter-space"> </span>
-                <span v-else-if="hints.includes(i)" class="letter-tile lifted">{{ letter }}</span>
+                <span v-else-if="hints.includes(i)" class="letter-tile lifted" translate="no">{{ letter }}</span>
                 <button v-else type="button" class="letter-tile" :disabled="nextHint === null"
                   :aria-label="(en ? 'Uncover character ' : '揭开第 ') + (i + 1) + (en ? '' : ' 个字')" @click="lift(i)">
                   <i class="petal" aria-hidden="true"></i>
                 </button>
               </template>
             </div>
-            <p>{{ en ? puzzle.positions.length + ' characters' : '名字共有 ' + puzzle.positions.length + ' 个字' }}<template v-if="puzzle.initial"> · {{ en ? 'English initial: ' : '英文名首字母：' }}{{ puzzle.initial }}</template></p>
+            <p>{{ en ? puzzle.positions.length + ' characters' : '名字共有 ' + puzzle.positions.length + ' 个字' }}<template v-if="puzzle.initial"> · {{ en ? 'English initial: ' : '英文名首字母：' }}<span translate="no">{{ puzzle.initial }}</span></template></p>
           </template>
           <template v-else>
             <span class="note-to">{{ en ? 'Delivered to' : '此笺寄予' }}</span>
             <strong class="note-title recipient"><VerifiedResult :receipt="receipt" :index="0" :presentation="presentation" /></strong>
-            <p v-if="otherName">{{ otherName }}</p>
+            <p v-if="otherName" translate="no">{{ otherName }}</p>
             <p v-if="puzzle.rosterNumber">{{ en ? 'No. ' + puzzle.rosterNumber + ' on this list' : '名单中的第 ' + puzzle.rosterNumber + ' 位' }}</p>
           </template>
         </div>
-        <span class="note-foot">{{ en ? 'From' : '来信自' }} · {{ names.currentList?.name || '—' }}</span>
+        <span class="note-foot">{{ en ? 'From' : '来信自' }} · <span translate="no">{{ names.currentList?.name || '—' }}</span></span>
       </article>
     </div>
 
     <div class="riddle-desk">
-      <header><h1>{{ en ? 'Petal Riddle' : '花笺藏名' }}</h1>
-        <p>{{ en ? 'Open a note and guess who it is for. Lift a petal for a clue, or read the name at any time.' : '抽一封藏着名字的花笺。猜猜收件人是谁，轻揭花瓣找线索，也可以直接读出谜底。' }}</p>
+      <header><span class="desk-kicker">{{ deskStatus }}</span><h1>{{ en ? 'Petal Riddle' : '花笺藏名' }}</h1>
+        <p>{{ en ? 'Draw a note and guess who it is for. Lift a petal for a clue, or reveal the name at any time.' : '抽一封花笺，猜猜写给谁。可以揭一瓣找线索，也可以直接看谜底。' }}</p>
       </header>
       <div class="list-row">
         <span>{{ en ? 'Name list' : '当前名单' }}</span>
-        <FluentSelect :model-value="names.currentListId" :options="listOptions" :disabled="busy" :aria-label="en ? 'Name list' : '当前名单'" @update:model-value="switchList" />
+        <I18nDataSelect :model-value="names.currentListId" :options="listOptions" :disabled="busy" :aria-label="en ? 'Name list' : '当前名单'" @update:model-value="switchList" />
       </div>
       <template v-if="phase === 'playing'">
         <form class="guess-form" @submit.prevent="submitGuess">
@@ -83,6 +83,7 @@
 </template>
 
 <script setup>
+import I18nDataSelect from '../components/I18nDataSelect.vue'
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useNamesStore } from '../stores/names'
 import { useSettingsStore } from '../stores/settings'
@@ -112,6 +113,11 @@ const feedback = ref('')
 const error = ref('')
 let generation = 0
 const nextHint = computed(() => puzzle.value ? nextPetal(puzzle.value, hints.value) : null)
+const deskStatus = computed(() => {
+  if (phase.value === 'solved') return en.value ? 'Note delivered' : '花笺已送达'
+  if (phase.value === 'playing') return en.value ? 'A name to guess' : '等你猜名字'
+  return en.value ? 'Ready for a note' : '等一封花笺'
+})
 const otherName = computed(() => {
   const p = puzzle.value
   return p && p.alias && p.alias !== p.name ? (settings.settings.englishMode ? p.name : p.alias) : ''
@@ -193,38 +199,39 @@ function finish(correct) {
   --ink: var(--text-primary);
   --rose: color-mix(in srgb, var(--accent-dark) 65%, var(--text-primary));
   --rule: color-mix(in srgb, var(--rose) 24%, transparent);
-  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(210px, .88fr);
-  align-items: center; align-content: center; gap: clamp(28px, 5%, 68px);
-  width: min(100%, 1040px); min-height: 85%; margin: auto; padding: clamp(24px, 5%, 62px);
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(250px, .45fr);
+  align-items: stretch; gap: clamp(18px, 3cqi, 52px);
+  width: 100%; min-height: 100%; padding: clamp(14px, 3.6cqi, 54px);
 }
-.paper-stack { position: relative; isolation: isolate; min-width: 0; }
+.paper-stack { position: relative; isolation: isolate; display:grid; min-width: 0; }
 .paper-stack::before { content: ''; position: absolute; inset: 4px -2px -5px 2px; z-index: -1; transform: rotate(-2deg); background: var(--paper); border: 1px solid var(--rule); box-shadow: var(--shadow-8); }
 .flower-note {
-  position: relative; display: flex; flex-direction: column; min-height: clamp(275px, 35vw, 415px);
-  padding: 20px; overflow: hidden; color: var(--ink); background: linear-gradient(145deg, color-mix(in srgb, var(--accent-light) 12%, transparent), transparent 60%), var(--paper);
+  position: relative; display: flex; flex-direction: column; min-height: clamp(290px, 52cqh, 580px);
+  padding: clamp(16px, 2.3cqi, 38px); overflow: hidden; color: var(--ink); background: linear-gradient(145deg, color-mix(in srgb, var(--accent-light) 12%, transparent), transparent 60%), var(--paper);
   border: 1px solid var(--rule); box-shadow: var(--shadow-2);
 }
 .flower-note::before { content: ''; position: absolute; inset: 7px; pointer-events: none; border: 1px solid var(--rule); }
 .postmark { display: flex; align-items: center; gap: 6px; z-index: 1; align-self: flex-end; color: var(--rose); font: 600 11px/1.3 var(--font-ui); letter-spacing: .07em; }
 .postmark i { border-block: 1px solid var(--rule); width: 23px; height: 4px; }
 .postmark b { padding: 4px 6px; border: 1px dotted var(--rose); border-radius: 50%; font: italic 15px/1.1 Georgia, serif; }
-.botanical { pointer-events: none; position: absolute; bottom: -6%; left: -3%; width: 34%; max-height: 65%; color: color-mix(in srgb, #66886b 70%, var(--text-secondary)); opacity: .65; }
+.botanical { pointer-events: none; position: absolute; bottom: -6%; left: -3%; width: 38%; max-height: 68%; color: color-mix(in srgb, #66886b 70%, var(--text-secondary)); opacity: .53; }
 .ink-flower :is(path, ellipse) { stroke: var(--rose); stroke-width: .8; fill: color-mix(in srgb, var(--accent-light) 50%, var(--paper)); }
 .ink-flower circle { fill: var(--rose); }
 .note-center { z-index: 1; display: flex; flex: 1; flex-direction: column; justify-content: center; align-items: center; gap: 14px; padding: 28px 9px; text-align: center; overflow-wrap: anywhere; }
-.sealed-letter { width: min(135px, 52%); color: var(--rose); transform: rotate(-6deg); }
+.sealed-letter { width: min(55%, clamp(107px, 17cqi, 265px)); color: var(--rose); transform: rotate(-6deg); }
 .sealed-letter > :is(rect, path) { stroke: currentColor; stroke-width: 1.3; }
 .sealed-letter rect { fill: var(--paper); }
 .note-center p, .note-to { font-size: 13px; color: var(--text-secondary); }
-.note-title { font: 600 clamp(19px, 2.6vw, 29px)/1.35 Georgia, 'Noto Serif SC', 'SimSun', serif; }
-.recipient { color: var(--rose); font-size: clamp(28px, 4vw, 44px); max-width: 100%; }
+.note-title { font: 600 clamp(20px, 3.1cqi, 42px)/1.35 Georgia, 'Noto Serif SC', 'SimSun', serif; }
+.recipient { color: var(--rose); font-size: clamp(27px, 5cqi, 72px); max-width: 100%; }
 .note-foot { z-index: 1; align-self: flex-end; max-width: 88%; overflow-wrap: anywhere; font-size: 11px; color: var(--text-secondary); }
 .letter-tiles { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; width: 100%; }
-.letter-tile { display: grid; place-items: center; width: 36px; height: 45px; background: var(--paper); color: var(--ink); border: 1px solid var(--rule); border-bottom: 2px solid var(--rose); border-radius: 4px; font: 600 22px/1.2 Georgia, 'SimSun', serif; }
+.letter-tile { display: grid; place-items: center; width: clamp(32px, 4.1cqi, 52px); height: clamp(39px, 4.7cqi, 61px); background: var(--paper); color: var(--ink); border: 1px solid var(--rule); border-bottom: 2px solid var(--rose); border-radius: 4px; font: 600 clamp(20px, 2.35cqi, 29px)/1.2 Georgia, 'SimSun', serif; }
 .letter-space { width: 6px; }
 button.letter-tile:not(:disabled) { cursor: pointer; }
 .petal { display: block; width: 14px; height: 20px; border-radius: 80% 14% 75% 24%; transform: rotate(18deg); background: linear-gradient(135deg, var(--accent-light), var(--rose)); opacity: .84; }
-.riddle-desk { display: grid; align-content: center; min-width: 0; gap: 16px; color: var(--ink); }
+.riddle-desk { display: grid; align-self: center; min-width: 0; gap: 16px; color: var(--ink); background: var(--bg-card); border: 1px solid var(--rule); border-radius: var(--radius-xl); padding: clamp(16px, 2.2cqi, 30px); }
+.desk-kicker { display: inline-block; margin-bottom: 6px; font-size: 12px; font-weight: 650; color: var(--rose); }
 .riddle-desk h1 { font: 650 clamp(26px, 3.5vw, 38px)/1.2 Georgia, 'Noto Serif SC', 'SimSun', serif; }
 .riddle-desk header p { margin-top: 10px; }
 .riddle-desk header p, .record-note, .game-status { color: var(--text-secondary); line-height: 1.65; font-size: 14px; }
@@ -244,12 +251,15 @@ button.letter-tile:not(:disabled) { cursor: pointer; }
 .game-status:empty { display: none; }
 .record-note { border-top: 1px solid var(--rule); padding-top: 10px; font-size: 12px; }
 .manage-names { color: var(--rose); }
-@container roller-workspace (max-width: 680px) {
-  .riddle-view { grid-template-columns: minmax(0, 1fr); max-width: 490px; gap: 22px; padding: 21px 19px 30px; }
-  .flower-note { min-height: 224px; padding: 16px; }
-  .note-center { padding: 14px 5px; gap: 9px; }
-  .sealed-letter { width: 83px; }
-  .riddle-desk { gap: 12px; }
+@container roller-panel (max-width: 720px) {
+  .riddle-view { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 12px; padding: 12px 13px 20px; }
+  .flower-note { min-height: clamp(174px, 40cqh, 238px); padding: 13px; }
+  .note-center { padding: 9px 5px; gap: 7px; }
+  .sealed-letter { width: 96px; }
+  .riddle-desk { gap: 10px; padding: 14px; }
+  .desk-kicker { margin-bottom: 3px; }
+  .riddle-desk header p { margin-top: 6px; }
+  .riddle-desk header p, .record-note, .game-status { line-height: 1.45; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .riddle-view:not(:is(.perf-no-anim *)) .lifted { animation: lift-petal .25s ease-out; }

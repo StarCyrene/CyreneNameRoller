@@ -5,8 +5,8 @@
       <p>{{ en ? 'Odds for the next item. Sold-out prizes are excluded.' : '下一件奖品的中奖概率。售罄奖品会自动退出奖池。' }}</p>
       <ul>
         <li v-for="segment in visible" :key="segment.prize.id" :style="{ '--swatch': segment.color }">
-          <div class="pool-item"><i aria-hidden="true"></i><strong>{{ segment.prize.name }}</strong><b>{{ chance(segment.probability) }}</b></div>
-          <div class="pool-meta"><span>{{ segment.prize.quality }}</span><span>{{ en ? `${segment.prize.quantity} left` : `剩 ${segment.prize.quantity} 件` }}</span></div>
+          <div class="pool-item"><i aria-hidden="true"></i><strong translate="no">{{ segment.prize.name }}</strong><b>{{ chance(segment.probability) }}</b></div>
+          <div class="pool-meta"><span translate="no">{{ segment.prize.quality }}</span><span>{{ en ? `${segment.prize.quantity} left` : `剩 ${segment.prize.quantity} 件` }}</span></div>
         </li>
       </ul>
       <button v-if="segments.length > limit" class="pool-more" type="button" :aria-expanded="expanded" @click="expanded = !expanded">{{ expanded ? (en ? 'Show less' : '收起奖池') : (en ? `Show all ${segments.length}` : `查看全部 ${segments.length} 种`) }}</button>

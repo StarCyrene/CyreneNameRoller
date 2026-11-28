@@ -45,6 +45,23 @@ export const dataBridge = {
     }
   },
 
+  async remove(key) {
+    if (isTauri()) {
+      try {
+        return await tauriAPI.storageDelete(key)
+      } catch (e) {
+        console.warn(`[dataBridge] Tauri remove failed for "${key}":`, e)
+        return false
+      }
+    }
+    try {
+      localStorage.removeItem(key)
+      return true
+    } catch {
+      return false
+    }
+  },
+
   async clearAll() {
     if (isTauri()) {
       return tauriAPI.coreMaintenanceExecute('reset-all')

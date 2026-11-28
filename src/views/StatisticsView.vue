@@ -6,7 +6,7 @@
     </h1>
 
     <div class="stats-header">
-      <FluentSelect
+      <I18nDataSelect
         :model-value="selectedListId"
         :options="listOptions"
         @update:model-value="selectedListId = $event"
@@ -41,8 +41,8 @@
       </div>
       <ul class="stats-list">
         <li v-for="stat in statsWithBalance" :key="stat.id" class="stats-item">
-          <span class="col-name">{{ stat.name }}</span>
-          <span class="col-en">{{ stat.en }}</span>
+          <span class="col-name stat-name">{{ stat.name }}</span>
+          <span class="col-en stat-name">{{ stat.en }}</span>
           <span class="col-count">{{ stat.count }}</span>
           <span class="col-prob">{{ stat.probability.toFixed(2) }}%</span>
           <span class="col-balanced">{{ stat.balancedProbability.toFixed(2) }}%</span>
@@ -56,6 +56,7 @@
 </template>
 
 <script setup>
+import I18nDataSelect from '../components/I18nDataSelect.vue'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useNamesStore } from '../stores/names'
 import { useSettingsStore } from '../stores/settings'

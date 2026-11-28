@@ -1,3 +1,6 @@
 # .cnrp 是字节精确的插件包：魔数为 "CNRP1\n"，且冻结样本的 sha256 被测试断言。
 # 若交给行尾转换，magic 会变成 "CNRP1\r\n"，既无法通过 CNRP_MAGIC 校验，哈希也会漂移。
 *.cnrp -text
+
+# translate.js 的构建产物按字节做 SHA-256 校验，禁止 Git 转换换行。
+public/vendor/translate.min.js -text

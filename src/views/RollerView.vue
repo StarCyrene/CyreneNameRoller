@@ -27,7 +27,7 @@
     </div>
 
     <!-- 用于测量文字宽度的隐藏探针 -->
-    <span ref="probeRef" class="fit-probe" aria-hidden="true"></span>
+    <span ref="probeRef" class="fit-probe" aria-hidden="true" translate="no"></span>
 
     <div class="controls-center" ref="controlsCenterRef">
       <template v-if="filterOverride.visibility !== 'hidden' || filtersCompactOpen">
@@ -61,7 +61,7 @@
 
       <div class="list-selector-bar" data-plugin-component="roller.current-list" :style="pluginsStore.componentStyleStyle('roller.current-list')">
         <span class="selector-label">{{ t('currentList', lang) }}</span>
-        <FluentSelect :model-value="namesStore.currentListId" :options="listOptions" @update:model-value="namesStore.switchList" />
+        <I18nDataSelect :model-value="namesStore.currentListId" :options="listOptions" @update:model-value="namesStore.switchList" />
       </div>
 
       <FluentButton :variant="isRunning ? 'danger' : 'primary'" size="lg" class="start-btn" data-plugin-component="roller.primary-action" :style="pluginsStore.componentStyleStyle('roller.primary-action')" :class="{ 'btn-dimmed': !canStart && !isRunning }" :disabled="isFinishing" @click="toggleRoll">
@@ -80,6 +80,7 @@
 </template>
 
 <script setup>
+import I18nDataSelect from '../components/I18nDataSelect.vue'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick, inject } from 'vue'
 import { useNamesStore } from '../stores/names'
 import { useSettingsStore } from '../stores/settings'

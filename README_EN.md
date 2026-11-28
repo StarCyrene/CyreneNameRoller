@@ -51,6 +51,9 @@ Roll prizes, spin a weighted wheel, open a Bloom Box, or scratch a ticket. Previ
 **Personalization**
 - UI scale (75%-200%), name font size adjustment
 - Dark/Light mode, Chinese/English switch
+- Additional languages (Beta): 日本語, 한국어, 繁體中文, Français, Deutsch, Español, Русский, Português, Italiano, Tiếng Việt
+- Interface text is translated by Microsoft Edge; names, prizes and records are skipped and never sent. Translations are encrypted on this device and reused offline
+- translate.js (MIT) is bundled with the application and verified by SHA-256; it is never loaded from a CDN
 
 **Plugin System**
 - Install, update, uninstall, enable, and disable `.cnrp` plugins from the built-in catalog or local files

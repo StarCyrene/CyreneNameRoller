@@ -3,7 +3,7 @@
     <header class="page-header">
       <div>
         <h1 class="page-title"><FluentIcon :icon="pageIcon" :width="28" />{{ pageTitle }}</h1>
-        <p class="page-meta">{{ prizes.current.name }} · {{ lang === 'en' ? `${displayStock} remaining` : `剩余 ${displayStock} 件` }}</p>
+        <p class="page-meta"><span translate="no">{{ prizes.current.name }}</span> · {{ lang === 'en' ? `${displayStock} remaining` : `剩余 ${displayStock} 件` }}</p>
       </div>
     </header>
 
@@ -14,7 +14,7 @@
             <legend class="sr-only">{{ tr('本轮设置', 'Round settings') }}</legend>
             <label class="prize-list-picker"><span>{{ tr('当前奖品单', 'Prize list') }}</span>
               <select :value="prizes.currentId" @change="selectPrizeList($event)">
-                <option v-for="option in prizeListOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                <option v-for="option in prizeListOptions" :key="option.value" :value="option.value" translate="no">{{ option.label }}</option>
               </select>
             </label>
             <label class="prize-list-picker"><span>{{ tr('每轮件数', 'Items per draw') }}</span>
@@ -38,15 +38,15 @@
                 :busy="settling && !sealedResults" :disabled="!busy && !validRoundCount(drawCount, maxDrawCount)"
                 :english="lang === 'en'" @request="beginDraw" @reveal="revealGame" />
               <div v-if="resultPrize" ref="gameResultRef" class="game-result" data-plugin-component="lottery.result" :style="pluginsStore.componentStyleStyle('lottery.result')">
-                <strong>{{ resultPrize.name }}</strong><small>{{ stageNote }}</small>
+                <strong class="lottery-result-name" translate="no">{{ resultPrize.name }}</strong><small>{{ stageNote }}</small>
               </div>
             </div>
             <div v-else-if="drawStyle === 'roller'" class="roller-experience">
               <div :key="resultNonce" ref="rollerResultRef" class="roller-result"
                 data-plugin-component="lottery.result" :style="pluginsStore.componentStyleStyle('lottery.result')">
                 <span class="stage-emblem" aria-hidden="true"><FluentIcon icon="gift-24-regular" :width="28" /></span>
-                <span class="result-quality">{{ visiblePrize?.quality || stageCaption }}</span>
-                <strong>{{ visiblePrize?.name || (busy ? tr('抽取中', 'Drawing') : tr('准备就绪', 'Ready to draw')) }}</strong>
+                <span class="result-quality lottery-meta-name" :translate="visiblePrize?.quality ? 'no' : null">{{ visiblePrize?.quality || stageCaption }}</span>
+                <strong class="lottery-result-name" :translate="visiblePrize?.name ? 'no' : null">{{ visiblePrize?.name || (busy ? tr('抽取中', 'Drawing') : tr('准备就绪', 'Ready to draw')) }}</strong>
                 <span class="result-stock">{{ stageNote }}</span>
               </div>
             </div>
@@ -61,7 +61,7 @@
               <div :key="resultNonce" ref="wheelResultRef" class="wheel-result"
                 data-plugin-component="lottery.result" :style="pluginsStore.componentStyleStyle('lottery.result')">
                 <span>{{ stageCaption }}</span>
-                <strong>{{ resultPrize?.name || (busy ? tr('抽取中', 'Drawing') : tr('准备就绪', 'Ready to draw')) }}</strong>
+                <strong class="lottery-result-name" :translate="resultPrize?.name ? 'no' : null">{{ resultPrize?.name || (busy ? tr('抽取中', 'Drawing') : tr('准备就绪', 'Ready to draw')) }}</strong>
                 <small>{{ stageNote }}</small>
               </div>
             </div>
@@ -79,10 +79,10 @@
             <small v-else-if="!isGame && (prizes.totalStock || busy)" class="draw-shortcut">{{ tr('空格键开始或揭晓', 'Space to start or reveal') }}</small>
           </div>
         </section>
-        <div class="sr-only" role="status">{{ liveAnnouncement }}</div>
+        <div class="sr-only" role="status" :translate="roundResults.length === 1 ? 'no' : null">{{ liveAnnouncement }}</div>
         <section v-if="roundResults.length > 1" class="round-results">
           <header><h2>{{ tr('本轮结果', 'Round results') }}</h2><span>{{ tr(`共 ${roundResults.length} 件`, `${roundResults.length} items`) }}</span></header>
-          <ol><li v-for="(item, index) in roundResults" :key="index"><span>{{ String(index + 1).padStart(2, '0') }}</span><strong>{{ item.name }}</strong><small>{{ item.quality }}</small></li></ol>
+          <ol><li v-for="(item, index) in roundResults" :key="index"><span>{{ String(index + 1).padStart(2, '0') }}</span><strong class="round-result-name" translate="no">{{ item.name }}</strong><small translate="no">{{ item.quality }}</small></li></ol>
         </section>
       </div>
       <PrizePoolPanel :key="prizes.currentId" :segments="visibleSegments" :en="lang === 'en'" />
@@ -92,8 +92,8 @@
       <div class="assignment-page">
         <FluentCard class="assignment-tool">
           <fieldset class="assignment-controls" :disabled="assigning" :inert="assigning">
-            <label><span>{{ lang === 'en' ? 'Prize list' : '奖品单' }}</span><FluentSelect :model-value="prizes.currentId" :options="prizeListOptions" @update:model-value="onPrizeListSwitch" /></label>
-            <label><span>{{ lang === 'en' ? 'People list' : '人员名单' }}</span><FluentSelect :model-value="names.currentListId" :options="peopleListOptions" @update:model-value="names.switchList" /></label>
+            <label><span>{{ lang === 'en' ? 'Prize list' : '奖品单' }}</span><I18nDataSelect :model-value="prizes.currentId" :options="prizeListOptions" @update:model-value="onPrizeListSwitch" /></label>
+            <label><span>{{ lang === 'en' ? 'People list' : '人员名单' }}</span><I18nDataSelect :model-value="names.currentListId" :options="peopleListOptions" @update:model-value="names.switchList" /></label>
             <label><span>{{ lang === 'en' ? 'Assignments' : '分配人数' }}</span><FluentInput v-model="assignmentCount" type="number" :min="1" :max="maxAssignmentCount" /></label>
           </fieldset>
           <div class="capacity-row">
@@ -122,7 +122,7 @@
         <div class="prize-page-toolbar">
           <div class="current-list-control">
             <span>{{ lang === 'en' ? 'Current prize list' : '当前奖品单' }}</span>
-            <FluentSelect :model-value="prizes.currentId" :options="prizeListOptions" @update:model-value="onPrizeListSwitch" />
+            <I18nDataSelect :model-value="prizes.currentId" :options="prizeListOptions" @update:model-value="onPrizeListSwitch" />
           </div>
           <FluentButton variant="secondary" @click="router.push('/lottery/prizes/manage')"><FluentIcon icon="settings-16-regular" :width="16" />{{ lang === 'en' ? 'Manage prize lists' : '管理奖品单' }}</FluentButton>
         </div>
@@ -139,7 +139,7 @@
         </FluentCard>
 
         <section class="prize-table">
-          <div class="prize-table-title"><h2>{{ prizes.current.name }}</h2><span>{{ prizes.current.prizes.length }} {{ lang === 'en' ? 'prizes' : '项奖品' }}</span></div>
+          <div class="prize-table-title"><h2 class="prize-table-name">{{ prizes.current.name }}</h2><span>{{ prizes.current.prizes.length }} {{ lang === 'en' ? 'prizes' : '项奖品' }}</span></div>
           <div class="prize-table-header"><span>{{ lang === 'en' ? 'Prize' : '奖品' }}</span><span>{{ lang === 'en' ? 'Quality' : '品质' }}</span><span>{{ lang === 'en' ? 'Stock' : '库存' }}</span><span>{{ lang === 'en' ? 'Weight' : '权重' }}</span><span></span></div>
           <div v-for="prize in prizes.current.prizes" :key="prize.id" class="prize-row">
             <template v-if="editingPrizeId === prize.id">
@@ -150,8 +150,8 @@
               <div class="row-actions"><FluentButton variant="primary" size="sm" icon-only title="保存" @click="savePrize(prize.id)"><FluentIcon icon="checkmark-16-regular" :width="15" /></FluentButton><FluentButton variant="subtle" size="sm" icon-only title="取消" @click="editingPrizeId = ''"><FluentIcon icon="dismiss-16-regular" :width="15" /></FluentButton></div>
             </template>
             <template v-else>
-              <div><strong>{{ prize.name }}</strong><small>{{ prize.id }}</small></div>
-              <span class="quality-badge">{{ prize.quality }}</span>
+              <div class="prize-row-name"><strong>{{ prize.name }}</strong><small>{{ prize.id }}</small></div>
+              <span class="quality-badge" translate="no">{{ prize.quality }}</span>
               <span>{{ prize.quantity }}</span>
               <span>{{ prize.weight }}</span>
               <div class="row-actions"><FluentButton variant="subtle" size="sm" icon-only title="编辑奖品" @click="startEditPrize(prize)"><FluentIcon icon="edit-16-regular" :width="15" /></FluentButton><FluentButton variant="subtle" size="sm" icon-only title="删除奖品" @click="confirmDeletePrize(prize)"><FluentIcon icon="delete-16-regular" :width="15" /></FluentButton></div>
@@ -163,13 +163,14 @@
     </template>
 
     <FluentModal v-model="showDeletePrize" :title="lang === 'en' ? 'Delete prize' : '删除奖品'">
-      <p>{{ lang === 'en' ? `Delete ${deletingPrize?.name}?` : `确定删除「${deletingPrize?.name}」吗？` }}</p>
+      <p>{{ lang === 'en' ? 'Delete this prize?' : '确定删除这个奖品吗？' }} <strong translate="no">{{ deletingPrize?.name }}</strong></p>
       <template #footer><FluentButton variant="secondary" @click="showDeletePrize = false">{{ lang === 'en' ? 'Cancel' : '取消' }}</FluentButton><FluentButton variant="danger" @click="deletePrize">{{ lang === 'en' ? 'Delete' : '删除' }}</FluentButton></template>
     </FluentModal>
   </div>
 </template>
 
 <script setup>
+import I18nDataSelect from '../components/I18nDataSelect.vue'
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePrizesStore } from '../stores/prizes'

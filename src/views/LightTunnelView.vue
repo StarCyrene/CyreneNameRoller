@@ -1,5 +1,5 @@
 <template>
-  <ClassroomSheet :title="tr('光轨穿梭','Light Tunnel')" :locked="locked"
+  <ClassroomSheet class="tunnel-sheet" :title="tr('光轨穿梭','Light Tunnel')" :locked="locked"
     :description="tr('选好人数，让名字沿光轨抵达。每轮不重复，可以一起揭晓，也可以一个个看。','Choose how many names to draw without replacement. Reveal them together or one by one.')">
     <div class="tunnel" :class="{transit:flying}">
       <svg viewBox="0 0 700 240" preserveAspectRatio="none" aria-hidden="true">
@@ -18,7 +18,7 @@
       </div>
       <div class="tunnel-display" :class="{ arrived: arrival > 0 }" role="status" aria-live="polite" aria-atomic="true">
         <span>{{ flying ? tr('光轨穿行中','In transit') : round ? tr('已经抵达','Arrived') : tr('等待出发','Ready to launch') }}</span>
-        <strong :key="arrival">{{ flying ? '···' : round ? headline : tr('下一站，是谁？','Who arrives next?') }}</strong>
+        <strong class="tunnel-headline" :key="arrival" :translate="round && !flying ? 'no' : null">{{ flying ? '···' : round ? headline : tr('下一站，是谁？','Who arrives next?') }}</strong>
         <small v-if="round && !flying">{{ round.shown }} / {{ round.results.length }}</small>
       </div>
     </div>
@@ -103,7 +103,31 @@ onBeforeUnmount(()=>{stopFlight();document.removeEventListener('visibilitychange
 async function copy(){try{await navigator.clipboard.writeText(summary.value);copied.value=true}catch{manualCopy.value=true;await nextTick();copyBox.value?.select()}}
 </script>
 <style scoped>
-.tunnel{--track:color-mix(in srgb,var(--accent) 58%,#5499bd);position:relative;isolation:isolate;overflow:hidden;display:grid;place-items:center;text-align:center;min-height:clamp(180px,30vh,290px);border:1px solid var(--border-strong);border-radius:var(--radius-xl);background:radial-gradient(ellipse at 50% 55%,var(--bg-card-solid) 13%,transparent 66%),linear-gradient(120deg,color-mix(in srgb,var(--accent) 13%,var(--bg-card-solid)),color-mix(in srgb,var(--track) 18%,var(--bg-card-solid)))}
+.tunnel-sheet.classroom-sheet {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(12px, 2.7cqh, 24px);
+  padding: clamp(14px, 2.6cqw, 38px);
+}
+.tunnel {
+  --track: color-mix(in srgb, var(--accent) 58%, #5499bd);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  flex: 1 0 auto;
+  min-height: clamp(180px, 47cqh, 430px);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xl);
+  background: radial-gradient(ellipse at 50% 55%, var(--bg-card-solid) 13%, transparent 66%), linear-gradient(120deg, color-mix(in srgb, var(--accent) 13%, var(--bg-card-solid)), color-mix(in srgb, var(--track) 18%, var(--bg-card-solid)));
+}
+.tunnel-controls.classroom-panel { padding: clamp(12px, 1.7cqw, 23px); }
+.tunnel-sheet :deep(.classroom-head) > div { min-width: 0; }
 .tunnel svg{position:absolute;inset:0;width:100%;height:100%;z-index:-1;fill:none;stroke:var(--track);stroke-linejoin:round}.rails{opacity:.34}.gate{opacity:.50;stroke-width:1.6;vector-effect:non-scaling-stroke;transform-origin:0 0}.signal-dots{fill:var(--track);stroke:none}.tunnel-mark{position:absolute;left:14px;bottom:10px;display:flex;align-items:center;gap:3px;font:600 9px/1.2 var(--font-ui);letter-spacing:.14em;color:var(--text-secondary)}.tunnel-mark i{width:3px;height:7px;transform:skewX(-18deg);background:var(--track)}.tunnel-mark i:first-child{margin-left:4px}
 .transit .rails path{stroke-dasharray:18 120;animation:rail-flow 1.1s linear infinite}
 .transit .gate{animation:jump-gate 1.5s cubic-bezier(.18,.62,.2,1) both}
@@ -115,10 +139,17 @@ async function copy(){try{await navigator.clipboard.writeText(summary.value);cop
 @keyframes warp-streak{0%{opacity:0;transform:rotate(var(--angle)) translateX(0) scaleX(.18)}24%{opacity:.95}100%{opacity:0;transform:rotate(var(--angle)) translateX(46vw) scaleX(2.8)}}
 .tunnel-display{background:var(--bg-card-solid);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:13px clamp(12px,2.5vw,32px);max-width:82%;display:grid;gap:4px;box-shadow:var(--shadow-2);transition:box-shadow .3s,border-color .3s}
 .transit .tunnel-display{border-color:color-mix(in srgb,var(--track) 42%,var(--border-default));box-shadow:0 0 0 1px color-mix(in srgb,var(--track) 24%,transparent),0 0 48px color-mix(in srgb,var(--track) 30%,transparent)}
-.tunnel-display span,.tunnel-display small{color:var(--text-secondary);font-size:12px;font-weight:500}.tunnel-display strong{font:700 clamp(23px,4vw,48px)/1.2 var(--font-display);overflow-wrap:anywhere}
+.tunnel-display span,.tunnel-display small{color:var(--text-secondary);font-size:12px;font-weight:500}.tunnel-display strong{font:700 clamp(23px,4cqw,56px)/1.2 var(--font-display);overflow-wrap:anywhere}
 .tunnel-display.arrived strong{animation:arrival-pop .62s cubic-bezier(.2,1.35,.4,1) both}
 .tunnel-controls{display:grid;gap:12px}.tunnel-copy{max-width:100%;width:100%}.arrivals{list-style:none;padding:0;margin:12px 0 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(155px,100%),1fr));gap:8px}.arrivals li{display:flex;align-items:center;gap:10px;background:var(--bg-card-solid);border:1px solid var(--border-default);border-radius:var(--radius-md);color:inherit;padding:9px 12px;font-weight:600;overflow-wrap:anywhere}.arrivals span{color:var(--text-secondary);font-variant-numeric:tabular-nums;font-size:12px}.classroom-actions h2{margin:0}
 @keyframes jump-gate{0%{transform:scale(.62);opacity:0}38%{opacity:.78}74%{opacity:.34}100%{transform:scale(1.72);opacity:0}}
 @keyframes arrival-pop{0%{opacity:0;transform:translateY(12px) scale(.84);filter:blur(7px)}55%{opacity:1;transform:translateY(0) scale(1.06);filter:blur(0)}100%{transform:none;filter:none}}
+@container roller-panel (max-width: 560px) {
+  .tunnel { min-height: clamp(150px, 36cqh, 315px); }
+}
+@container roller-panel (max-height: 420px) {
+  .tunnel-sheet.classroom-sheet { padding-block: 12px; gap: 12px; }
+  .tunnel { min-height: clamp(132px, 36cqh, 176px); }
+}
 @media(prefers-reduced-motion:reduce){.transit .gate,.flybys span,.transit .rails path,.transit .warp-streaks i,.tunnel-display.arrived strong,.tunnel-display{animation:none;transition:none}.flybys,.warp-streaks{display:none}}:global(.perf-no-anim) .transit .gate,:global(.perf-no-anim) .transit .rails path,:global(.perf-no-anim) .transit .warp-streaks i,:global(.perf-no-anim) .tunnel-display.arrived strong{animation:none}:global(.perf-no-anim) .flybys,:global(.perf-no-anim) .warp-streaks{display:none}
 </style>

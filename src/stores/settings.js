@@ -12,12 +12,14 @@ import {
   normalizeFloatingWindowTextColor
 } from '../utils/floatingWindowText'
 import { normalizeAutoStopDuration } from '../utils/autoStop.mjs'
+import { normalizeSettingsLocale, selectInterfaceLanguage } from '../utils/settingsLocale.mjs'
 
 const DEFAULT_SETTINGS = {
   recordCounts: true,
   rainbowNames: true,
   englishMode: false,
   language: 'zh',
+  extraLanguage: '',
   groupMode: false,
   multiMode: false,
   peopleCount: 2,
@@ -76,7 +78,7 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       const saved = await dataBridge.load('settings')
       if (saved && typeof saved === 'object') {
-        settings.value = { ...DEFAULT_SETTINGS, ...saved }
+        settings.value = { ...DEFAULT_SETTINGS, ...saved, ...normalizeSettingsLocale(saved) }
         settings.value.newMemberCountMode = settings.value.newMemberCountMode === 'zero' ? 'zero' : 'midpoint'
         settings.value.floatingWindowStyle = normalizeFloatingWindowStyle(settings.value.floatingWindowStyle)
         settings.value.floatingWindowOpacity = normalizeFloatingWindowOpacity(settings.value.floatingWindowOpacity)
@@ -116,6 +118,13 @@ export const useSettingsStore = defineStore('settings', () => {
     return saving
   }
 
+  function setInterfaceLanguage(value) {
+    const locale = selectInterfaceLanguage(settings.value, value)
+    if (!locale) return
+    Object.assign(settings.value, locale)
+    return save()
+  }
+
   function toggleDarkMode() {
     darkMode.value = !darkMode.value
     settings.value.darkMode = darkMode.value
@@ -147,6 +156,7 @@ export const useSettingsStore = defineStore('settings', () => {
     initialize,
     save,
     update,
+    setInterfaceLanguage,
     toggleDarkMode
   }
 })

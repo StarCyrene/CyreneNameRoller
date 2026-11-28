@@ -55,7 +55,7 @@
           <span class="banner-icon" v-if="b.icon">
             <FluentIcon :icon="b.icon" :width="16" />
           </span>
-          <span class="banner-text">{{ b.message }}</span>
+          <span class="banner-text" :translate="b.privateMessage ? 'no' : null">{{ b.message }}<span v-if="b.privateDetail" translate="no">: {{ b.privateDetail }}</span></span>
           <span v-if="b.type === 'download'" class="banner-progress-num">{{ b.progress }}%</span>
           <button v-if="b.undoAction" class="banner-undo" @click="b.undoAction(); dismissBanner(b.id)">
             <FluentIcon icon="arrow-undo-16-regular" :width="12" /> {{ lang === 'en' ? 'Undo' : '撤销' }}
@@ -134,6 +134,7 @@ import FullscreenToggle from '../FullscreenToggle.vue'
 import PluginVisualLayers from '../plugins/PluginVisualLayers.vue'
 import { useSettingsStore } from '../../stores/settings'
 import { useNamesStore } from '../../stores/names'
+import { createAutoTranslateRuntime, setActiveAutoTranslateRuntime } from '../../utils/i18nAuto'
 import { useStatisticsStore } from '../../stores/statistics'
 import { useRecordsStore } from '../../stores/records'
 import { usePrizesStore } from '../../stores/prizes'
@@ -173,6 +174,29 @@ const globalAnimationSurfaceRef = ref(null)
 
 const lang = computed(() => settingsStore.settings.language)
 const systemAccent = ref(DEFAULT_ACCENT)
+let autoTranslateStarted = false
+let autoTranslateErrorShown = false
+const autoTranslate = createAutoTranslateRuntime({
+  onError: () => {
+    if (autoTranslateErrorShown) return
+    autoTranslateErrorShown = true
+    showBanner({
+      message: settingsStore.settings.language === 'en'
+        ? 'Additional language could not start. The interface stays in its native language.'
+        : '额外语言未能启动，界面将保持原生语言。',
+      icon: 'warning-16-regular',
+      type: 'warning',
+      duration: 9000,
+      dismissible: true
+    })
+  }
+})
+setActiveAutoTranslateRuntime(autoTranslate)
+async function syncExtraLanguage() {
+  if (!autoTranslateStarted) return
+  await autoTranslate.sync(settingsStore.settings.extraLanguage, settingsStore.settings.language)
+}
+watch(() => `${settingsStore.settings.extraLanguage}|${settingsStore.settings.language}`, syncExtraLanguage)
 const reducedMotionQuery = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
   ? window.matchMedia('(prefers-reduced-motion: reduce)')
   : null
@@ -257,19 +281,20 @@ function onPluginMessage(event) {
 
 function onBeforeWindowUnload() {
   pluginsStore.markCleanShutdown()
+  autoTranslate.flush()
 }
 
 // Banner notification system
 const banners = ref([])
 let bannerIdCounter = 0
 
-function showBanner({ message, icon = 'info-16-regular', type = 'info', duration = 8000, dismissible = false, progress = 0, undoAction = null, action = null, actionLabel = '', actionIcon = '' }) {
-  const existing = banners.value.find(b => b.message === message)
+function showBanner({ message, privateMessage = false, privateDetail = '', icon = 'info-16-regular', type = 'info', duration = 8000, dismissible = false, progress = 0, undoAction = null, action = null, actionLabel = '', actionIcon = '' }) {
+  const existing = banners.value.find(b => b.message === message && b.privateDetail === privateDetail)
   if (existing) return { id: existing.id, update(opts) { Object.assign(existing, opts) }, dismiss() { dismissBanner(existing.id) } }
 
   const id = ++bannerIdCounter
   const banner = reactive({
-    id, message, icon, type, dismissible, progress, undoAction, action, actionLabel, actionIcon,
+    id, message, privateMessage, privateDetail, icon, type, dismissible, progress, undoAction, action, actionLabel, actionIcon,
     hovered: false, duration,
     _timer: null, _remaining: duration, _startTime: Date.now()
   })
@@ -467,13 +492,13 @@ async function routeSmartImport(fileName, bytes) {
     const imported = namesStore.importList(parsed.list)
     if (!imported) throw new Error(lang.value === 'en' ? 'Invalid people list' : '人员名单格式无效')
     await router.push('/lists')
-    showBanner({ message: `${lang.value === 'en' ? 'People list imported' : '人员名单已导入'}：${imported.name}`, icon: 'checkmark-circle-16-regular', type: 'success', duration: 6000 })
+    showBanner({ message: lang.value === 'en' ? 'People list imported' : '人员名单已导入', privateDetail: imported.name, icon: 'checkmark-circle-16-regular', type: 'success', duration: 6000 })
     return
   }
   const result = prizesStore.importList(parsed.list)
   if (!result?.success) throw new Error(result?.error || (lang.value === 'en' ? 'Invalid prize list' : '奖品单格式无效'))
   await router.push('/lottery/prizes/manage')
-  showBanner({ message: `${lang.value === 'en' ? 'Prize list imported' : '奖品单已导入'}：${result.list.name}`, icon: 'checkmark-circle-16-regular', type: 'success', duration: 6000 })
+  showBanner({ message: lang.value === 'en' ? 'Prize list imported' : '奖品单已导入', privateDetail: result.list.name, icon: 'checkmark-circle-16-regular', type: 'success', duration: 6000 })
 }
 
 async function processBrowserFiles(files) {
@@ -483,7 +508,7 @@ async function processBrowserFiles(files) {
     try {
       await routeSmartImport(file.name, new Uint8Array(await file.arrayBuffer()))
     } catch (error) {
-      showBanner({ message: `${file.name}：${error.message || error}`, icon: 'warning-16-regular', type: 'warning', duration: 10000, dismissible: true })
+      showBanner({ message: `${file.name}：${error.message || error}`, privateMessage: true, icon: 'warning-16-regular', type: 'warning', duration: 10000, dismissible: true })
     }
   }
 }
@@ -500,7 +525,7 @@ async function processTauriPaths(paths) {
       await routeSmartImport(file.name, bytes)
     } catch (error) {
       const fileName = String(path).split(/[\\/]/).pop() || String(path)
-      showBanner({ message: `${fileName}：${error.message || error}`, icon: 'warning-16-regular', type: 'warning', duration: 10000, dismissible: true })
+      showBanner({ message: `${fileName}：${error.message || error}`, privateMessage: true, icon: 'warning-16-regular', type: 'warning', duration: 10000, dismissible: true })
     }
   }
 }
@@ -811,6 +836,7 @@ const removeAfterRouteHook = router.afterEach((to, from, failure) => {
       const content = document.querySelector('.app-content')
       if (content) content.scrollTop = 0
     }
+    autoTranslate.refresh(420)
   })
 })
 
@@ -837,6 +863,8 @@ onMounted(async () => {
   pluginsStore.configureSafeMode(safeModeStatus)
   await pluginsStore.initialize()
   pluginsStore.setBannerHandler(showBanner)
+  autoTranslateStarted = true
+  void syncExtraLanguage()
   if (safeModeStatus.enabled || safeModeStatus.errorCode) {
     showBanner({
       message: safeModeStatus.enabled
@@ -870,6 +898,7 @@ onBeforeUnmount(() => {
   removeRouteGhost()
   removeBeforeRouteGuard()
   removeAfterRouteHook()
+  autoTranslate.dispose()
   pluginsStore.markCleanShutdown()
   pluginsStore.unregisterAnimationSurface('global.transition', globalAnimationSurfaceRef.value)
   cancelAnimationFrame(pluginResizeFrame)
