@@ -14,6 +14,7 @@ import {
 import { normalizeAutoStopDuration } from '../utils/autoStop.mjs'
 import { normalizePointerDrawingSpeed } from '../utils/pointerDrawingPreferences.mjs'
 import { normalizeSettingsLocale, selectInterfaceLanguage } from '../utils/settingsLocale.mjs'
+import { normalizeTtsSettings } from '../utils/tts/preferences'
 
 const DEFAULT_SETTINGS = {
   recordCounts: true,
@@ -71,7 +72,26 @@ const DEFAULT_SETTINGS = {
   autoStartMode: 'registry',
   autoStartToTray: false,
   uriSchemeEnabled: false,
-  newMemberCountMode: 'midpoint'
+  newMemberCountMode: 'midpoint',
+  ttsEnabled: false,
+  ttsProvider: 'edge',
+  ttsTemplate: '请 {names}',
+  ttsRate: 0,
+  ttsVolume: 100,
+  ttsEdgeVoice: 'zh-CN-XiaoxiaoNeural',
+  ttsQwenApiKey: '',
+  ttsQwenModel: 'qwen3-tts-flash',
+  ttsQwenVoice: 'Cherry',
+  ttsQwenCustomVoice: '',
+  ttsCosyApiKey: '',
+  ttsCosyModel: 'cosyvoice-v2',
+  ttsCosyVoice: 'longxiaochun_v2',
+  ttsCosyCustomVoice: '',
+  ttsCosyBaseUrl: 'https://dashscope.aliyuncs.com',
+  ttsMimoApiKey: '',
+  ttsMimoMode: 'preset',
+  ttsMimoVoice: 'mimo_default',
+  ttsMimoStyle: ''
 }
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -95,6 +115,7 @@ export const useSettingsStore = defineStore('settings', () => {
         settings.value.autoStopDuration = normalizeAutoStopDuration(settings.value.autoStopDuration)
         settings.value.pointerDrawingSpeed = normalizePointerDrawingSpeed(settings.value.pointerDrawingSpeed)
         settings.value.pointerHideWorkerPointers = settings.value.pointerHideWorkerPointers === true
+        Object.assign(settings.value, normalizeTtsSettings(settings.value))
         darkMode.value = !!saved.darkMode
 
         if (!saved.uiScaleVersion || saved.uiScaleVersion < 2) {

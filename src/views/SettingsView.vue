@@ -504,6 +504,9 @@
       </Transition>
     </FluentCard>
 
+    <!-- 语音播报 -->
+    <TtsSettingsPanel v-if="section === 'tts'" />
+
     <!-- 更新日志 -->
     <FluentCard v-if="section === 'data'" class="settings-section">
       <h3 class="section-title"><FluentIcon icon="list-24-regular" :width="20" /> {{ t('changelog', lang) }}</h3>
@@ -711,6 +714,7 @@ import {
 import { normalizeAutoStopDuration } from '../utils/autoStop.mjs'
 import { isWindowsTauri } from '../utils/desktopRuntime.js'
 import FloatingImageCropper from '../components/FloatingImageCropper.vue'
+import TtsSettingsPanel from '../components/settings/TtsSettingsPanel.vue'
 
 defineProps({
   section: { type: String, default: 'general' }

@@ -14,6 +14,7 @@ import { tauriAPI } from './utils/tauriAPI'
 import { getDesktopPlatform } from './utils/desktopRuntime'
 import { dispatchUriNavigation, parseCyreneUri, parseWebHash } from './utils/uriNavigation'
 import { usePluginsStore } from './plugins/store'
+import { installTtsAnnouncer } from './utils/tts/announcer'
 
 const settingsStore = useSettingsStore()
 const pluginsStore = usePluginsStore()
@@ -77,6 +78,7 @@ onMounted(async () => {
   if (typeof window !== 'undefined' && window.__CYRENE_SAFE_MODE__) pluginsStore.configureSafeMode(window.__CYRENE_SAFE_MODE__)
   await nextTick()
   if (isFloatingRoute.value) return
+  installTtsAnnouncer()
   if (getDesktopPlatform().desktop) {
     const initialUriPending = await listenForMainWindowShow()
     if (initialUriPending) return

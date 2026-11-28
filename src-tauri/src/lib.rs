@@ -2772,6 +2772,96 @@ async fn fetch_plugin_bytes(urls: Vec<String>) -> Result<serde_json::Value, Stri
     Err(format!("插件包获取失败：{}", failures.join("；")))
 }
 
+// 语音播报：各家 TTS 服务都在浏览器侧发起请求，WebView 会被 CORS 拦下，这里统一转发。
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TtsHttpRequest {
+    url: String,
+    #[serde(default)]
+    method: String,
+    #[serde(default)]
+    headers: HashMap<String, String>,
+    #[serde(default)]
+    body: Option<String>,
+    #[serde(default)]
+    body_base64: Option<String>,
+    #[serde(default)]
+    timeout_ms: Option<u64>,
+}
+
+#[tauri::command]
+async fn tts_http_request(request: TtsHttpRequest) -> Result<Value, String> {
+    let parsed = reqwest::Url::parse(&request.url).map_err(|error| format!("语音服务地址无效：{}", error))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("语音服务只允许 http/https 地址".into());
+    }
+    let timeout_ms = request.timeout_ms.unwrap_or(20000).clamp(3000, 120000);
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(timeout_ms))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let method_name = if request.method.is_empty() {
+        "GET".to_string()
+    } else {
+        request.method.to_ascii_uppercase()
+    };
+    let method = reqwest::Method::from_bytes(method_name.as_bytes())
+        .map_err(|_| format!("不支持的请求方法：{}", method_name))?;
+    let mut builder = client.request(method, parsed);
+    for (key, value) in request.headers {
+        if key.is_empty() || key.len() > 64 || value.len() > 8192 {
+            continue;
+        }
+        let header_name = reqwest::header::HeaderName::from_bytes(key.as_bytes())
+            .map_err(|_| format!("请求头名称无效：{}", key))?;
+        let header_value = reqwest::header::HeaderValue::from_str(&value)
+            .map_err(|_| format!("请求头内容无效：{}", key))?;
+        builder = builder.header(header_name, header_value);
+    }
+    if let Some(encoded) = request.body_base64.as_ref() {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded.as_bytes())
+            .map_err(|error| format!("请求体解码失败：{}", error))?;
+        builder = builder.body(bytes);
+    } else if let Some(body) = request.body.as_ref() {
+        builder = builder.body(body.clone());
+    }
+    let response = builder
+        .send()
+        .await
+        .map_err(|error| format!("语音服务请求失败：{}", error))?;
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| format!("语音服务响应读取失败：{}", error))?;
+    if bytes.len() > 32 * 1024 * 1024 {
+        return Err("语音服务响应超过 32 MB".into());
+    }
+    let is_text = content_type.contains("json")
+        || content_type.starts_with("text/")
+        || content_type.contains("xml");
+    let mut payload = json!({
+        "status": status.as_u16(),
+        "ok": status.is_success(),
+        "contentType": content_type,
+        "size": bytes.len()
+    });
+    if is_text {
+        payload["text"] = json!(String::from_utf8_lossy(&bytes).to_string());
+    } else {
+        payload["base64"] = json!(base64::engine::general_purpose::STANDARD.encode(&bytes));
+    }
+    Ok(payload)
+}
+
 fn open_plugin_file(path: &Path, write: bool) -> Result<fs::File, String> {
     let mut options = OpenOptions::new();
     options.read(!write).write(write).truncate(write);
@@ -4154,6 +4244,7 @@ pub fn run() {
             plugin_select_directory,
             plugin_execute_operation,
             fetch_plugin_bytes,
+            tts_http_request,
             read_dropped_file,
             load_names,
             load_changelog,
