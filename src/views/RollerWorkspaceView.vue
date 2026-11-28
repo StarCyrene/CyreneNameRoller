@@ -30,7 +30,11 @@
           aria-hidden="true" @update:value="scrollToolsTo"
         />
       </div>
-      <div :ref="attachVersionHost" class="tool-version-host" />
+      <div class="tool-footer-meta">
+        <FluentToggle v-if="englishControlVisible" class="english-mode-toggle" data-plugin-component="roller.filter.english-mode"
+          :model-value="englishMode" label="English Mode" @update:model-value="setEnglishMode" />
+        <div :ref="attachVersionHost" class="tool-version-host" />
+      </div>
     </footer>
     <div ref="panel" id="roller-tool-panel" class="tool-panel" role="tabpanel" tabindex="0" :aria-labelledby="'roller-tab-' + route.name">
       <RouterView v-slot="{ Component }">
@@ -43,15 +47,26 @@
 </template>
 
 <script setup>
-import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSettingsStore } from '../stores/settings'
+import { usePluginsStore } from '../plugins/store'
 import { rollerTools } from '../router/rollerTools'
 
 const route = useRoute()
 const settings = useSettingsStore()
+const plugins = usePluginsStore()
 const lang = computed(() => settings.settings.language === 'en' ? 'en' : 'zh')
 const toolLabel = computed(() => lang.value === 'en' ? 'Roll call tools' : '点名工具')
+const uriEnglishMode = ref(null)
+provide('rollCallUriEnglishMode', uriEnglishMode)
+const englishMode = computed(() => (route.name === 'Roller' ? uriEnglishMode.value : null) ?? settings.settings.englishMode)
+const englishControlVisible = computed(() => plugins.componentOverrideState('roller.filter.english-mode').visibility !== 'hidden')
+watch(() => route.name, () => { uriEnglishMode.value = null }, { flush: 'sync' })
+function setEnglishMode(value) {
+  uriEnglishMode.value = null
+  settings.update('englishMode', value)
+}
 const pivot = ref(null)
 const stripShell = ref(null)
 const overflow = ref(false)
@@ -226,6 +241,13 @@ function onTabKey(event) {
 .tool-swap-leave-to { opacity: 0; transform: translateY(-5px) scale(.997); }
 @media (prefers-reduced-motion: reduce) { .tool-swap-enter-active, .tool-swap-leave-active { transition: none; } }
 :global(.perf-no-anim) .tool-swap-enter-active, :global(.perf-no-anim) .tool-swap-leave-active { transition: none; }
+.tool-footer-meta { display: flex; flex-shrink: 0; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.tool-footer-meta:not(:has(.english-mode-toggle, .tool-version-host:not(:empty))) { display: none; }
+.english-mode-toggle { min-height: 34px; min-width: 0; padding-inline: 8px; border-radius: var(--radius-md); }
+.english-mode-toggle:hover { background: var(--bg-hover); }
+.english-mode-toggle:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.english-mode-toggle :deep(.toggle-label) { overflow-wrap: anywhere; }
+.english-mode-toggle :deep(.toggle-track) { flex-shrink: 0; }
 .tool-version-host { display: flex; align-items: center; justify-content: flex-end; min-width: 0; max-width: 100%; }
 .tool-version-host:empty { display: none; }
 .compact-label { display: none; }
@@ -235,9 +257,13 @@ function onTabKey(event) {
 @container roller-workspace (max-width: 970px) {
   .tool-bar { flex-wrap: wrap; gap: 0; }
   .tool-strip-shell { flex: 1 0 100%; }
+  .tool-footer-meta { flex: 1 1 100%; justify-content: space-between; }
   .tool-version-host { margin-left: auto; }
   .tool-tab { gap: 4px; }
   .full-label { display: none; }
   .compact-label { display: inline; }
+}
+@media (pointer: coarse) {
+  .english-mode-toggle { min-height: 44px; }
 }
 </style>

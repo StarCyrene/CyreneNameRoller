@@ -1,6 +1,6 @@
 import { ALGORITHM_NAME, ALGORITHM_VERSION, normalizeCyreneBalanceSettings, personKey, pickCyreneBatch, secureRandom } from '../../utils/cyrene-balance.js'
 import { CORE_DRAW_SOURCES } from '../../utils/recordSources.mjs'
-import { normalizeCoreCaller, normalizeCoreCardInput, normalizeCoreDrawInput, normalizeCoreMaintenanceInput, normalizeCorePrizeInput } from '../protocol.js'
+import { normalizeCoreCaller, normalizeCoreCardInput, normalizeCoreDrawInput, normalizeCoreMaintenanceInput, normalizeCorePrizeInput, validateSeatDraw } from '../protocol.js'
 
 function coreError(code, message) { return Object.assign(new Error(message), { code }) }
 
@@ -38,9 +38,10 @@ export function executePrizeRequest({ operation, input, state, caller }) {
   return { receipt: { kind: operation, operationId: caller.operationId || `prize-${Date.now()}`, pluginId: caller.pluginId, listId: input.listId, count, results, committedAt: Date.now() }, nextPrizes: next }
 }
 
-export function executeCoreDrawRequest({ input: rawInput, caller: rawCaller, state, peopleCache, singleDrawPreviousIds, source }) {
+export function executeCoreDrawRequest({ input: rawInput, caller: rawCaller, state, peopleCache, singleDrawPreviousIds, seatAbsentIds, source }) {
   const input = normalizeCoreDrawInput(rawInput)
   const caller = normalizeCoreCaller(rawCaller)
+  validateSeatDraw({ caller, input, source, seatAbsentIds, singleDrawPreviousIds })
   if (singleDrawPreviousIds !== undefined && (caller.kind !== 'core-ui' || input.target !== 'people' || input.count !== 1 ||
     !Array.isArray(singleDrawPreviousIds) || singleDrawPreviousIds.length > 10000 || singleDrawPreviousIds.some(id => typeof id !== 'string' || !id))) {
     throw coreError('CORE_TRANSACTION_REJECTED', 'Invalid single-person draw')
@@ -76,7 +77,7 @@ export function executeCoreDrawRequest({ input: rawInput, caller: rawCaller, sta
       eligible = { people, whiteList: people.filter(person => person.isWhiteList) }
       peopleCache?.set(cacheKey, eligible)
     }
-    const previous = new Set(singleDrawPreviousIds)
+    const previous = new Set(seatAbsentIds ?? singleDrawPreviousIds)
     const people = previous.size ? eligible.people.filter(person => !previous.has(person.id)) : eligible.people
     const { whiteList } = eligible
     if (!people.length) throw coreError('CORE_TRANSACTION_REJECTED', '所选名单没有符合条件的人员')

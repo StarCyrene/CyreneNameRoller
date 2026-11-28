@@ -4,3 +4,4 @@
 
 # translate.js 的构建产物按字节做 SHA-256 校验，禁止 Git 转换换行。
 public/vendor/translate.min.js -text
+packages/swarm-cursors-vue/** -text

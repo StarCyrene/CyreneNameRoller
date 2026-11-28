@@ -28,6 +28,7 @@ test('19 个目标都有真实宿主边界和受限样式挂接', async () => {
     'src/components/layout/AppLayout.vue',
     'src/components/layout/NavigationDock.vue',
     'src/views/RollerView.vue',
+    'src/views/RollerWorkspaceView.vue',
     'src/views/CardView.vue',
     'src/views/LotteryView.vue',
     'src/views/StatisticsView.vue'

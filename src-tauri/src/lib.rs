@@ -544,6 +544,8 @@ struct RustDrawRequest {
     #[serde(default)]
     single_draw_previous_ids: Option<Vec<String>>,
     #[serde(default)]
+    seat_absent_ids: Option<Vec<String>>,
+    #[serde(default)]
     source: String,
     input: RustDrawInput,
 }
@@ -610,6 +612,13 @@ fn validate_core_caller(request: &RustDrawRequest) -> Result<(), String> {
     if let Some(previous) = &request.single_draw_previous_ids {
         if request.caller_kind != "core-ui" || request.input.target != "people" || request.input.count != 1 ||
             previous.len() > 10000 || previous.iter().any(String::is_empty) {
+            return Err("CORE_TRANSACTION_REJECTED".into());
+        }
+    }
+    if let Some(absent) = &request.seat_absent_ids {
+        if request.caller_kind != "core-ui" || request.source != "seats" || request.input.target != "people" ||
+            request.input.allow_duplicates || request.single_draw_previous_ids.is_some() ||
+            absent.len() > 10000 || absent.iter().any(String::is_empty) {
             return Err("CORE_TRANSACTION_REJECTED".into());
         }
     }
@@ -773,7 +782,7 @@ fn core_draw_execute(
     } else if let Some(names) = list.get("names").and_then(serde_json::Value::as_array) {
         candidates.extend(names.iter().filter(|person| person["cn"].as_str().is_some_and(|name| !name.is_empty() && name != "再来一次") && (gender == "all" || person["gender"].as_str() == Some(gender))).cloned());
     }
-    if let Some(previous) = &request.single_draw_previous_ids {
+    if let Some(previous) = request.seat_absent_ids.as_ref().or(request.single_draw_previous_ids.as_ref()) {
         let seen: std::collections::HashSet<&str> = previous.iter().map(String::as_str).collect();
         candidates.retain(|person| !person["id"].as_str().is_some_and(|id| seen.contains(id)));
     }
@@ -4450,6 +4459,31 @@ mod tests {
     }
 
     #[test]
+    fn seat_exclusions_allow_batches_only_for_the_host_seat_tool() {
+        let mut request: RustDrawRequest = serde_json::from_value(json!({
+            "grantToken": "test",
+            "principal": "core-ui",
+            "callerKind": "core-ui",
+            "pluginId": "core",
+            "operationId": "seat-batch",
+            "source": "seats",
+            "seatAbsentIds": ["p1"],
+            "input": { "listId": "list-1", "target": "people", "count": 2, "gender": "female" }
+        })).unwrap();
+        assert!(validate_core_caller(&request).is_ok());
+        request.input.allow_duplicates = true;
+        assert!(validate_core_caller(&request).is_err());
+        request.input.allow_duplicates = false;
+        request.source = "tunnel".into();
+        assert!(validate_core_caller(&request).is_err());
+        request.source = "seats".into();
+        request.caller_kind = "plugin".into();
+        request.plugin_id = "cn.example.test".into();
+        request.principal = "plugin:cn.example.test".into();
+        assert!(validate_core_caller(&request).is_err());
+    }
+
+    #[test]
     fn core_principal_is_bound_to_caller_kind_and_plugin_id() {
         assert!(valid_core_principal("core-ui"));
         assert!(valid_core_principal("plugin:cn.example.test"));
@@ -4465,6 +4499,7 @@ mod tests {
             operation_id: "op-1".into(),
             count_statistics: true,
             single_draw_previous_ids: None,
+            seat_absent_ids: None,
             source: String::new(),
             input,
         };

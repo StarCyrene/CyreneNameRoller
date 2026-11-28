@@ -61,7 +61,7 @@ test('page animations never control Vue route lifecycle and use a host-owned vis
     read('src/components/layout/AppLayout.vue'),
     read('src/views/PluginPageView.vue')
   ])
-  assert.match(layout, /<main ref="appContentRef" class="app-content">/)
+  assert.match(layout, /<main ref="appContentRef" class="app-content" data-swarm-pageview>/)
   assert.match(layout, /<div ref="routeStageRef" class="route-page-stage"/)
   assert.match(layout, /\.app-body\s*\{[\s\S]*?min-height:\s*0;/)
   assert.match(layout, /\.app-content\s*\{[\s\S]*?height:\s*100%;[\s\S]*?min-height:\s*0;/)

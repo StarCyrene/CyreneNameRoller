@@ -1,11 +1,16 @@
 // node scripts/ui/roller-footer-smoke.mjs; CHROME_PATH overrides the system Edge binary.
+// Set UI_SMOKE_OUT_DIR to test an existing production build instead of the dev server.
 import assert from 'node:assert/strict'
 import puppeteer from 'puppeteer-core'
-import { createServer } from 'vite'
+import { createServer, preview } from 'vite'
 
-const dev = await createServer({ logLevel: 'error', server: { host: '127.0.0.1', port: 0 }, optimizeDeps: { entries: ['index.html'] } })
-await dev.listen()
-const origin = 'http://127.0.0.1:' + dev.httpServer.address().port
+const buildDir = process.env.UI_SMOKE_OUT_DIR
+const serverOptions = { host: '127.0.0.1', port: 0 }
+const server = buildDir
+  ? await preview({ logLevel: 'error', build: { outDir: buildDir }, preview: serverOptions })
+  : await createServer({ logLevel: 'error', server: serverOptions, optimizeDeps: { entries: ['index.html'] } })
+if (!buildDir) await server.listen()
+const origin = 'http://127.0.0.1:' + server.httpServer.address().port
 let browser
 try {
   browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true })
@@ -17,11 +22,14 @@ try {
   page.on('request', r => /^https?:/.test(r.url()) && !r.url().startsWith(origin + '/') ? r.abort() : r.continue())
   await page.evaluateOnNewDocument(() => {
     if (localStorage.getItem('lists')) return
-    const names = Array.from({ length: 32 }, (_, i) => ({ id: 'p' + i, cn: 'Person ' + i, gender: 'female' }))
+    const names = Array.from({ length: 32 }, (_, i) => ({ id: 'p' + i, cn: 'Person ' + i, en: 'Alias ' + i, gender: 'female' }))
     localStorage.setItem('lists', JSON.stringify({ default: { id: 'default', name: 'Class', names, groups: [] } }))
     localStorage.setItem('settings', JSON.stringify({ language: 'en', disableSplash: true, perfAnimations: false, uiScale: 100, uiScaleVersion: 2 }))
-    localStorage.setItem('cardSettings', JSON.stringify({ cardCount: 26, quickCount: 2 }))
+    localStorage.setItem('cardSettings', JSON.stringify({ cardCount: 26, quickCount: 2, englishMode: true }))
   })
+  const englishToggle = '.tool-footer-meta .english-mode-toggle'
+  const englishInput = englishToggle + ' input'
+  const checked = () => page.$eval(englishInput, input => input.checked)
   const measure = () => page.evaluate(() => {
     const rect = selector => document.querySelector(selector).getBoundingClientRect()
     const bar = rect('.tool-bar'), panel = rect('.tool-panel'), tab = rect('.tool-tab[aria-selected=true]'), badge = rect('.tool-version-host .version-badge')
@@ -46,6 +54,8 @@ try {
     const initial = await measure()
     assert.ok(Math.abs(initial.bottom - initial.height) <= 1 && Math.abs(initial.panelBottom - initial.top) <= 1, JSON.stringify(initial))
     assert.ok(initial.besideDock && initial.panelUsesTop && initial.badgeClear && initial.selectedVisible, JSON.stringify(initial))
+    assert.equal((await page.$$('[data-plugin-component="roller.filter.english-mode"]')).length, 1)
+    assert.equal(await checked(), false)
     assert.ok(await clickable('.start-btn'), 'start button must remain above the tools')
     assert.equal(await page.$eval('.tool-pivot', strip => getComputedStyle(strip).scrollbarWidth), 'none')
     if (viewport.width === 390) {
@@ -108,6 +118,12 @@ try {
     assert.ok((await measure()).selectedVisible)
     assert.equal(await page.$eval('.tool-panel', p => p.scrollTop), 0)
     await page.keyboard.press('Tab')
+    assert.ok(await page.$eval(englishInput, input => input === document.activeElement))
+    await page.keyboard.press('Space')
+    assert.equal(await checked(), true)
+    await page.keyboard.press('Space')
+    assert.equal(await checked(), false)
+    await page.keyboard.press('Tab')
     assert.equal(await page.evaluate(() => document.activeElement.id), 'roller-tool-panel')
     console.log(viewport.width + '×' + viewport.height + ': fixed footer ' + Math.round(after.top) + '–' + Math.round(after.bottom) + '; independent scroll, badge, selected tab and actions clear.')
   }
@@ -117,8 +133,56 @@ try {
   await page.evaluate(() => { location.hash = '/roller/riddle' })
   await page.waitForSelector('.route-page-stage .tool-version-host .version-badge')
   assert.ok((await measure()).badgeClear)
+  await page.setViewport({ width: 1440, height: 850 })
+  await page.goto(origin + '/#/roller/card')
+  await page.waitForSelector('.card-view .card.show')
+  assert.equal(await checked(), false, 'legacy Card-only English mode cannot override the shared control')
+  await page.click('.card-view .card.show')
+  await page.waitForSelector('.card.flipped')
+  const cardText = () => page.$eval('.card.flipped .card-front', e => e.textContent)
+  const records = () => page.evaluate(() => JSON.parse(localStorage.getItem('records') || '[]'))
+  const sourceName = await cardText()
+  assert.match(sourceName, /^Person \d+$/)
+  const expectedAlias = sourceName.replace('Person ', 'Alias ')
+  const cardRecords = await records()
+  assert.equal(cardRecords.length, 1)
+  await page.click(englishToggle)
+  assert.equal(await cardText(), expectedAlias)
+  assert.equal(await page.$eval('.card.flipped', card => card.getAttribute('aria-label').split(' · ')[1]), expectedAlias)
+  assert.equal(await page.$eval('.history-chip', chip => chip.textContent), expectedAlias)
+  assert.deepEqual(await records(), cardRecords, 'switching aliases cannot draw again')
+  await page.reload()
+  await page.waitForSelector('.history-chip')
+  assert.equal(await checked(), true)
+  assert.equal(await page.$eval('.history-chip', chip => chip.textContent), expectedAlias)
+  await page.click(englishToggle)
+  assert.equal(await page.$eval('.history-chip', chip => chip.textContent), sourceName)
+
+  // Force a real app navigation instead of merely editing the hash in place.
+  await page.goto(origin + '/?uri-test#/roller?isEN=1')
+  await page.waitForFunction(() => document.querySelector('.start-btn')?.textContent.trim() === 'Stop')
+  assert.equal(await checked(), true)
+  await page.waitForFunction(() => document.querySelector('.name-text')?.textContent.startsWith('Alias '))
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('settings')).englishMode), false)
+  await page.click('.start-btn')
+  await page.waitForSelector('.display-container .verified-result')
+  const rollerText = () => page.$eval('.display-container .verified-result > span', e => e.textContent)
+  const uriAlias = await rollerText()
+  assert.match(uriAlias, /^Alias \d+$/)
+  const rollerRecords = await records()
+  assert.equal(rollerRecords.length, 2)
+  await page.click(englishToggle)
+  assert.equal(await rollerText(), uriAlias.replace('Alias ', 'Person '))
+  assert.deepEqual(await records(), rollerRecords)
+  await page.click(englishToggle)
+  await page.click('#roller-tab-Card')
+  await page.waitForSelector('.history-chip')
+  assert.equal(await checked(), true)
+  assert.equal(await page.$eval('.history-chip', chip => chip.textContent), expectedAlias)
   assert.deepEqual(errors, [])
+  console.log('One saved English Mode controls Roller and Cards; aliases update without redrawing, and URI overrides stay local.')
 } finally {
   await browser?.close()
-  await dev.close()
+  if (buildDir) await new Promise(resolve => server.httpServer.close(resolve))
+  else await server.close()
 }

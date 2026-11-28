@@ -34,3 +34,29 @@ test('a relay handoff records one fresh identity per press, including two names 
   assert.equal(executeCoreDrawRequest({caller,input,state,peopleCache,singleDrawPreviousIds:[]}).receipt.results.length,1)
   assert.throws(()=>executeCoreDrawRequest({caller:{kind:'plugin',pluginId:'test'},input,state,singleDrawPreviousIds:seen}),{code:'CORE_TRANSACTION_REJECTED'})
 })
+
+test('a seat batch draws present people in the requested scope once under one operation', () => {
+  const roster = [
+    { id: 'present-1', cn: '同名', gender: 'male' },
+    { id: 'present-2', cn: '同名', gender: 'male' },
+    { id: 'absent', cn: '缺席同学', gender: 'male' },
+    { id: 'other', cn: '其他同学', gender: 'female' }
+  ]
+  const state = { names: { lists: { a: { names: roster } } }, statistics: { counts: {}, totalCount: 0 }, records: [] }
+  const caller = { kind: 'core-ui', pluginId: 'core', operationId: 'one-seat-round' }
+  const input = { listId: 'a', target: 'people', count: 5, allowDuplicates: false, gender: 'male' }
+  const request = { caller, input, state, source: 'seats', seatAbsentIds: ['absent'] }
+  const tx = executeCoreDrawRequest(request)
+  assert.deepEqual(new Set(tx.receipt.results.map(person => person.id)), new Set(['present-1', 'present-2']))
+  assert.equal(tx.receipt.count, 2)
+  assert.equal(tx.nextStatistics.totalCount, 2)
+  assert.equal(tx.nextRecords.length, 2)
+  assert.ok(tx.nextRecords.every(record => record.source === 'seats' && record.operationId === caller.operationId))
+  for (const invalid of [
+    { source: 'tunnel' },
+    { caller: { kind: 'plugin', pluginId: 'test' } },
+    { input: { ...input, allowDuplicates: true } },
+    { input: { ...input, target: 'groups' } },
+    { singleDrawPreviousIds: [] }
+  ]) assert.throws(() => executeCoreDrawRequest({ ...request, ...invalid }), { code: 'CORE_TRANSACTION_REJECTED' })
+})

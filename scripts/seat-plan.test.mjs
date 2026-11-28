@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { orderedSeats, readSeatPlan, seatAddress, swapSeats, writeSeatPlan } from '../src/utils/seatPlan.mjs'
+import { addEmptySeat, orderedSeats, readSeatPlan, removeEmptySeat, seatAddress, seatOrder, swapSeatSlots, swapSeats, writeSeatPlan } from '../src/utils/seatPlan.mjs'
 import { previewSeatPaste } from '../src/utils/seatPaste.mjs'
 const people = ['A','B','C','D'].map(id => ({ id, cn: id }))
 test('seat plans reconcile roster edits by ID, place new people last, and ignore special entries', () => {
@@ -14,6 +14,18 @@ test('seat addresses are one-based and select the right page after a column chan
   assert.deepEqual(seatAddress(36, 6), { row: 7, seat: 1, page: 1 })
   assert.deepEqual(seatAddress(36, 7), { row: 6, seat: 2, page: 0 })
   assert.equal(seatAddress(-1, 4), null)
+})
+test('an explicit empty slot can move, survive save and reload, and be deleted without removing anyone', async () => {
+  const start = addEmptySeat(seatOrder(orderedSeats(people, ['B', null, 'A', 'C', 'D'], true)))
+  const moved = swapSeatSlots(start, 4, 5)
+  assert.deepEqual(moved, ['B', null, 'A', 'C', null, 'D'])
+  assert.equal(removeEmptySeat(moved, 5), moved)
+  assert.equal(swapSeatSlots(moved, -1, 2), moved)
+  const values = new Map()
+  const storage = { load: key => values.get(key), save: (key, value) => values.set(key, value) }
+  await writeSeatPlan(storage, 'class', { columns: 3, order: removeEmptySeat(moved, 1), mapped: true })
+  const restored = await readSeatPlan(storage, 'class')
+  assert.deepEqual(seatOrder(orderedSeats(people, restored.order, restored.mapped)), ['B', 'A', 'C', null, 'D'])
 })
 test('remounting sees the last queued change, while an unrelated list stays independent', async () => {
   const values = new Map()

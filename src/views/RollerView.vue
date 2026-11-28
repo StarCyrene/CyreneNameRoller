@@ -21,7 +21,7 @@
         :class="{ rainbow: settings.nameColorMode === 'gradient', final: display.animating }"
         :style="getNameStyle(display, i)"
       >
-        <VerifiedResult v-if="currentReceipt && revealed[i]" :receipt="currentReceipt" :index="i" :presentation="resultPresentation" />
+        <VerifiedResult v-if="currentReceipt && revealed[i]" :receipt="currentReceipt" :index="i" :presentation="resultPresentation" :english-mode="englishMode" />
         <span v-else :ref="element => setNameTextRef(element, i)" class="name-text"></span>
       </div>
     </div>
@@ -32,7 +32,6 @@
     <div class="controls-center" ref="controlsCenterRef">
       <template v-if="filterOverride.visibility !== 'hidden' || filtersCompactOpen">
         <div class="switches" data-plugin-component="roller.filters" :style="pluginsStore.componentStyleStyle('roller.filters')">
-          <FluentToggle v-if="englishModeOverride.visibility !== 'hidden'" class="english-mode-toggle" data-plugin-component="roller.filter.english-mode" v-model="settings.englishMode" label="English Mode" @update:model-value="saveSetting('englishMode', $event)" />
           <FluentTabs v-if="drawTargetOverride.visibility !== 'hidden'" class="draw-target-tabs" data-plugin-component="roller.filter.draw-target" :model-value="settings.groupMode ? 'groups' : 'people'" :options="drawTargetOptions" @update:model-value="onDrawTargetChange" />
           <Transition name="toggle-expand">
             <FluentTabs v-if="!settings.groupMode && genderOverride.visibility !== 'hidden'" class="gender-filter-tabs" data-plugin-component="roller.filter.gender" v-model="genderFilter" :options="genderFilterOptions" />
@@ -109,8 +108,9 @@ const showBanner = inject('banner')
 
 const lang = computed(() => settingsStore.settings.language)
 const settings = computed(() => settingsStore.settings)
+const uriEnglishMode = inject('rollCallUriEnglishMode', ref(null))
+const englishMode = computed(() => uriEnglishMode.value ?? settings.value.englishMode)
 const filterOverride = computed(() => pluginsStore.componentOverrideState('roller.filters'))
-const englishModeOverride = computed(() => pluginsStore.componentOverrideState('roller.filter.english-mode'))
 const drawTargetOverride = computed(() => pluginsStore.componentOverrideState('roller.filter.draw-target'))
 const genderOverride = computed(() => pluginsStore.componentOverrideState('roller.filter.gender'))
 const drawCountOverride = computed(() => pluginsStore.componentOverrideState('roller.filter.draw-count'))
@@ -214,13 +214,14 @@ function initializeDisplays(count) {
   nameDisplays.splice(0); lastPickedNames.value = []
   nameTextRefs.length = 0
   nameTextCache.length = 0
+  nameTextPeople.length = 0
   const pool = settings.value.groupMode ? getCurrentPool() : availableNames.value
   for (let i = 0; i < count; i++) {
     const src = pool.length ? pool[Math.floor(Math.random() * pool.length)] : { cn: '...', en: '' }
     const txt = getDisplayName(src)
     nameDisplays.push({ text: txt, opacity: 0, animating: false, isWhiteList: false })
     lastPickedNames.value.push('')
-    setRollText(i, txt)
+    setRollPerson(i, src)
   }
   nextTick(() => { computeGridParams(); computeNameLayout() })
 }
@@ -245,8 +246,6 @@ function getNameStyle(display, i) {
   }
   return style
 }
-
-function saveSetting(key, value) { settingsStore.update(key, value) }
 
 function enforceGenderAvailability() {
   if (settings.value.groupMode || !settings.value.multiMode) return false
@@ -339,6 +338,7 @@ function switchToSingleFromCount() {
 const nameDisplayRefs = []
 const nameTextRefs = []
 const nameTextCache = []
+const nameTextPeople = []
 function setNameDisplayRef(element, index) { nameDisplayRefs[index] = element || null }
 function setNameTextRef(element, index) {
   nameTextRefs[index] = element || null
@@ -357,6 +357,11 @@ function setRollText(index, text) {
   if (node && node.textContent !== text) node.textContent = text
 }
 
+function setRollPerson(index, person) {
+  nameTextPeople[index] = person
+  setRollText(index, getDisplayName(person))
+}
+
 function emphasize(index) {
   const run = pluginsStore.startAnimation('roller.finish', nameDisplayRefs[index])
   if (run) {
@@ -373,7 +378,7 @@ function emphasize(index) {
 }
 
 function getDisplayName(person) {
-  return settings.value.englishMode && person.en ? person.en : person.cn
+  return (englishMode.value && person.en) || person.cn
 }
 
 function getCurrentPool() {
@@ -415,10 +420,9 @@ function swapOnce() {
   const count = settings.value.multiMode ? (settings.value.peopleCount || 2) : 1
   for (let i = 0; i < count; i++) {
     const pick = doPick([])
-    const txt = getDisplayName(pick)
     if (nameDisplays[i]) {
       // 滚动中只走 DOM 文本，不改 reactive text，减少 Vue 重渲染
-      setRollText(i, txt)
+      setRollPerson(i, pick)
       if (nameDisplays[i].opacity !== 1) nameDisplays[i].opacity = 1
       nameDisplays[i].isWhiteList = !!pick.isWhiteList
     }
@@ -562,7 +566,7 @@ async function applyUriNavigation(event) {
     isFinishing.value = false
   }
   const parameters = navigation.roller || {}
-  if (typeof parameters.englishMode === 'boolean') settings.value.englishMode = parameters.englishMode
+  uriEnglishMode.value = typeof parameters.englishMode === 'boolean' ? parameters.englishMode : null
   if (typeof parameters.groupMode === 'boolean') settings.value.groupMode = parameters.groupMode
   if (typeof parameters.noDuplication === 'boolean') settings.value.forbidDuplicates = parameters.noDuplication
   if (!settings.value.groupMode && parameters.sex) genderFilter.value = parameters.sex
@@ -645,9 +649,9 @@ function revealRoll(receipt) {
     const tid = setTimeout(() => {
       revealed.value[i] = true
       const result = finalPicks[i]
-      const finalText = settings.value.englishMode && result.englishName ? result.englishName : result.name
-      setRollText(i, finalText)
-      nameDisplays[i].text = finalText
+      const person = { cn: result.name, en: result.englishName }
+      setRollPerson(i, person)
+      nameDisplays[i].text = getDisplayName(person)
       nameDisplays[i].opacity = 1
       nameDisplays[i].isWhiteList = !!result.isWhiteList
       emphasize(i)
@@ -672,7 +676,7 @@ function windDownLoop(count, stagger) {
       if (revealed.value[i]) continue
       const pick = doPick([])
       const txt = getDisplayName(pick)
-      setRollText(i, txt)
+      setRollPerson(i, pick)
       nameDisplays[i].text = txt
       nameDisplays[i].opacity = 1
     }
@@ -944,7 +948,10 @@ onMounted(() => {
     if (!settings.value.groupMode && enforceGenderAvailability()) return
     initializeDisplays(settings.value.multiMode ? (settings.value.peopleCount || 2) : 1)
   })
-  watch(() => settings.value.englishMode, () => nextTick(() => { computeGridParams(); computeNameLayout() }))
+  watch(englishMode, () => {
+    nameTextPeople.forEach((person, index) => setRollText(index, getDisplayName(person)))
+    nextTick(() => { computeGridParams(); computeNameLayout() })
+  })
   watch(genderFilter, () => {
     if (!settings.value.groupMode && !enforceGenderAvailability()) initializeDisplays(1)
   })
@@ -1019,7 +1026,6 @@ onBeforeUnmount(() => { stopRollTicker(); clearTimeout(autoStopTimer); clearInte
 .filters-reserved { width: min(280px, 100%); min-height: 120px; }
 .filters-compact-entry { min-width: 132px; }
 .switches { display: flex; flex-direction: column; gap: var(--plugin-component-roller-filters-gap, 6px); align-items: stretch; width: 100%; min-width: 0; color: var(--plugin-component-roller-filters-foreground, inherit); background: var(--plugin-component-roller-filters-background, transparent); font-size: var(--plugin-component-roller-filters-font-size, inherit); font-weight: var(--plugin-component-roller-filters-font-weight, inherit); }
-.english-mode-toggle { align-self: flex-end; }
 .multi-settings { display: flex; align-items: center; gap: var(--plugin-component-roller-filters-gap, 12px); min-width: 0; flex-wrap: wrap; color: var(--plugin-component-roller-filters-foreground, inherit); background: var(--plugin-component-roller-filters-background, transparent); font-size: var(--plugin-component-roller-filters-font-size, inherit); font-weight: var(--plugin-component-roller-filters-font-weight, inherit); }
 .setting-label { font-size: 14px; color: var(--text-secondary); }
 .count-control { display: flex; align-items: center; gap: 8px; }

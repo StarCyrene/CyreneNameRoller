@@ -71,6 +71,12 @@
           <FluentIcon icon="people-team-16-regular" :width="14" />
           {{ lang === 'en' ? 'Contributors' : '贡献人员' }}
         </FluentButton>
+        <FluentButton v-if="pointerPreviewAvailable" variant="secondary" size="sm" class="pointer-replay" @click="replayPointerEffects">
+          <FluentIcon icon="cursor-hover-20-regular" :width="16" />
+          {{ pointerPlaying
+            ? (lang === 'en' ? 'Stop pointer effects' : '停止指针特效')
+            : (lang === 'en' ? 'Replay pointer effects' : '重播指针特效') }}
+        </FluentButton>
       </div>
 
       <div class="about-section">
@@ -86,6 +92,10 @@
             ? 'This is free software: you are free to change and redistribute it.'
             : '这是自由软件：你可以自由修改和分发它。' }}
         </p>
+        <details class="swarm-license">
+          <summary>{{ lang === 'en' ? 'Swarm Cursors Vue · MIT license and credits' : 'Swarm Cursors Vue · MIT 许可证与署名' }}</summary>
+          <pre translate="no">{{ swarmNotice }}{{ swarmLicense }}</pre>
+        </details>
       </div>
 
       <div class="about-section">
@@ -103,16 +113,20 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSettingsStore } from '../stores/settings'
 import { t } from '../utils/i18n'
 import { APP_VERSION, APP_NAME } from '../utils/version'
 import { openExternal } from '../utils/openExternal'
+import { pointerEffectsKey } from '../composables/usePointerEffects'
+import swarmLicense from '../../packages/swarm-cursors-vue/LICENSE?raw'
+import swarmNotice from '../../packages/swarm-cursors-vue/NOTICE.md?raw'
 
 const router = useRouter()
 const settingsStore = useSettingsStore()
 const lang = computed(() => settingsStore.settings.language)
+const { available: pointerPreviewAvailable, playing: pointerPlaying, replay: replayPointerEffects } = inject(pointerEffectsKey, {})
 
 const AUTHOR_NAME = 'Cyrene2008'
 const AUTHOR_AVATAR = './avatars/Cyrene2008.png'
@@ -386,4 +400,7 @@ function openLink(url) { openExternal(url) }
   .about-powered { flex-direction: column; gap: 10px; }
   .about-powered-copy { align-items: center; }
 }
+.swarm-license { color: var(--text-secondary); font-size: 12px; }
+.swarm-license summary { cursor: pointer; }
+.swarm-license pre { white-space: pre-wrap; overflow-wrap: anywhere; text-align: start; user-select: text; }
 </style>

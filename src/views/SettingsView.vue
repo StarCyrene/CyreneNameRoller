@@ -337,6 +337,22 @@
         </div>
         <FluentToggle :model-value="settings.perfAnimations" :aria-label="lang === 'en' ? 'Animations' : '过渡动画'" @update:model-value="update('perfAnimations', $event)" />
       </div>
+      <div class="setting-row">
+        <div class="setting-label-group">
+          <span class="setting-label">{{ lang === 'en' ? 'Pointer effects' : '指针特效' }}</span>
+          <span class="setting-desc">{{ lang === 'en' ? 'Use the theme color for the mouse arrow and draw informational pages with cursors.' : '让鼠标箭头跟随主题色，并在介绍页面播放光标绘制动画。' }}</span>
+        </div>
+        <FluentToggle class="pointer-effects-toggle" :model-value="settings.pointerEffects === true"
+          :aria-label="lang === 'en' ? 'Pointer effects' : '指针特效'" @update:model-value="update('pointerEffects', $event)" />
+      </div>
+      <div class="setting-row">
+        <div class="setting-label-group">
+          <span class="setting-label">{{ lang === 'en' ? 'Drawing sounds' : '绘制音效' }}</span>
+          <span class="setting-desc">{{ lang === 'en' ? 'Play sound during pointer drawing when pointer effects are on.' : '打开指针特效后，绘制页面时才会播放声音。' }}</span>
+        </div>
+        <FluentToggle class="pointer-sound-toggle" :model-value="settings.pointerDrawingSound === true"
+          :aria-label="lang === 'en' ? 'Drawing sounds' : '绘制音效'" @update:model-value="update('pointerDrawingSound', $event)" />
+      </div>
       <div class="performance-note">
         <FluentIcon icon="info-16-regular" :width="14" />
         <span>{{ lang === 'en' ? 'Disable options to improve performance on integrated GPUs.' : '关闭选项可提升核显设备性能。' }}</span>

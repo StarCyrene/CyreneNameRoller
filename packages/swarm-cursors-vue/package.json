@@ -1,0 +1,67 @@
+{
+  "name": "swarm-cursors-vue",
+  "version": "1.4.0",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "description": "Vue 3 plugin that erases a page and lets a swarm of AI cursors rebuild it live. No browser extension required.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "PUBLISHING.md",
+    "AGENT-INTEGRATION.zh-CN.md",
+    "LICENSE",
+    "NOTICE.md",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node test/smoke.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Cyrene2008/swarm-cursors-vue.git"
+  },
+  "homepage": "https://github.com/Cyrene2008/swarm-cursors-vue#readme",
+  "bugs": {
+    "url": "https://github.com/Cyrene2008/swarm-cursors-vue/issues"
+  },
+  "peerDependencies": {
+    "vue": "^3.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "vue": "^3.5.0"
+  },
+  "keywords": [
+    "vue",
+    "vue3",
+    "swarm",
+    "cursors",
+    "animation",
+    "divpointers",
+    "page-rebuild",
+    "ai-agents",
+    "vue-plugin",
+    "nuxt"
+  ],
+  "license": "MIT",
+  "author": "Cyrene2008; original divPointers by Nitin Thakur"
+}
+
+
+

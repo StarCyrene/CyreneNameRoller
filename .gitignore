@@ -6,6 +6,8 @@ node_modules
 .npm-cache/
 .agents/
 dist
+!packages/swarm-cursors-vue/dist/
+!packages/swarm-cursors-vue/dist/**
 release*
 build-output
 *.log

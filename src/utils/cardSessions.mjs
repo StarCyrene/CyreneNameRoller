@@ -29,10 +29,16 @@ export async function readCardTray(storage, listId, lists) {
   return tray
 }
 
-export function appendCardReceipt(previous, receipt, english) {
+export function cardDisplayName(result, english) {
+  // Older trays stored only the chosen display name.
+  return (english && result?.englishName) || result?.name || ''
+}
+
+export function appendCardReceipt(previous, receipt) {
   const entries = receipt.results.map((p, i) => ({
     id: receipt.operationId + ':' + i,
-    name: (english && p.englishName) || p.name
+    name: p.name,
+    englishName: p.englishName || ''
   }))
   return {
     used: [...new Set([...previous.used, ...receipt.results.map(p => p.id)])],

@@ -21,6 +21,15 @@ export function normalizeCoreDrawInput(raw = {}) {
   }
 }
 
+export function validateSeatDraw({ caller, input, source, seatAbsentIds, singleDrawPreviousIds }) {
+  if (seatAbsentIds === undefined) return
+  if (caller.kind !== 'core-ui' || source !== 'seats' || input.target !== 'people' || input.allowDuplicates ||
+    singleDrawPreviousIds !== undefined || !Array.isArray(seatAbsentIds) || seatAbsentIds.length > 10000 ||
+    seatAbsentIds.some(id => typeof id !== 'string' || !id)) {
+    throw coreError('CORE_TRANSACTION_REJECTED', 'Invalid seat draw')
+  }
+}
+
 export function normalizeCoreHookFilter(raw = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(key => !HOOK_FILTER_FIELDS.has(key))) throw coreError('PLUGIN_HOOK_INVALID_RESPONSE', 'Invalid core hook filter')
   return normalizeCoreDrawInput(raw)
