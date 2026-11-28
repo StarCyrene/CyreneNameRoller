@@ -45,6 +45,7 @@ export function useSwarmCursors() {
 
   return {
     start: core.start,
+    replay: core.replay,
     stop: core.stop,
     toggle: core.toggle,
     setPageEnabled: core.setPageEnabled,

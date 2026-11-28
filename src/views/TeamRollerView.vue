@@ -1,7 +1,7 @@
 <template>
   <ClassroomSheet wide :title="en ? 'Constellations' : '连星成诗'"
     :description="en ? 'Shuffle the class into temporary teams of similar size. Saved groups and roll call records stay as they are.' : '把名单随机分成几组，每组人数最多差一人。临时组队不改原有小组，也不记点名。'">
-    <div class="team-workbench" :class="{ 'has-teams': rounds.teams.length }">
+    <div class="team-workbench" :class="{ 'has-teams': rounds.teams.length }" data-swarm-live-region>
     <div v-if="!rounds.teams.length" class="team-studio classroom-panel">
       <svg class="star-chart" viewBox="0 0 240 120" aria-hidden="true">
         <g v-for="(path,i) in paths" :key="i">

@@ -13,7 +13,7 @@
         <span class="rh-list">{{ lang === 'en' ? 'List' : '名单' }}</span>
         <span class="rh-source">{{ lang === 'en' ? 'Source' : '来源' }}</span>
       </div>
-      <div class="records-list" ref="listRef">
+      <div class="records-list" ref="listRef" data-swarm-live-region>
         <div v-for="(rec, i) in records" :key="i" class="record-item">
           <span class="ri-time">{{ formatTime(rec.time) }}</span>
           <span class="ri-name" data-i18n-private-attrs="title" :translate="resolveName(rec) ? 'no' : null" :title="recordIdentity(rec)">{{ resolveName(rec) || (lang === 'en' ? 'Deleted person' : '已删除成员') }}</span>
@@ -86,15 +86,23 @@ onMounted(() => {
 }
 
 .records-card {
+  --record-columns: min(180px, 30%) minmax(0, 1fr) min(140px, 24%) min(120px, 21%);
   padding: 0;
   overflow: hidden;
 }
 
-.records-header {
+.records-header,
+.record-item {
   display: grid;
-  grid-template-columns: 180px 1fr 140px 120px;
-  gap: 12px;
-  padding: 10px 20px;
+  grid-template-columns: var(--record-columns);
+  column-gap: min(12px, 2%);
+  padding: 10px clamp(8px, 3vw, 20px);
+  overflow-wrap: anywhere;
+}
+
+.records-header {
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
   background: var(--bg-hover);
   border-bottom: 1px solid var(--border-default);
   font-size: 12px;
@@ -107,13 +115,10 @@ onMounted(() => {
 .records-list {
   max-height: 60vh;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .record-item {
-  display: grid;
-  grid-template-columns: 180px 1fr 140px 120px;
-  gap: 12px;
-  padding: 10px 20px;
   border-bottom: 1px solid var(--border-default);
   font-size: 14px;
   transition: background var(--duration-fast) ease;
@@ -141,7 +146,6 @@ onMounted(() => {
 .ri-source {
   color: var(--accent);
   font-size: 13px;
-  overflow-wrap: anywhere;
 }
 
 .records-empty {

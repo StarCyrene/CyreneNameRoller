@@ -102,11 +102,20 @@ export interface SwarmCursorsOptions {
   replaySublabel?: string;
 }
 
+export interface SwarmCursorsReplayOptions {
+  /** Play sound for this replay only. Default: false. */
+  sound?: boolean;
+  /** Replay output gain, from 0 to 1. Default: 0.1. */
+  volume?: number;
+}
+
 export interface SwarmCursorsCore {
   state: SwarmCursorsState;
   getState(): SwarmCursorsState;
   getOptions(): Record<string, any>;
   start(): Promise<void>;
+  /** Rebuild the current page from scratch while keeping marked persistent navigation in place. */
+  replay(options?: SwarmCursorsReplayOptions): Promise<void>;
   stop(reveal?: boolean): void;
   toggle(): void;
   setPageEnabled(enabled: boolean): void;
@@ -121,6 +130,7 @@ export interface SwarmCursorsCore {
 
 export interface UseSwarmCursorsReturn {
   start: () => Promise<void>;
+  replay: (options?: SwarmCursorsReplayOptions) => Promise<void>;
   stop: (reveal?: boolean) => void;
   toggle: () => void;
   setPageEnabled: (enabled: boolean) => void;

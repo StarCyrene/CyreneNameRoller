@@ -120,6 +120,7 @@ function noopCore() {
     getState: () => ({ ...state }),
     getOptions: () => ({}),
     start: () => Promise.resolve(),
+    replay: () => Promise.resolve(),
     stop() {},
     toggle() {},
     setPageEnabled() {},
@@ -539,7 +540,9 @@ export function createSwarmCursors(options) {
         applyTheme();
         mod.start({
           route, covered: !!cover && cover.el.style.opacity === "1",
-          routerManaged: routerAttached,
+          routerManaged: routerAttached || !!options?.playback,
+          viewportOnly: pageOpts.autoReveal && !pageOpts.hud && !options?.playback,
+          playback: options?.playback,
           onDrawing() {
             if (destroyed || id !== runId) return;
             committedCover = null;
@@ -564,6 +567,34 @@ export function createSwarmCursors(options) {
 
   function start() {
     return begin();
+  }
+
+  function interruptRun() {
+    runId++;
+    startPromise = null;
+    clearTimeout(autoTimer);
+    clearTimeout(revealTimer);
+    clearTimeout(showTimer);
+    revealScheduled = false;
+    stopPoll();
+    if (engine) engine.stop(false, true);
+    if (state.running || state.loading) {
+      setState({ running: false, loading: false });
+      emit("end", snapshot());
+    }
+  }
+
+  function replay({ sound = false, volume = 0.1 } = {}) {
+    if (destroyed || !state.pageEnabled || pendingRoute ||
+        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return Promise.resolve();
+    // Put the cover above any old drawing before discarding it. A fresh
+    // engine capture then gets route layout clipping with no previous model.
+    showCover(true);
+    interruptRun();
+    return begin({
+      route: true,
+      playback: { sound: sound === true, volume: Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 0.1 },
+    });
   }
 
   function stop(reveal) {
@@ -674,20 +705,7 @@ export function createSwarmCursors(options) {
   function applyRoute(route, first) {
     const page = routePageOptions(route);
     // A confirmed destination supersedes the outgoing import, capture and reveal.
-    if (!first) {
-      runId++;
-      startPromise = null;
-      clearTimeout(autoTimer);
-      clearTimeout(revealTimer);
-      clearTimeout(showTimer);
-      revealScheduled = false;
-      stopPoll();
-      if (engine) engine.stop(false, true);
-      if (state.running || state.loading) {
-        setState({ running: false, loading: false });
-        emit("end", snapshot());
-      }
-    }
+    if (!first) interruptRun();
     applyPageOptions(page);
     if (!page.enabled) { hideCover(true); return; }
 
@@ -893,6 +911,7 @@ export function createSwarmCursors(options) {
     getState: snapshot,
     getOptions: () => ({ ...opts }),
     start,
+    replay,
     stop,
     toggle,
     setPageEnabled,

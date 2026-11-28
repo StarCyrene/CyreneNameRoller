@@ -8,7 +8,7 @@
     <FluentCard class="records-card">
       <div class="records-toolbar"><strong :translate="selectedListId === 'all' ? null : 'no'">{{ selectedListName }}</strong><FluentButton v-if="filteredRecords.length" variant="subtle" size="sm" @click="showClear = true"><FluentIcon icon="delete-16-regular" :width="14" />{{ lang === 'en' ? 'Clear' : '清空记录' }}</FluentButton></div>
       <div class="records-header"><span>{{ lang === 'en' ? 'Time' : '时间' }}</span><span>{{ lang === 'en' ? 'Prize' : '奖品' }}</span><span>{{ lang === 'en' ? 'Person' : '人员' }}</span><span>{{ lang === 'en' ? 'Mode' : '方式' }}</span></div>
-      <div class="records-list">
+      <div class="records-list" data-swarm-live-region>
         <div v-for="record in filteredRecords" :key="record.id" class="record-row">
           <span class="record-time">{{ formatTime(record.time) }}</span>
           <strong class="lottery-record-prize" :translate="prizeName(record) ? 'no' : null">{{ prizeName(record) || (lang === 'en' ? 'Deleted prize' : '已删除奖品') }}</strong>
