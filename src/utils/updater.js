@@ -9,7 +9,9 @@ const GITHUB_REPO = 'StarCyrene/CyreneNameRoller'
 const GHPROXY_BASE = 'https://gh.昔涟.cn/'
 const FALLBACK_URLS = [
   `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
-  `https://api.kkgithub.com/repos/${GITHUB_REPO}/releases/latest`
+  // api.kkgithub.com 已不可达；改用实测可用的 gh-proxy 镜像代理 GitHub API。
+  `https://v4.gh-proxy.com/https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+  `https://gh-proxy.com/https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
 ]
 
 export const updateState = ref({
@@ -68,12 +70,19 @@ export async function fetchRelease() {
     try {
       const ctrl = new AbortController()
       const timer = setTimeout(() => ctrl.abort(), 10000)
-      const resp = await fetch(url, {
-        headers: { 'Accept': 'application/vnd.github.v3+json' },
-        signal: ctrl.signal
-      })
-      clearTimeout(timer)
-      if (resp.ok) return await resp.json()
+      try {
+        const resp = await fetch(url, {
+          headers: { 'Accept': 'application/vnd.github.v3+json' },
+          signal: ctrl.signal
+        })
+        if (resp.ok) {
+          const data = await resp.json()
+          // 镜像偶尔会返回 200 的错误页/限流 JSON，没有 tag_name 就不算成功。
+          if (data?.tag_name) return data
+        }
+      } finally {
+        clearTimeout(timer)
+      }
     } catch {}
   }
   throw new Error('all sources failed')

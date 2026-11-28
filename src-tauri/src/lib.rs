@@ -2950,10 +2950,16 @@ fn load_changelog() -> serde_json::Value {
 
 #[tauri::command]
 async fn check_update() -> Result<serde_json::Value, String> {
-    let urls = [
+    // api.kkgithub.com 已不可达；gh-proxy 镜像实测可取到 GitHub API。
+    #[allow(unused_mut)]
+    let mut urls = vec![
         "https://api.github.com/repos/StarCyrene/CyreneNameRoller/releases/latest",
-        "https://api.kkgithub.com/repos/StarCyrene/CyreneNameRoller/releases/latest",
+        "https://v4.gh-proxy.com/https://api.github.com/repos/StarCyrene/CyreneNameRoller/releases/latest",
+        "https://gh-proxy.com/https://api.github.com/repos/StarCyrene/CyreneNameRoller/releases/latest",
     ];
+    // 手机端通常直连不了 GitHub，把镜像提到前面，避免先等满一个超时。
+    #[cfg(target_os = "android")]
+    urls.rotate_left(1);
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(8))
         .build()
@@ -2966,8 +2972,14 @@ async fn check_update() -> Result<serde_json::Value, String> {
             .send()
             .await
         {
+            if !resp.status().is_success() {
+                continue;
+            }
             if let Ok(json) = resp.json::<serde_json::Value>().await {
-                return Ok(json);
+                // 限流或镜像错误页可能是 200 的 JSON，必须带 tag_name 才算结果。
+                if json.get("tag_name").and_then(|value| value.as_str()).is_some() {
+                    return Ok(json);
+                }
             }
         }
     }
