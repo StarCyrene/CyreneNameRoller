@@ -1,5 +1,7 @@
 # 发布 swarm-cursors-vue
 
+**当前暂缓公开发布。** [上游许可讨论](https://github.com/DhvanilPatel/swarm-cursors/issues/30) 尚未确认本项目的再分发范围。先记录作者对相关代码的许可，再进行下述首次送审及 OIDC 配置；不要把直接来源的 MIT 文件当作整个引擎的许可。CI 可以先验证打包。
+
 包名是 `swarm-cursors-vue`，源码在 `Cyrene2008/swarm-cursors-vue`。GitHub 上可安装的源码提交、npm 待审版本和公开 npm 版本是三种不同的状态。
 
 ## 第一次发布与身份绑定

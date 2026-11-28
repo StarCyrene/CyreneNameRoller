@@ -36,7 +36,7 @@
         <div :ref="attachVersionHost" class="tool-version-host" />
       </div>
     </footer>
-    <div ref="panel" id="roller-tool-panel" class="tool-panel" role="tabpanel" tabindex="0" :aria-labelledby="'roller-tab-' + route.name">
+    <div ref="panel" id="roller-tool-panel" class="tool-panel" :class="{ 'swarm-drawing': drawingCurrentRoute }" role="tabpanel" tabindex="0" :aria-labelledby="'roller-tab-' + route.name">
       <RouterView v-slot="{ Component }">
         <Transition name="tool-swap" mode="out-in">
           <component :is="Component" :key="route.name" />
@@ -49,11 +49,13 @@
 <script setup>
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { pointerEffectsKey } from '../composables/usePointerEffects'
 import { useSettingsStore } from '../stores/settings'
 import { usePluginsStore } from '../plugins/store'
 import { rollerTools } from '../router/rollerTools'
 
 const route = useRoute()
+const { drawingCurrentRoute } = inject(pointerEffectsKey, {})
 const settings = useSettingsStore()
 const plugins = usePluginsStore()
 const lang = computed(() => settings.settings.language === 'en' ? 'en' : 'zh')
@@ -239,6 +241,7 @@ function onTabKey(event) {
 .tool-swap-enter-active, .tool-swap-leave-active { transition: opacity .17s ease, transform .17s ease; }
 .tool-swap-enter-from { opacity: 0; transform: translateY(7px) scale(.997); }
 .tool-swap-leave-to { opacity: 0; transform: translateY(-5px) scale(.997); }
+.swarm-drawing :is(.tool-swap-enter-active, .tool-swap-leave-active) { transition: none; opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) { .tool-swap-enter-active, .tool-swap-leave-active { transition: none; } }
 :global(.perf-no-anim) .tool-swap-enter-active, :global(.perf-no-anim) .tool-swap-leave-active { transition: none; }
 .tool-footer-meta { display: flex; flex-shrink: 0; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
