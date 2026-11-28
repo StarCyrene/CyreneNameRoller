@@ -5,7 +5,7 @@
       <span v-if="state === 'scanning'" class="camera-guide" aria-hidden="true"></span>
       <span v-else class="camera-caption">{{ status }}</span>
     </div>
-    <p>{{ en ? 'Point the rear camera at the QR code on the other screen. Hold it steady and keep the white border in view.' : '将后置摄像头对准另一块屏幕上的二维码，保持平稳，让白色边框完整入镜。' }}</p>
+    <p>{{ en ? 'Center the QR code and its white border. If it looks blurry, back up slightly and hold steady.' : '将另一块屏幕上的二维码和白边完整对准取景框。如果画面模糊，稍微拉远并保持平稳。' }}</p>
     <div class="receive-meter">
       <label for="qr-receive-progress">
         {{ en ? 'Received' : '已接收' }}
@@ -21,6 +21,9 @@
       </FluentButton>
       <FluentButton v-else-if="state !== 'complete'" variant="primary" @click="start">
         {{ en ? 'Start camera' : '开启摄像头' }}
+      </FluentButton>
+      <FluentButton v-if="state === 'scanning' && canRefocus" variant="secondary" @click="refocus">
+        {{ en ? 'Refocus' : '重新对焦' }}
       </FluentButton>
       <FluentButton v-if="received && state !== 'complete'" variant="secondary" @click="restart">
         {{ en ? 'Scan another list' : '重新扫码' }}
@@ -45,6 +48,7 @@ const state = ref('paused')
 const error = ref('')
 const received = ref(0)
 const total = ref(0)
+const canRefocus = ref(false)
 const isNativeAndroid = getDesktopPlatform().runtime === 'tauri' && getDesktopPlatform().os === 'android'
 const status = computed(() => {
   if (state.value === 'starting') return en.value ? 'Opening camera…' : '正在开启摄像头…'
@@ -52,7 +56,33 @@ const status = computed(() => {
   return en.value ? 'Camera is off' : '摄像头已关闭'
 })
 let worker, stream, canvas, context, raf, webWake
-let generation = 0, busy = false, disposed = false, resumeWhenVisible = false, lastTime = -1
+let generation = 0, busy = false, disposed = false, resumeWhenVisible = false, lastTime = -1, scanPass = 0
+let focusModes = []
+
+async function applyFocus(track, mode) {
+  try {
+    // Preserve the resolution/frame-rate options; unsupported controls should
+    // never prevent this device from scanning.
+    const settings = track.getConstraints?.() || {}
+    const advanced = (settings.advanced || []).filter(choice => !('focusMode' in choice))
+    await track.applyConstraints({ ...settings, advanced: [...advanced, { focusMode: mode }] })
+  } catch { /* Some WebViews expose capabilities but decline focus changes. */ }
+}
+
+function setupFocus(track) {
+  try { focusModes = track?.getCapabilities?.()?.focusMode || [] } catch { focusModes = [] }
+  canRefocus.value = focusModes.includes('single-shot')
+  const mode = focusModes.includes('continuous') ? 'continuous' : (canRefocus.value ? 'single-shot' : '')
+  if (mode) void applyFocus(track, mode)
+}
+
+async function refocus() {
+  const [track] = stream?.getVideoTracks() || []
+  if (!track || !canRefocus.value) return
+  const id = generation
+  await applyFocus(track, 'single-shot')
+  if (id === generation && focusModes.includes('continuous')) void applyFocus(track, 'continuous')
+}
 
 async function keepAwake(id) {
   try {
@@ -70,6 +100,8 @@ function stopCamera() {
   cancelAnimationFrame(raf)
   for (const track of stream?.getTracks() || []) { track.onended = null; track.stop() }
   stream = undefined
+  canRefocus.value = false
+  focusModes = []
   if (video.value) video.value.srcObject = null
   if (webWake) { webWake.release().catch(() => {}); webWake = undefined }
   if (isNativeAndroid) tauriAPI.invokeStrict('set_scan_awake', { enabled: false }).catch(() => {})
@@ -123,10 +155,18 @@ function capture(id) {
   if (!busy && el?.readyState >= 2 && el.videoWidth && el.videoHeight && el.currentTime !== lastTime) {
     try {
       lastTime = el.currentTime
-      const scale = Math.min(1, 720 / Math.max(el.videoWidth, el.videoHeight))
-      const width = Math.max(1, Math.round(el.videoWidth * scale)), height = Math.max(1, Math.round(el.videoHeight * scale))
+      // Use the sensor's native center pixels for detail inside the guide,
+      // with periodic wide frames in case the QR code is off center.
+      const wide = scanPass++ % 4 === 0
+      const side = Math.min(el.videoWidth, el.videoHeight)
+      const sourceWidth = wide ? el.videoWidth : side
+      const sourceHeight = wide ? el.videoHeight : side
+      const scale = Math.min(1, 720 / Math.max(sourceWidth, sourceHeight))
+      const width = Math.max(1, Math.round(sourceWidth * scale))
+      const height = Math.max(1, Math.round(sourceHeight * scale))
       if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height }
-      context.drawImage(el, 0, 0, width, height)
+      context.drawImage(el, (el.videoWidth - sourceWidth) / 2, (el.videoHeight - sourceHeight) / 2,
+        sourceWidth, sourceHeight, 0, 0, width, height)
       const pixels = context.getImageData(0, 0, width, height)
       busy = true
       worker.postMessage({ pixels }, [pixels.data.buffer])
@@ -160,18 +200,20 @@ async function start() {
     canvas ??= document.createElement('canvas')
     context ??= canvas.getContext('2d', { willReadFrequently: true })
     if (!context) throw new Error('Camera preview unavailable')
-    const media = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
-      facingMode: { ideal: 'environment' }, width: { ideal: 640, max: 1280 }, height: { ideal: 480, max: 720 }, frameRate: { ideal: 24, max: 30 }
-    } })
+    const videoOptions = { facingMode: { ideal: 'environment' }, width: { ideal: 1280 },
+      height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } }
+    const media = await navigator.mediaDevices.getUserMedia({ audio: false, video: videoOptions })
     if (id !== generation) { media.getTracks().forEach(track => track.stop()); return }
     stream = media
     for (const track of media.getVideoTracks()) track.onended = () => {
       if (id === generation) fail(en.value ? 'The camera was interrupted. Tap Start camera to continue.' : '摄像头已中断，点“开启摄像头”即可继续。')
     }
+    setupFocus(media.getVideoTracks()[0])
     video.value.srcObject = media
     await video.value.play()
     if (id !== generation) return
     lastTime = -1
+    scanPass = 0
     state.value = 'scanning'
     if (document.hidden) { onVisibility(); return }
     keepAwake(id)
@@ -218,7 +260,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .qr-receiver { display: grid; gap: .85rem; }
 .camera-frame { position: relative; width: 100%; max-width: 36rem; margin-inline: auto; aspect-ratio: 4 / 3; overflow: hidden; background: #171923; color: #fff; border-radius: var(--radius-lg); }
-.camera-frame video { display: block; width: 100%; height: 100%; object-fit: contain; }
+.camera-frame video { display: block; width: 100%; height: 100%; object-fit: cover; }
 .camera-guide { position: absolute; left: 50%; top: 50%; width: min(63%, 42vh); aspect-ratio: 1; border: 2px dashed #fff9; border-radius: 8px; transform: translate(-50%, -50%); pointer-events: none; }
 .camera-caption { position: absolute; inset: 0; display: grid; place-items: center; }
 .receive-meter { display: grid; gap: .3rem; }

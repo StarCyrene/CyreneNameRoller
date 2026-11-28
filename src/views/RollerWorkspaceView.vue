@@ -2,15 +2,16 @@
   <div ref="workspace" class="roller-workspace">
     <footer class="tool-bar" data-swarm-persist>
       <div ref="stripShell" class="tool-strip-shell" :class="{ 'has-overflow': overflow }">
-        <button v-if="canScrollBack" type="button" class="strip-arrow strip-back" tabindex="-1"
+        <button v-if="overflow" type="button" class="strip-arrow strip-back" :disabled="!canScrollBack"
           :aria-label="lang === 'en' ? 'Show previous tools' : '查看前面的工具'" aria-controls="roller-tool-picker" @mousedown.prevent @click="pageTools(-1)">
           <FluentIcon icon="chevron-left-16-regular" :width="16" />
         </button>
-        <button v-if="canScrollNext" type="button" class="strip-arrow strip-next" tabindex="-1"
+        <button v-if="overflow" type="button" class="strip-arrow strip-next" :disabled="!canScrollNext"
           :aria-label="lang === 'en' ? 'Show more tools' : '查看更多工具'" aria-controls="roller-tool-picker" @mousedown.prevent @click="pageTools(1)">
           <FluentIcon icon="chevron-right-16-regular" :width="16" />
         </button>
         <div id="roller-tool-picker" ref="pivot" class="tool-pivot" role="tablist" :aria-label="toolLabel" @keydown="onTabKey" @scroll.passive="updateScrollEdges">
+          <div ref="stripItems" class="tool-items" role="presentation">
           <RouterLink
             v-for="tool in rollerTools" :key="tool.name" :to="{ name: tool.name }"
             :id="'roller-tab-' + tool.name" role="tab" class="tool-tab"
@@ -22,6 +23,7 @@
             <FluentIcon :icon="tool.icon" :width="17" aria-hidden="true" />
             <span>{{ (compactLabels ? tool.compact : tool.label)[lang] }}</span>
           </RouterLink>
+          </div>
         </div>
         <FluentScrollBar
           v-if="overflow" class="tool-scrollbar" orientation="horizontal"
@@ -46,7 +48,7 @@
 </template>
 
 <script setup>
-import { computed, inject, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { pointerEffectsKey } from '../composables/usePointerEffects'
 import { useSettingsStore } from '../stores/settings'
@@ -71,6 +73,7 @@ function setEnglishMode(value) {
 const workspace = ref(null)
 const pivot = ref(null)
 const stripShell = ref(null)
+const stripItems = ref(null)
 const compactLabels = ref(false)
 const overflow = ref(false)
 const stripOffset = ref(0)
@@ -89,12 +92,13 @@ function syncLabelMode() {
 
 function updateScrollEdges() {
   const strip = pivot.value
-  if (!strip || !stripShell.value) return
-  // Compare with the full row, even when arrow gutters are visible.
-  overflow.value = strip.scrollWidth > stripShell.value.clientWidth + 1
-  stripOffset.value = strip.scrollLeft
+  if (!strip || !stripShell.value || !stripItems.value) return
+  // The content is start-aligned whenever it overflows, so scrollLeft=0
+  // always exposes the first tool, including in older Android WebViews.
+  overflow.value = stripItems.value.offsetWidth > stripShell.value.clientWidth + 1
   stripWidth.value = strip.clientWidth
   stripLimit.value = Math.max(0, strip.scrollWidth - stripWidth.value)
+  stripOffset.value = Math.max(0, Math.min(strip.scrollLeft, stripLimit.value))
 }
 function scrollToolsTo(offset) {
   pivot.value.scrollLeft = offset
@@ -104,27 +108,28 @@ function pageTools(direction) {
   const strip = pivot.value
   scrollToolsTo(strip.scrollLeft + direction * Math.max(1, strip.clientWidth - 24))
 }
-function showSelectedTab() {
+async function showSelectedTab() {
   updateScrollEdges()
+  await nextTick()
   const strip = pivot.value
   const tab = strip?.querySelector('[aria-selected="true"]')
   if (!tab || strip.scrollWidth <= strip.clientWidth) return
   const edge = strip.getBoundingClientRect()
   const item = tab.getBoundingClientRect()
   const offset = item.left < edge.left ? item.left - edge.left : Math.max(0, item.right - edge.right)
-  scrollToolsTo(strip.scrollLeft + offset * strip.offsetWidth / edge.width)
+  if (edge.width && offset) scrollToolsTo(strip.scrollLeft + offset * strip.offsetWidth / edge.width)
 }
 watch([() => route.name, lang], showSelectedTab, { flush: 'post' })
 watch(() => route.name, () => { if (panel.value) panel.value.scrollTop = 0 }, { flush: 'post' })
 onMounted(() => {
   resizeObserver = new ResizeObserver(() => {
     syncLabelMode()
-    showSelectedTab()
+    updateScrollEdges()
   })
   resizeObserver.observe(workspace.value)
   resizeObserver.observe(pivot.value)
   resizeObserver.observe(stripShell.value)
-  for (const tab of pivot.value.children) resizeObserver.observe(tab)
+  resizeObserver.observe(stripItems.value)
   syncLabelMode()
   showSelectedTab()
 })
@@ -177,7 +182,7 @@ function onTabKey(event) {
   grid-template-columns: 0 minmax(0, 1fr) 0;
   min-width: 0;
 }
-.tool-strip-shell.has-overflow { grid-template-columns: 25px minmax(0, 1fr) 25px; }
+.tool-strip-shell.has-overflow { grid-template-columns: 30px minmax(0, 1fr) 30px; }
 .tool-strip-shell.has-overflow .tool-tab { padding-bottom: 10px; }
 .tool-strip-shell.has-overflow .tool-tab[aria-selected="true"]::after { bottom: 8px; }
 .strip-arrow {
@@ -191,16 +196,22 @@ function onTabKey(event) {
   color: var(--text-secondary);
   cursor: pointer;
 }
-.strip-arrow:hover { color: var(--accent-dark); }
+.strip-arrow:not(:disabled):hover { color: var(--accent-dark); }
+.strip-arrow:disabled { opacity: .35; cursor: default; }
 .strip-back { grid-column: 1; }
 .strip-next { grid-column: 3; }
 .tool-pivot {
   grid-area: 1 / 2;
-  display: flex;
-  justify-content: safe center;
   overflow-x: auto;
+  overscroll-behavior-inline: contain;
   scrollbar-width: none;
   min-width: 0;
+}
+.tool-items {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  justify-content: center;
   gap: 3px;
 }
 .tool-pivot::-webkit-scrollbar { display: none; }
@@ -276,5 +287,17 @@ function onTabKey(event) {
 }
 @media (pointer: coarse) {
   .english-mode-toggle { min-height: 44px; }
+  .tool-strip-shell.has-overflow { grid-template-columns: 38px minmax(0, 1fr) 38px; }
+  .tool-pivot { touch-action: pan-x; }
+  .tool-strip-shell.has-overflow .tool-scrollbar { display: none; }
+  .tool-strip-shell.has-overflow .tool-tab { padding-bottom: 4px; }
+  .tool-strip-shell.has-overflow .tool-tab[aria-selected="true"]::after { bottom: 0; }
+}
+@media (orientation: landscape) and (max-height: 480px) {
+  .tool-bar { flex-wrap: nowrap; gap: 4px; }
+  .tool-strip-shell { flex: 1 1 0; }
+  .tool-footer-meta { flex: 0 1 auto; }
+  .english-mode-toggle { white-space: nowrap; }
+  .tool-version-host { display: none; }
 }
 </style>

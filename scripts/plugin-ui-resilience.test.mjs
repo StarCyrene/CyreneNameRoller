@@ -36,8 +36,13 @@ test('settings controls collapse within narrow scaled layouts', async () => {
 
 test('roller balance status clears the title on narrow layouts', async () => {
   const roller = await read('src/views/RollerView.vue')
-  assert.match(roller, /@media \(max-width: 720px\) \{[\s\S]*?\.balance-status \{[^}]*top: 84px;[^}]*left: 50%;[^}]*transform: translateX\(-50%\);/)
-  assert.match(roller, /@media \(max-width: 720px\) \{[\s\S]*?\.display-container \{[^}]*top: 128px;/)
+  const flowMedia = /@media \(orientation: portrait\) and \(max-width: 767px\), \(max-height: 530px\) and \(max-width: 1100px\)/
+  // 窄屏/矮屏不再用绝对定位硬撑，而是切到 grid 流式布局，结果区自行滚动。
+  assert.match(roller, new RegExp(`${flowMedia.source} \\{[\\s\\S]*?--roller-flow-layout: 1;`))
+  assert.match(roller, /getComputedStyle\(view\)\.getPropertyValue\('--roller-flow-layout'\)\.trim\(\) === '1'/)
+  assert.match(roller, new RegExp(`${flowMedia.source}[\\s\\S]*?\\.roller-heading \\{[^}]*grid-area: heading;`))
+  assert.match(roller, new RegExp(`${flowMedia.source}[\\s\\S]*?\\.balance-status \\{[^}]*position: static;`))
+  assert.match(roller, new RegExp(`${flowMedia.source}[\\s\\S]*?\\.display-container \\{[^}]*grid-area: stage;[^}]*overflow: auto;`))
 })
 
 test('Web overlays keep their own fixed positions and Toasts stack from the top', async () => {

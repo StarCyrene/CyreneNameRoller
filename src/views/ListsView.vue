@@ -11,7 +11,7 @@
         <FluentButton variant="primary" size="sm" @click="router.push({ name: 'QRSend', query: { kind: 'names' } })">
           {{ lang === 'en' ? 'Sync to phone' : '同步到手机' }}
         </FluentButton>
-        <FluentButton variant="secondary" size="sm" @click="router.push({ name: 'QRReceive' })">
+        <FluentButton v-if="!compactNavigation" class="desktop-scan-entry" variant="secondary" size="sm" @click="router.push({ name: 'QRReceive' })">
           {{ lang === 'en' ? 'Scan to receive' : '扫码接收' }}
         </FluentButton>
         <FluentButton variant="secondary" size="sm" @click="router.push('/lists/manage')">
@@ -143,6 +143,7 @@ const settingsStore = useSettingsStore()
 const coreClient = getCoreClient()
 const lang = computed(() => settingsStore.settings.language)
 const showBanner = inject('banner')
+const compactNavigation = inject('compactNavigation', false)
 
 const listOptions = computed(() => namesStore.allLists.map(l => ({ value: l.id, label: l.name })))
 

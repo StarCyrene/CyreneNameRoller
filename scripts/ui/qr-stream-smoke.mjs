@@ -51,8 +51,15 @@ try {
   })
   await desktop.goto(origin + '/#/lists')
   await desktop.locator('button ::-p-text(Sync to phone)').click()
+  const fps = '.qr-rate .fluent-select'
+  await desktop.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('10 FPS'), {}, fps)
+  await desktop.click(fps)
+  await desktop.locator('.fluent-select-dropdown .select-option ::-p-text(15 FPS)').click()
+  await desktop.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('15 FPS'), {}, fps)
+  await desktop.click(fps)
+  await desktop.locator('.fluent-select-dropdown .select-option ::-p-text(10 FPS)').click()
   await desktop.waitForFunction(() => window.qrImages.length >= 32)
-  assert.equal(await desktop.$eval('.qr-controls select', select => select.value), '10')
+  assert.equal(await desktop.$('.qr-rate select'), null)
   const frames = await desktop.evaluate(() => window.qrImages.slice(0, 32))
   await desktop.close()
 
@@ -61,6 +68,7 @@ try {
   await setup(phone, null, { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
   await phone.evaluateOnNewDocument(dataUrls => {
     window.cameraTracks = []
+    window.focusRequests = []
     let requests = 0
     Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
       value: async constraints => {
@@ -81,6 +89,11 @@ try {
         const stream = canvas.captureStream(24)
         const [track] = stream.getVideoTracks()
         window.cameraTracks.push(track)
+        track.getCapabilities = () => ({ focusMode: ['continuous', 'single-shot'] })
+        track.getConstraints = () => ({ width: { ideal: 1280 } })
+        track.applyConstraints = async settings => {
+          window.focusRequests.push({ width: settings.width?.ideal, mode: settings.advanced.at(-1).focusMode })
+        }
         const timer = setInterval(() => {
           if (track.readyState === 'ended') { clearInterval(timer); return }
           ctx.fillRect(0, 0, 640, 480)
@@ -96,19 +109,30 @@ try {
   }, frames)
   await phone.goto(origin + '/#/lists')
   const nav = '.mobile-nav button[aria-controls="main-navigation"]'
+  const scan = '#main-navigation a[href="#/sync/receive"]'
   await phone.waitForSelector(nav, { visible: true })
+  assert.equal(await phone.$('.mobile-nav a[href="#/sync/receive"]'), null)
+  await phone.waitForSelector(scan, { hidden: true })
   await phone.click(nav)
-  await phone.waitForSelector('#main-navigation', { visible: true })
+  await phone.waitForSelector(scan, { visible: true })
   await phone.keyboard.press('Escape')
   await phone.waitForSelector('#main-navigation', { hidden: true })
-  await phone.click('.mobile-nav .scan-shortcut')
+  await phone.click(nav)
+  await phone.click(scan)
   await phone.waitForFunction(() => document.querySelector('.qr-error[role="alert"]')?.textContent.includes('permission was denied'))
+  assert.ok(await phone.$eval('.qr-send-from-device', el => el.getBoundingClientRect().height >= 43.5))
   await phone.locator('button ::-p-text(Start camera)').click()
+  await phone.waitForFunction(() => window.focusRequests[0]?.mode === 'continuous')
+  await phone.locator('button ::-p-text(Refocus)').click()
+  assert.deepEqual(await phone.evaluate(() => window.focusRequests.slice(0, 2)), [
+    {width: 1280, mode: 'continuous'}, {width: 1280, mode: 'single-shot'}
+  ])
   await phone.waitForSelector('.qr-success')
   await phone.waitForFunction(() => location.hash === '#/lists' && document.querySelectorAll('.person-item').length === 100)
   assert.equal(await phone.$eval('.person-cn', el => el.textContent), roster.names[0].cn)
   assert.deepEqual(await phone.evaluate(id => JSON.parse(localStorage.getItem('lists'))[id], roster.id), roster)
   assert.equal(await phone.evaluate(() => window.cameraRequest.video.facingMode.ideal), 'environment')
+  assert.equal(await phone.evaluate(() => window.cameraRequest.video.width.ideal), 1280)
   assert.equal(await phone.evaluate(() => window.cameraTracks[0].readyState), 'ended')
   await phone.reload()
   await phone.waitForFunction(() => document.querySelectorAll('.person-item').length === 100)
@@ -116,5 +140,8 @@ try {
   console.log('Desktop QR stream → mobile camera retry → worker decode with obstructions → persisted 100 names after reload.')
 } finally {
   await browser?.close()
-  await new Promise(resolve => server.httpServer.close(resolve))
+  await new Promise(resolve => {
+    server.httpServer.close(resolve)
+    server.httpServer.closeAllConnections?.()
+  })
 }

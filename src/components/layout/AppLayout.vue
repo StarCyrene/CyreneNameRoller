@@ -1,5 +1,5 @@
 <template>
-  <div ref="layoutRef" class="app-layout" data-plugin-style-surface="main" :class="[themeClass, { dark: settingsStore.darkMode, 'perf-no-blur': !settingsStore.settings.perfBlur, 'perf-no-shadow': !settingsStore.settings.perfShadows, 'perf-no-anim': !settingsStore.settings.perfAnimations }]" :style="themeStyle" @contextmenu.prevent>
+  <div ref="layoutRef" class="app-layout" data-plugin-style-surface="main" :class="[themeClass, { dark: settingsStore.darkMode, 'compact-nav': narrowDock, 'perf-no-blur': !settingsStore.settings.perfBlur, 'perf-no-shadow': !settingsStore.settings.perfShadows, 'perf-no-anim': !settingsStore.settings.perfAnimations }]" :style="themeStyle" @contextmenu.prevent>
     <PluginVisualLayers />
     <div ref="globalAnimationSurfaceRef" class="plugin-global-animation-surface" aria-hidden="true" />
     <TitleBar v-if="isDesktopApp" class="app-foreground-layer" :dock-collapsed="dockCollapsed" @toggle-dock="toggleDock" />
@@ -9,9 +9,6 @@
         <FluentIcon icon="line-horizontal-3-20-regular" :width="22" />
       </button>
       <span>{{ lang === 'en' ? 'Name Roller' : '随机点名器' }}</span>
-      <router-link v-if="currentRoute.path !== '/sync/receive'" to="/sync/receive" class="scan-shortcut" @click="drawerOpen = false">
-        <FluentIcon icon="qr-code-20-regular" :width="20" />{{ lang === 'en' ? 'Scan' : '扫码接收' }}
-      </router-link>
     </header>
     <div class="app-body app-foreground-layer">
       <NavigationDock id="main-navigation" v-show="!narrowDock || drawerOpen" :dock-collapsed="dockCollapsed" :phone-drawer="narrowDock"
@@ -166,8 +163,9 @@ const settingsStore = useSettingsStore()
 const layoutRef = ref(null)
 const rollerVersionHost = shallowRef(null)
 provide('rollerVersionHost', rollerVersionHost)
-const dockViewport = window.matchMedia('(orientation: portrait) and (max-width: 767px)')
+const dockViewport = window.matchMedia('(orientation: portrait) and (max-width: 767px), (orientation: landscape) and (max-height: 480px) and (pointer: coarse)')
 const narrowDock = ref(dockViewport.matches)
+provide('compactNavigation', narrowDock)
 const drawerOpen = ref(false)
 const mobileNavTrigger = ref(null)
 const dockCollapsed = computed(() => narrowDock.value ? !drawerOpen.value : !!settingsStore.settings.dockCollapsed)
@@ -244,8 +242,8 @@ const resolvedThemeTokens = computed(() => {
   return {}
 })
 const themeStyle = computed(() => {
-  const settings = settingsStore.settings
-  return { fontSize: (14 * (settings.uiScale || 100) / 100) + 'px', ...resolvedThemeTokens.value }
+  const scale = (settingsStore.settings.uiScale || 100) / 100
+  return { '--app-user-scale': scale, fontSize: (14 * scale) + 'px', ...resolvedThemeTokens.value }
 })
 const pointerEffects = usePointerEffects({
   router,
@@ -1284,8 +1282,7 @@ watch(() => settingsStore.settings.fontFamily, (val) => {
 
 /* Page transitions */
 
-@media (orientation: portrait) and (max-width: 767px) {
-  .app-body { flex-direction: column; }
-  .banner-container { top: calc(44px + env(safe-area-inset-top, 0px)); left: 0; }
-}
+.compact-nav .app-body { flex-direction: column; }
+.compact-nav .app-content { height: auto; font-size: 14px; zoom: var(--app-user-scale, 1); }
+.compact-nav .banner-container { top: calc(var(--compact-header-height) + env(safe-area-inset-top, 0px)); left: 0; }
 </style>

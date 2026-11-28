@@ -1,5 +1,5 @@
 <template>
-  <nav ref="dockRef" class="dock" :data-swarm-persist="phoneDrawer ? null : ''" data-plugin-component="navigation.dock" :class="{ collapsed: dockCollapsed, 'secondary-open': Boolean(activeSecondaryMenu) }" :style="pluginsStore.componentStyleStyle('navigation.dock')" @keydown.esc="$emit('close-drawer')" @click="onDockClick">
+  <nav ref="dockRef" class="dock" :data-swarm-persist="phoneDrawer ? null : ''" data-plugin-component="navigation.dock" :class="{ collapsed: dockCollapsed, 'phone-drawer': phoneDrawer, 'secondary-open': Boolean(activeSecondaryMenu) }" :style="pluginsStore.componentStyleStyle('navigation.dock')" @keydown.esc="$emit('close-drawer')" @click="onDockClick">
     <div
       v-show="indicatorVisible"
       ref="indicatorRef"
@@ -19,6 +19,11 @@
       </div>
 
       <div class="dock-items">
+        <router-link v-if="phoneDrawer" to="/sync/receive" class="dock-item" :class="{ active: route.path === '/sync/receive' }"
+          draggable="false" @click="closeSecondaryMenu">
+          <Icon icon="fluent:camera-20-regular" :width="20" class="dock-item-icon" />
+          <span class="dock-item-label">{{ lang === 'en' ? 'Scan to receive' : '扫码接收' }}</span>
+        </router-link>
         <template v-for="item in mainItems" :key="item.id">
           <router-link
             v-if="item.to"
@@ -385,7 +390,7 @@ const secondaryMenus = computed(() => ({
     items: [
       { id: 'people', label: t('personnelList', lang.value), icon: 'person-20-regular', to: '/lists' },
       { id: 'sync-send', label: lang.value === 'en' ? 'Sync to phone' : '同步到手机', icon: 'qr-code-20-regular', to: '/sync/send' },
-      { id: 'sync-receive', label: lang.value === 'en' ? 'Scan to receive' : '扫码接收', icon: 'camera-20-regular', to: '/sync/receive' },
+      ...(props.phoneDrawer ? [] : [{ id: 'sync-receive', label: lang.value === 'en' ? 'Scan to receive' : '扫码接收', icon: 'camera-20-regular', to: '/sync/receive' }]),
       { id: 'groups', label: lang.value === 'en' ? 'Groups' : '小组名单', icon: 'people-team-20-regular', to: '/group-manage' },
       { id: 'prizes', label: lang.value === 'en' ? 'Prizes' : '奖品管理', icon: 'clipboard-bullet-list-20-regular', to: '/lottery/prizes' }
     ]
@@ -545,20 +550,17 @@ onBeforeUnmount(() => {
   border-top: 1px solid var(--border-subtle);
 }
 
-@media (orientation: portrait) and (max-width: 767px) {
-  .dock {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 100;
-    box-shadow: var(--shadow-8);
-  }
-
-  .dock:not(.collapsed) { width: min(18rem, 84vw); }
-  .dock-top { display: none; }
-  .dock-item { min-height: 44px; }
+.dock.phone-drawer {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 100;
+  box-shadow: var(--shadow-8);
 }
+.dock.phone-drawer:not(.collapsed) { width: min(18rem, 84vw); }
+.phone-drawer .dock-top { display: none; }
+.phone-drawer .dock-primary { overflow-y: auto; }
+.phone-drawer .dock-items { flex: none; overflow: visible; }
+.phone-drawer .dock-item { min-height: 44px; }
 
 @media (prefers-reduced-motion: reduce) {
   .dock-item { transition-duration: 0ms; }

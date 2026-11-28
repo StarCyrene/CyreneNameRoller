@@ -1,15 +1,17 @@
 <template>
   <div class="splash-root" :class="{ fading, 'no-fade-motion': settingsStore.settings.perfAnimations === false }" ref="stage" @transitionend.self="onFadeEnd">
-    <div class="splash-stage">
-      <div class="brand" ref="brand">
-        <div class="logo-shift" ref="ls">
-          <div class="logo-wrap">
-            <img class="logo" :src="LOGO" alt="Logo" @error="onLogoError" />
-          </div>
-          <div class="text-clip">
-            <div class="brand-text" ref="bt">
-              <span class="text-main" ref="t1">Cyrene</span>
-              <span class="text-sub" ref="t2">{{ subText }}</span>
+    <div ref="center" class="splash-center">
+      <div class="splash-stage">
+        <div class="brand" ref="brand">
+          <div class="logo-shift" ref="ls">
+            <div class="logo-wrap">
+              <img class="logo" :src="LOGO" alt="Logo" @error="onLogoError" />
+            </div>
+            <div class="text-clip">
+              <div class="brand-text" ref="bt">
+                <span class="text-main" ref="t1">Cyrene</span>
+                <span class="text-sub" ref="t2">{{ subText }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -56,6 +58,7 @@ const lang = computed(() => settingsStore.settings.language)
 const subText = computed(() => t('splashSub', lang.value))
 
 const stage = ref(null)
+const center = ref(null)
 const brand = ref(null)
 const ls = ref(null)
 const bt = ref(null)
@@ -70,6 +73,8 @@ const FALLBACK_LOGO =
 let timers = []
 let fadeFrame = 0
 let finished = false
+let resize
+let lastTextWidth
 function at(ms, fn) {
   timers.push(setTimeout(fn, ms))
 }
@@ -108,16 +113,26 @@ function onLogoError(e) {
 
 function measure() {
   const s = stage.value
-  if (!s || !ls.value || !bt.value || !t1.value || !t2.value) return
-  ls.value.style.transition = 'none'
-  bt.value.style.transition = 'none'
+  const area = center.value
+  if (!s || !area || !ls.value || !bt.value || !t1.value || !t2.value) return
+  // The animated title starts outside the logo's layout box. Fit against
+  // its full expanded width while preserving the desktop reveal geometry.
+  const gap = parseFloat(getComputedStyle(bt.value).marginLeft)
   const tw = Math.max(t1.value.offsetWidth, t2.value.offsetWidth)
-  s.style.setProperty('--shift', (29 + tw) / 2 + 'px')
-  s.style.setProperty('--clip-w', 29 + tw + 14 + 'px')
-  void ls.value.offsetHeight
-  ls.value.style.transition = ''
-  bt.value.style.transition = ''
-  void ls.value.offsetHeight
+  const scale = Math.min(1.5,
+    Math.max(1, area.clientWidth - 32) / (ls.value.offsetWidth + gap + tw),
+    Math.max(1, area.clientHeight - 24) / ls.value.offsetHeight)
+  s.style.setProperty('--splash-scale', String(scale))
+  if (tw !== lastTextWidth) {
+    lastTextWidth = tw
+    ls.value.style.transition = 'none'
+    bt.value.style.transition = 'none'
+    s.style.setProperty('--shift', (gap + tw) / 2 + 'px')
+    s.style.setProperty('--clip-w', gap + tw + 14 + 'px')
+    void ls.value.offsetHeight
+    ls.value.style.transition = ''
+    bt.value.style.transition = ''
+  }
 }
 
 onMounted(() => {
@@ -128,6 +143,13 @@ onMounted(() => {
   measure()
 
   watch(lang, () => nextTick(measure))
+  document.fonts?.ready.then(measure)
+  if (typeof ResizeObserver === 'function') {
+    resize = new ResizeObserver(measure)
+    resize.observe(center.value)
+    resize.observe(t1.value)
+    resize.observe(t2.value)
+  } else window.addEventListener('resize', measure)
 
   at(48, () => runSplashPop(brand.value?.querySelector('.logo-wrap')))
   at(760, () => brand.value.classList.add('expanded'))
@@ -135,6 +157,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  resize?.disconnect()
+  window.removeEventListener('resize', measure)
   timers.forEach(clearTimeout)
   timers = []
   cancelAnimationFrame(fadeFrame)
@@ -150,6 +174,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   background: #fdf5fa;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   overflow: hidden;
   opacity: 1;
   transition: opacity 0.32s ease;
@@ -251,9 +276,15 @@ onBeforeUnmount(() => {
   opacity: 0.7;
   line-height: 1.6;
 }
-/* 启动动画整体基准缩放 150%（独立于全局 --ui-scale） */
+.splash-center {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
 .splash-stage {
-  transform: scale(1.5);
+  transform: scale(var(--splash-scale, 1.5));
   transform-origin: center;
   will-change: transform;
 }
@@ -322,5 +353,22 @@ onBeforeUnmount(() => {
   opacity: 0.58;
   letter-spacing: 0.06em;
   font-weight: 500;
+}
+
+@media (max-width: 560px), (max-height: 480px) {
+  .splash-root {
+    display: grid;
+    grid-template: minmax(0, 1fr) auto / minmax(0, 1fr);
+  }
+  .splash-footer {
+    position: relative;
+    gap: 6px;
+    padding: 8px 12px 12px;
+    text-align: center;
+  }
+  .splash-footer-main { gap: 8px 18px; }
+  .splash-footer .footer-creator-sep { display: none; }
+  .splash-footer .footer-avatar,
+  .splash-footer .footer-org-icon { width: 32px; height: 32px; }
 }
 </style>

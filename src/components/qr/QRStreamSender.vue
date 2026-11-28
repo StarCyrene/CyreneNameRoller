@@ -11,11 +11,10 @@
       <FluentButton variant="primary" :disabled="!encoderReady" @click="running ? pause() : play()">
         {{ running ? (en ? 'Pause' : '暂停传输') : (en ? 'Start' : '开始传输') }}
       </FluentButton>
-      <label>{{ en ? 'Speed' : '帧率' }}
-        <select v-model.number="fps">
-          <option v-for="rate in [3, 5, 10, 15, 20, 30]" :key="rate" :value="rate">{{ rate }} FPS</option>
-        </select>
-      </label>
+      <div class="qr-rate">
+        <span id="qr-rate-label">{{ en ? 'Frame rate' : '帧率' }}</span>
+        <FluentSelect v-model="fps" :options="frameRates" width="120px" aria-labelledby="qr-rate-label" />
+      </div>
     </div>
     <p class="qr-status">
       {{ running ? (en ? 'Sending' : '正在发送') : (en ? 'Paused' : '已暂停') }} ·
@@ -43,6 +42,7 @@ const settings = useSettingsStore()
 const en = computed(() => props.english ?? (settings.settings.language === 'en'))
 const url = ref('')
 const fps = ref(10)
+const frameRates = [3, 5, 10, 15, 20, 30].map(value => ({ value, label: value + ' FPS' }))
 const framesPerPass = ref(0)
 const sent = ref(0)
 const running = ref(false)
@@ -100,8 +100,8 @@ onBeforeUnmount(() => { disposed = true; pause(); encoder?.close?.(); encoder = 
 .qr-display { display: grid; place-items: center; width: min(100%, 52vh, 30rem); aspect-ratio: 1; background: #fff; color: #323232; border: 1px solid var(--border-subtle); }
 .qr-display img { display: block; width: 100%; height: auto; image-rendering: pixelated; }
 .qr-controls { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; justify-content: center; }
-.qr-controls label, .qr-status { color: var(--text-secondary); }
-.qr-controls select { min-height: 36px; margin-inline-start: .4rem; padding-inline: .45rem; color: var(--text-primary); background: var(--bg-card-solid); border: 1px solid var(--border-default); border-radius: var(--radius-sm); }
+.qr-rate { display: flex; gap: .5rem; align-items: center; }
+.qr-rate, .qr-status { color: var(--text-secondary); }
 .qr-status { font-size: .9rem; font-variant-numeric: tabular-nums; }
 .qr-error { color: var(--danger, #ad243e); }
 </style>

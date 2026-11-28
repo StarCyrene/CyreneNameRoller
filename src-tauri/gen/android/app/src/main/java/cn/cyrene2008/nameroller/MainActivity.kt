@@ -1,7 +1,10 @@
 package cn.cyrene2008.nameroller
 
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.webkit.WebView
+import android.widget.FrameLayout
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -12,17 +15,30 @@ class MainActivity : TauriActivity() {
     super.onCreate(savedInstanceState)
   }
 
-  override fun onWebViewCreate(webView: WebView) {
-    super.onWebViewCreate(webView)
-    // Keep the app viewport inside system bars and cutouts, even on old WebViews
-    // that don't pass those Android insets to CSS env(safe-area-inset-*).
-    ViewCompat.setOnApplyWindowInsetsListener(webView) { view, insets ->
+  override fun setContentView(view: View?) {
+    if (view !is WebView) {
+      super.setContentView(view)
+      return
+    }
+
+    // Wry installs the WebView directly via setContentView. Inset its native
+    // container so the WebView's measured bounds (including fixed-position
+    // HTML) stay clear of the system chrome on every WebView provider.
+    val container = object : FrameLayout(this) {
+      override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        ViewCompat.requestApplyInsets(this)
+      }
+    }
+    ViewCompat.setOnApplyWindowInsetsListener(container) { frame, insets ->
       val safe = insets.getInsets(
         WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or
           WindowInsetsCompat.Type.ime()
       )
-      view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+      frame.setPadding(safe.left, safe.top, safe.right, safe.bottom)
       WindowInsetsCompat.CONSUMED
     }
+    container.addView(view, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+    super.setContentView(container)
   }
 }

@@ -47,7 +47,9 @@ try {
   })
   for (const viewport of [{ width: 1440, height: 850 }, { width: 390, height: 715 }]) {
     await page.setViewport(viewport)
-    await page.goto(origin + '/#/roller', { waitUntil: 'domcontentloaded' })
+    // 附带 query 以强制真实导航：同 URL 的 goto 不会重新加载，会把上一轮
+    // 的焦点与滚动位置带进本轮测量。
+    await page.goto(origin + '/?viewport=' + viewport.width + '#/roller', { waitUntil: 'domcontentloaded' })
     await page.waitForSelector('.tool-version-host .version-badge')
     await page.waitForSelector('.start-btn:not(.btn-dimmed)')
     await page.waitForFunction(() => document.querySelector('.dock')?.getAnimations().every(a => a.playState !== 'running'))
@@ -62,12 +64,12 @@ try {
       await page.waitForSelector('.strip-next')
       const scrollbar = '.tool-scrollbar.fluent-scroll-bar.orientation-horizontal'
       await page.waitForSelector(scrollbar)
-      assert.equal(await page.$('.strip-back'), null)
+      assert.ok(await page.$('.strip-back:disabled'))
       const thumb = scrollbar + ' .scroll-bar-thumb'
       const thumbStart = await page.$eval(thumb, t => t.style.left)
-      for (let i = 0; i < 12 && await page.$('.strip-next'); i++) await page.click('.strip-next')
-      assert.equal(await page.$('.strip-next'), null, 'no forward hint at the last tool')
-      assert.ok(await page.$('.strip-back'))
+      for (let i = 0; i < 12 && await page.$('.strip-next:not(:disabled)'); i++) await page.click('.strip-next')
+      assert.ok(await page.$('.strip-next:disabled'), 'forward is disabled at the last tool')
+      assert.ok(await page.$('.strip-back:not(:disabled)'))
       assert.ok(parseFloat(await page.$eval(thumb, t => t.style.left)) > parseFloat(thumbStart), 'arrows move the library thumb')
       assert.equal(await page.$eval('.tool-tab[aria-selected=true]', t => t.id), 'roller-tab-Roller', 'paging must not switch tools')
       assert.equal((await measure()).top, initial.top, 'overflow controls must not change footer height')

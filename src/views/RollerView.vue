@@ -1,16 +1,22 @@
 <template>
   <div class="roller-view" ref="rollerViewRef">
-    <h1 class="roller-title">{{ t('h1', lang) }}</h1>
-    <div class="balance-status" :class="{ enabled: balanceSettings.enabled }">
-      <FluentIcon :icon="balanceSettings.enabled ? 'fluent:shield-checkmark-24-regular' : 'fluent:shield-error-24-regular'" :width="18" />
-      <span>{{ balanceSettings.enabled ? (lang === 'en' ? 'Balance enabled' : '平衡算法已启用') : (lang === 'en' ? 'Balance disabled' : '平衡算法未启用') }}</span>
+    <div class="roller-heading">
+      <h1 class="roller-title">{{ t('h1', lang) }}</h1>
+      <div class="balance-status" :class="{ enabled: balanceSettings.enabled }">
+        <FluentIcon :icon="balanceSettings.enabled ? 'fluent:shield-checkmark-24-regular' : 'fluent:shield-error-24-regular'" :width="18" />
+        <span>{{ balanceSettings.enabled ? (lang === 'en' ? 'Balance enabled' : '平衡算法已启用') : (lang === 'en' ? 'Balance disabled' : '平衡算法未启用') }}</span>
+      </div>
     </div>
     <PluginSlot class="roller-plugin-side-panel" slot="slot:roller.side-panel" />
 
     <div
       class="display-container"
+      :class="{ 'is-rolling': isRunning }"
       data-plugin-component="roller.result"
       ref="displayRef"
+      :tabindex="flowLayout ? 0 : undefined"
+      :role="flowLayout ? 'region' : undefined"
+      :aria-label="flowLayout ? (lang === 'en' ? 'Draw results' : '点名结果') : undefined"
       :style="pluginsStore.componentStyleStyle('roller.result')"
     >
       <div
@@ -215,6 +221,7 @@ function initializeDisplays(count) {
   nameTextRefs.length = 0
   nameTextCache.length = 0
   nameTextPeople.length = 0
+  if (displayRef.value) displayRef.value.scrollTop = 0
   const pool = settings.value.groupMode ? getCurrentPool() : availableNames.value
   for (let i = 0; i < count; i++) {
     const src = pool.length ? pool[Math.floor(Math.random() * pool.length)] : { cn: '...', en: '' }
@@ -228,7 +235,7 @@ function initializeDisplays(count) {
 
 function getNameStyle(display, i) {
   const style = { opacity: display.opacity }
-  const layout = nameLayout.value[i]
+  const layout = flowLayout.value ? null : nameLayout.value[i]
   if (layout) {
     style.left = layout.x + 'px'
     style.top = layout.y + 'px'
@@ -237,6 +244,8 @@ function getNameStyle(display, i) {
     const fittedFontSize = nameFontSize.value * (settings.value.nameFontSize || 1)
     style.fontSize = `min(var(--plugin-component-roller-result-font-size, var(--plugin-component-roller-result-size, ${fittedFontSize}px)), ${fittedFontSize}px)`
     style['--reveal-scale'] = gridParams.revealScale
+  } else if (flowLayout.value) {
+    style['--result-font-scale'] = settings.value.nameFontSize || 1
   }
   if (settings.value.nameColorMode === 'custom') {
     const color = settingsStore.darkMode
@@ -691,6 +700,7 @@ const rollerViewRef = ref(null)
 const displayRef = ref(null)
 const controlsCenterRef = ref(null)
 const probeRef = ref(null)
+const flowLayout = ref(false)
 const nameFontSize = ref(52)
 const nameLayout = ref([])
 
@@ -717,7 +727,7 @@ function getPoolMaxWidth() {
 
 function computeGridParams() {
   const cont = displayRef.value
-  if (!cont || nameDisplays.length === 0) { gridParams.valid = false; return }
+  if (!cont || flowLayout.value || nameDisplays.length === 0) { gridParams.valid = false; return }
   const cW = cont.clientWidth
   const cH = cont.clientHeight
   const factor = settings.value.nameFontSize || 1
@@ -918,6 +928,7 @@ function getControlsExclusion(container, containerWidth, containerHeight) {
 }
 
 function computeNameLayout() {
+  if (flowLayout.value) return
   const n = nameDisplays.length
   if (!displayRef.value || n === 0) { nameFontSize.value = 52; nameLayout.value = []; return }
   if (!gridParams.valid || gridParams.count !== n) computeGridParams()
@@ -926,7 +937,16 @@ function computeNameLayout() {
   nameLayout.value = gridParams.positions.slice(0, n)
 }
 
-function onResize() { computeGridParams(); computeNameLayout() }
+function onResize() {
+  const view = rollerViewRef.value
+  const flow = view && getComputedStyle(view).getPropertyValue('--roller-flow-layout').trim() === '1'
+  if (flowLayout.value !== flow) {
+    flowLayout.value = flow
+    nameLayout.value = []
+    if (displayRef.value) displayRef.value.scrollTop = 0
+  }
+  if (!flow) { computeGridParams(); computeNameLayout() }
+}
 
 let layoutObserver = null
 
@@ -957,6 +977,7 @@ onMounted(() => {
   })
   watch(() => [settings.value.multiMode, settings.value.groupMode, settings.value.forbidDuplicates, settings.value.peopleCount, settings.value.nameFontSize], () => nextTick(() => { computeGridParams(); computeNameLayout() }))
   layoutObserver = new ResizeObserver(onResize)
+  onResize()
   if (displayRef.value) layoutObserver.observe(displayRef.value)
   if (controlsCenterRef.value) layoutObserver.observe(controlsCenterRef.value)
   window.addEventListener('resize', onResize)
@@ -966,6 +987,7 @@ onBeforeUnmount(() => { stopRollTicker(); clearTimeout(autoStopTimer); clearInte
 
 <style scoped>
 .roller-view { padding: 32px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100%; position: relative; }
+.roller-heading { display: contents; }
 .roller-title { font-family: var(--font-display); font-size: 28px; font-weight: 700; color: var(--text-primary); margin-bottom: 24px; width: 100%; text-align: center; position: absolute; top: 32px; left: 0; right: 0; z-index: 5; }
 .balance-status { position: absolute; top: 28px; right: 28px; z-index: 8; display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 0 11px; border: 1px solid color-mix(in srgb, var(--text-muted) 45%, transparent); border-radius: var(--radius-sm); color: var(--text-muted); background: color-mix(in srgb, var(--bg-card-solid) 68%, transparent); backdrop-filter: blur(10px); font-size: 12px; opacity: 0.82; }
 .balance-status.enabled { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 48%, transparent); }
@@ -1043,8 +1065,70 @@ onBeforeUnmount(() => { stopRollTicker(); clearTimeout(autoStopTimer); clearInte
 .toggle-expand-leave-active { animation: toggle-in 0.15s ease-in reverse; }
 @keyframes toggle-in { from { opacity: 0; transform: translateY(-8px); max-height: 0; } to { opacity: 1; transform: translateY(0); max-height: 40px; } }
 
-@media (max-width: 720px) {
-  .balance-status { top: 84px; right: auto; left: 50%; max-width: calc(100% - 80px); transform: translateX(-50%); white-space: nowrap; }
-  .display-container { top: 128px; }
+@media (orientation: portrait) and (max-width: 767px), (max-height: 530px) and (max-width: 1100px) {
+  .roller-view {
+    --roller-flow-layout: 1;
+    --roller-stage-min-height: 104px;
+    display: grid;
+    grid-template: 'heading' auto 'side' auto 'stage' minmax(var(--roller-stage-min-height), 1fr) 'controls' auto 'plugin' auto / minmax(0, 1fr);
+    align-items: stretch;
+    justify-content: stretch;
+    height: 100%;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .roller-heading { display: flex; grid-area: heading; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 5px 10px; }
+  .roller-title { position: static; width: auto; margin: 0; font-size: clamp(1.125rem, 4.8vw, 1.5rem); line-height: 1.25; text-align: start; }
+  .balance-status { position: static; min-height: 26px; white-space: nowrap; padding-inline: 8px; }
+  .display-container {
+    position: static;
+    grid-area: stage;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 7rem), 1fr));
+    align-content: start;
+    align-content: safe center;
+    gap: 4px;
+    overflow: auto;
+    pointer-events: auto;
+    min-width: 0;
+    min-height: 0;
+    border-radius: var(--plugin-component-roller-result-radius, var(--radius-md));
+    background: var(--plugin-component-roller-result-background, var(--bg-card));
+  }
+  .display-container:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .name-display {
+    --flow-font-size: clamp(15px, calc(18px * var(--result-font-scale, 1)), 28px);
+    position: relative;
+    inset: auto;
+    min-width: 0;
+    padding: 6px 3px;
+    font-size: min(var(--plugin-component-roller-result-font-size, var(--plugin-component-roller-result-size, 3rem)), var(--flow-font-size));
+    line-height: 1.3;
+    text-align: center;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .name-display:only-child { --flow-font-size: clamp(1.5rem, calc(2.5rem * var(--result-font-scale, 1)), 3.25rem); }
+  .name-display :deep(.verified-result) { max-width: 100%; }
+  .is-rolling .name-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .controls-center { position: static; grid-area: controls; width: 100%; gap: 6px; }
+  .switches { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.25rem), 1fr)); }
+  .switches :deep(.fluent-tabs-list) { min-width: 0; }
+  .switches :deep(.fluent-tab) { min-width: 0; min-height: 36px; padding: 3px 4px; text-align: center; font-size: 12px; line-height: 1.15; overflow-wrap: anywhere; }
+  .switches :deep(.fluent-tab svg), .switches :deep(.fluent-tab-symbol) { display: none; }
+  .list-selector-bar { padding: 6px 8px; }
+  .list-selector-bar :deep(.fluent-select) { min-width: 0; }
+  .start-btn { width: 100%; margin-top: 2px; }
+  .roller-plugin-side-panel, .roller-plugin-below-result { position: static; width: 100%; max-width: none; }
+  .roller-plugin-side-panel { grid-area: side; }
+  .roller-plugin-below-result { grid-area: plugin; }
+}
+
+@media (orientation: landscape) and (max-height: 530px) and (max-width: 1100px) {
+  .roller-view {
+    grid-template: 'heading heading' auto 'side side' auto 'stage controls' minmax(min-content, 1fr) 'plugin plugin' auto / minmax(0, 1fr) minmax(15rem, 42%);
+  }
+  .display-container { contain: size; min-height: var(--roller-stage-min-height); }
+  .controls-center { align-self: end; }
 }
 </style>

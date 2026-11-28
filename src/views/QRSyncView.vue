@@ -6,6 +6,12 @@
         <p>{{ sending ? tr('在接收设备上打开「扫码接收」。两台设备无需连接同一网络。', 'Open Scan to receive on the other device. No shared network is needed.') : tr('可接收人员名单、奖品单或完整的程序备份。', 'Receive a people list, a prize list, or a full app backup.') }}</p>
       </header>
 
+      <FluentButton v-if="!sending && !['saving','done'].includes(state)" class="qr-send-from-device"
+        variant="primary" @click="router.push({ name: 'QRSend' })">
+        <FluentIcon icon="arrow-upload-20-regular" :width="20" />
+        {{ tr('从此设备发送', 'Send from this device') }}
+      </FluentButton>
+
       <nav v-if="sending" class="qr-kinds" :aria-label="tr('发送内容', 'What to send')">
         <RouterLink v-for="item in choices" :key="item.id" :to="{ name: 'QRSend', query: { kind: item.id } }"
           replace :aria-current="kind === item.id ? 'true' : 'false'" :class="{ selected: kind === item.id }">{{ item.name }}</RouterLink>
@@ -42,15 +48,15 @@
       </div>
       <p v-else role="status">{{ state === 'saving' ? tr('正在保存…', 'Saving…') : tr('正在准备…', 'Preparing…') }}</p>
 
-      <RouterLink v-if="!['saving','done'].includes(state)" class="qr-link" :to="{ name: sending ? 'QRReceive' : 'QRSend' }">
-        {{ sending ? tr('在此设备扫码接收', 'Scan to receive on this device') : tr('从此设备发送', 'Send from this device') }}
+      <RouterLink v-if="sending && !compactNavigation && !['saving','done'].includes(state)" class="qr-link desktop-scan-entry" :to="{ name: 'QRReceive' }">
+        {{ tr('在此设备扫码接收', 'Scan to receive on this device') }}
       </RouterLink>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSettingsStore } from '../stores/settings'
 import { dataBridge } from '../utils/dataBridge.js'
@@ -61,6 +67,7 @@ import QRStreamReceiver from '../components/qr/QRStreamReceiver.vue'
 const props = defineProps({ mode: { type: String, required: true } })
 const route = useRoute()
 const router = useRouter()
+const compactNavigation = inject('compactNavigation', false)
 const settings = useSettingsStore()
 const english = computed(() => settings.settings.language === 'en')
 const tr = (zh, en) => english.value ? en : zh
@@ -164,7 +171,7 @@ h1 { font-family: var(--font-display); font-size: 1.5rem; }
 h2 { font-size: 1.15rem; }
 header p, .qr-panel p, .qr-list-info { margin-top: .35rem; color: var(--text-secondary); line-height: 1.5; }
 .qr-kinds, .qr-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.qr-kinds a, button { padding: 8px 12px; border: 1px solid var(--border-default); border-radius: var(--radius-sm); font: inherit; font-size: 14px; background: var(--bg-card-solid); color: var(--text-primary); cursor: pointer; text-decoration: none; }
+.qr-kinds a, .qr-panel button { padding: 8px 12px; border: 1px solid var(--border-default); border-radius: var(--radius-sm); font: inherit; font-size: 14px; background: var(--bg-card-solid); color: var(--text-primary); cursor: pointer; text-decoration: none; }
 .qr-kinds .selected, .qr-submit { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .qr-submit.destructive { color: #b42332; border-color: currentColor; }
 :global(.dark) .destructive { color: #ff9caa; }
@@ -176,6 +183,11 @@ button:disabled { opacity: .55; cursor: default; }
 .qr-success { justify-items: center; text-align: center; }
 .qr-success span { font-size: 2rem; color: var(--accent); }
 .qr-link { justify-self: start; color: var(--accent); }
+.qr-send-from-device {
+  justify-content: center;
+  width: min(100%, 20rem);
+  min-height: max(44px, calc(44px / var(--app-user-scale, 1)));
+}
 @media (prefers-reduced-motion: no-preference) {
   .qr-success span { animation: qr-arrive .32s ease-out; }
   @keyframes qr-arrive { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: scale(1); } }
