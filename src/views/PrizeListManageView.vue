@@ -52,7 +52,7 @@
     </FluentCard>
 
     <FluentModal v-model="showDelete" :title="lang === 'en' ? 'Delete prize list' : '删除奖品单'">
-      <p>{{ lang === 'en' ? `Delete ${deletingList?.name}? This cannot be undone.` : `确定删除「${deletingList?.name}」吗？此操作无法撤销。` }}</p>
+      <p>{{ lang === 'en' ? 'Delete this prize list? This cannot be undone.' : '确定删除这个奖品单吗？此操作无法撤销。' }} <strong translate="no">{{ deletingList?.name }}</strong></p>
       <template #footer><FluentButton variant="secondary" @click="showDelete = false">{{ lang === 'en' ? 'Cancel' : '取消' }}</FluentButton><FluentButton variant="danger" @click="deleteList">{{ lang === 'en' ? 'Delete' : '删除' }}</FluentButton></template>
     </FluentModal>
   </div>
@@ -82,7 +82,7 @@ const showDelete = ref(false)
 const deletingList = ref(null)
 
 function stockOf(list) { return list.prizes.reduce((sum, prize) => sum + prize.quantity, 0) }
-function notifyError(message) { showBanner({ message, icon: 'warning-16-regular', type: 'warning', duration: 8000 }) }
+function notifyError(message, privateDetail) { showBanner({ message, privateDetail, icon: 'warning-16-regular', type: 'warning', duration: 8000 }) }
 const saving = ref(false)
 async function writeList(action) {
   if (saving.value) return false
@@ -110,19 +110,19 @@ async function exportList(list) {
   const content = extension === 'csv' ? serializePrizeListCsv(list) : JSON.stringify(list, null, 2)
   const result = await saveTextFile(content, `${safeName}.${extension}`, extension)
   if (result?.success) showBanner({ message: lang.value === 'en' ? 'Prize list exported' : '奖品单导出成功', icon: 'checkmark-circle-16-regular', type: 'success', duration: 5000 })
-  else if (!result?.cancelled) notifyError(result?.error || (lang.value === 'en' ? 'Export failed' : '导出失败'))
+  else if (!result?.cancelled) notifyError(lang.value === 'en' ? 'Export failed' : '导出失败', result?.error)
 }
 async function importList() {
   const result = await openTextFile(importFormat.value)
-  if (!result?.success) { if (!result?.cancelled) notifyError(result?.error || (lang.value === 'en' ? 'Import failed' : '导入失败')); return }
+  if (!result?.success) { if (!result?.cancelled) notifyError(lang.value === 'en' ? 'Import failed' : '导入失败', result?.error); return }
   try {
     const value = importFormat.value === 'csv' ? parsePrizeListCsv(result.content) : JSON.parse(result.content)
     const imported = await writeList(() => prizes.importList(value))
     if (!imported) return
     if (!imported.success) throw new Error(imported.error)
     if (result.filePath) emitFileNotice(`${lang.value === 'en' ? 'Prize list imported' : '奖品单已导入'}：${result.filePath}`, result.filePath)
-    showBanner({ message: `${lang.value === 'en' ? 'Imported' : '导入成功'}：${imported.list.name}`, icon: 'checkmark-circle-16-regular', type: 'success', duration: 5000 })
-  } catch (error) { notifyError(`${lang.value === 'en' ? 'Invalid prize list' : '奖品单格式无效'}：${error.message}`) }
+    showBanner({ message: lang.value === 'en' ? 'Imported' : '导入成功', privateDetail: imported.list.name, icon: 'checkmark-circle-16-regular', type: 'success', duration: 5000 })
+  } catch (error) { notifyError(lang.value === 'en' ? 'Invalid prize list' : '奖品单格式无效', error.message) }
 }
 onMounted(() => prizes.initialize())
 </script>

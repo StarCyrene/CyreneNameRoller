@@ -8,21 +8,22 @@
     <!-- 基本设置 -->
     <FluentCard v-if="section === 'general'" class="settings-section">
       <h3 class="section-title"><FluentIcon icon="options-24-regular" :width="20" /> {{ lang === 'en' ? 'General' : '基本设置' }}</h3>
-      <div class="setting-row">
-        <span class="setting-label">{{ lang === 'en' ? 'Language' : '语言' }}</span>
-        <FluentSelect :model-value="settings.language" :options="langOptions" width="200px" @update:model-value="update('language', $event)" />
-      </div>
-      <div class="setting-row extra-language-row">
+      <div class="setting-row language-setting">
         <div class="setting-label-group">
-          <span class="setting-label">
-            {{ lang === 'en' ? 'Additional language' : '额外语言' }}
-            <span class="setting-beta">Beta</span>
-          </span>
-          <span class="setting-desc extra-language-desc">{{ extraLanguageHint }}</span>
+          <label for="interface-language" class="setting-label">{{ lang === 'en' ? 'Interface language' : '界面语言' }}</label>
+          <p id="interface-language-hint" class="setting-desc">{{ extraLanguageHint }}</p>
         </div>
-        <div class="extra-language-control">
-          <FluentSelect :model-value="settings.extraLanguage || ''" :options="extraLanguageOptions" width="170px" @update:model-value="update('extraLanguage', $event)" />
-          <FluentButton v-if="settings.extraLanguage" variant="secondary" size="sm" @click="clearExtraLanguageCache">
+        <div class="language-controls">
+          <select id="interface-language" class="locale-select" translate="no" aria-describedby="interface-language-hint"
+            :value="localeChoice" @change="changeInterfaceLanguage($event.target.value)">
+            <optgroup :label="localeGroupLabels[0]">
+              <option v-for="option in NATIVE_LANGUAGES" :key="option.value" :value="option.value" :lang="option.lang">{{ option.label }}</option>
+            </optgroup>
+            <optgroup :label="localeGroupLabels[1]">
+              <option v-for="option in EXTRA_LANGUAGES" :key="option.value" :value="option.value" :lang="option.lang">{{ option.label }}</option>
+            </optgroup>
+          </select>
+          <FluentButton v-if="settings.extraLanguage" class="translation-cache-action" variant="subtle" size="sm" @click="clearExtraLanguageCache">
             {{ lang === 'en' ? 'Clear cache' : '清除缓存' }}
           </FluentButton>
         </div>
@@ -642,7 +643,8 @@ import { isTauri, tauriAPI } from '../utils/tauriAPI'
 import { updateState, checkForUpdates, downloadUpdate, getDownloadUrl } from '../utils/updater'
 import { fetchCompassReleases, formatBytes, COMPASS_GITHUB_URL } from '../utils/compass'
 import { t } from '../utils/i18n'
-import { EXTRA_LANGUAGES, clearTranslationCache } from '../utils/i18nAuto'
+import { clearTranslationCache } from '../utils/i18nAuto'
+import { EXTRA_LANGUAGES, NATIVE_LANGUAGES, interfaceLanguage, languageGroupLabels } from '../utils/settingsLocale.mjs'
 import {
   DEFAULT_CYRENE_BALANCE_SETTINGS,
   normalizeCyreneBalanceSettings,
@@ -743,17 +745,23 @@ watch(() => settings.value.floatingWindowOpacity, value => {
   floatingOpacityDraft.value = normalizeFloatingWindowOpacity(value)
 })
 
-const langOptions = [
-  { value: 'zh', label: '中文' },
-  { value: 'en', label: 'English' }
-]
-const extraLanguageOptions = computed(() => [
-  { value: '', label: lang.value === 'en' ? 'Native language only' : '仅原生语言' },
-  ...EXTRA_LANGUAGES
-])
+const localeChoice = computed(() => interfaceLanguage(settings.value))
+const localeGroupLabels = computed(() => languageGroupLabels(settings.value))
 const extraLanguageHint = computed(() => lang.value === 'en'
-  ? 'Interface text is translated by Microsoft Edge. Names, lists and records are never sent. Translations are encrypted on this device and reused offline.'
-  : '界面文字由 Microsoft Edge 翻译，名单、奖品与记录不会上传。译文加密保存在本机，断网时优先使用缓存。')
+  ? 'Beta languages use Microsoft Edge to translate the interface. Names, lists, prizes and records are never sent. Encrypted translations can be reused offline.'
+  : 'Beta 语言由 Microsoft Edge 翻译界面文字，名单、奖品与记录不会上传。译文在本机加密保存，离线时可继续使用。')
+async function changeInterfaceLanguage(value) {
+  try {
+    await settingsStore.setInterfaceLanguage(value)
+  } catch {
+    showBanner({
+      message: lang.value === 'en' ? 'The language setting could not be saved.' : '未能保存界面语言设置。',
+      icon: 'warning-16-regular',
+      type: 'warning',
+      duration: 4000
+    })
+  }
+}
 async function clearExtraLanguageCache() {
   const target = settings.value.extraLanguage
   if (!target) return
@@ -1482,22 +1490,11 @@ function onBalanceEnabledChange(enabled) {
 .readonly-id { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .setting-label-group { display: flex; flex-direction: column; gap: 2px; }
 .setting-desc { font-size: 12px; color: var(--text-muted); }
-.extra-language-row { align-items: flex-start; }
-.extra-language-desc { max-width: 560px; line-height: 1.55; }
-.extra-language-control { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.setting-beta {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 4px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--accent-soft, rgba(0, 120, 212, 0.12));
-  color: var(--accent);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  vertical-align: middle;
-}
+.language-setting { align-items: flex-start; }
+.language-setting .setting-desc { max-width: 540px; margin: 2px 0 0; line-height: 1.6; }
+.language-controls { display: grid; justify-items: end; gap: 5px; flex: 0 0 clamp(140px, 29%, 200px); }
+.locale-select { width: 100%; min-height: 34px; padding: 4px 10px; font: inherit; font-size: 13px; color: var(--text-primary); background: var(--bg-card-solid); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+.locale-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .uri-setting-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .uri-help-body { display: flex; flex-direction: column; gap: 16px; color: var(--text-secondary); }
 .uri-help-intro { margin: 0; font-size: 13px; line-height: 1.65; }
@@ -1581,6 +1578,9 @@ function onBalanceEnabledChange(enabled) {
 @keyframes toggle-in { from { opacity: 0; transform: translateY(-8px); max-height: 0; } to { opacity: 1; transform: translateY(0); max-height: 300px; } }
 
 @media (max-width: 720px) {
+  .language-setting { flex-direction: column; align-items: stretch; gap: 8px; }
+  .language-controls { display: flex; flex: auto; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .locale-select { flex: 1; min-width: 135px; width: auto; }
   .settings-view { padding: 20px 16px 28px; }
   .setting-row { align-items: stretch; flex-direction: column; gap: 8px; }
   .setting-row:has(> .fluent-toggle) { align-items: center; flex-direction: row; }

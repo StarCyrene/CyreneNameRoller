@@ -1,27 +1,7 @@
-import { useNamesStore } from '../stores/names'
-import { usePrizesStore } from '../stores/prizes'
-import { useSettingsStore } from '../stores/settings'
+import { isExtraLanguage } from './settingsLocale.mjs'
+import { installDomTranslation, registerUiAttributes, resetDomTranslation, UI_ATTRIBUTES } from './i18nDom.mjs'
 import { createTranslationCache } from './i18nCache'
 import { createPersistentTranslationCacheStorage } from './i18nCacheStorage'
-
-export const EXTRA_LANGUAGES = [
-  { value: 'japanese', label: '日本語' },
-  { value: 'korean', label: '한국어' },
-  { value: 'chinese_traditional', label: '繁體中文' },
-  { value: 'french', label: 'Français' },
-  { value: 'deutsch', label: 'Deutsch' },
-  { value: 'spanish', label: 'Español' },
-  { value: 'russian', label: 'Русский' },
-  { value: 'portuguese', label: 'Português' },
-  { value: 'italian', label: 'Italiano' },
-  { value: 'vietnamese', label: 'Tiếng Việt' }
-]
-
-export const EXTRA_LANGUAGE_VALUES = new Set(EXTRA_LANGUAGES.map(item => item.value))
-
-export function isExtraLanguage(value) {
-  return EXTRA_LANGUAGE_VALUES.has(value)
-}
 
 const SOURCE_LANGUAGES = {
   zh: 'chinese_simplified',
@@ -33,54 +13,6 @@ const SOURCE_LANGUAGES = {
 const TRANSLATE_LIB_VERSION = '4.1.3.20261111'
 const TRANSLATE_LIB_SHA256 = '29DCBE02EADFDAE5E0F5DAA73CCD4AD2F8A3993E1B3FE5A309588A72D2B6F514'
 
-// Containers that hold user data (names, lists, prizes) must never be sent to
-// a translation service, even if the displayed text looks like interface copy.
-const IGNORE_CLASSES = [
-  'name-display',
-  'name-text',
-  'verified-result',
-  'card-front',
-  'history-chip',
-  'wheel-label',
-  'wheel-winner',
-  'seat-name',
-  'relay-headline',
-  'relay-trail',
-  'tunnel-headline',
-  'flybys',
-  'arrivals',
-  'letter-tiles',
-  'recipient',
-  'team-member',
-  'person-cn',
-  'person-en',
-  'person-list-name',
-  'prize-list-name',
-  'export-list-name',
-  'group-name',
-  'group-en',
-  'stat-name',
-  'ri-name',
-  'ri-list',
-  'pool-item',
-  'lottery-meta-name',
-  'lottery-result-name',
-  'round-result-name',
-  'allocation-row',
-  'prize-table-name',
-  'prize-row-name',
-  'prize-modal-name',
-  'lottery-record-prize',
-  'lottery-record-person',
-  'contributor-name',
-  'contributor-alias',
-  'ball-text',
-  'paste-preview'
-]
-
-const IGNORE_TAGS = ['script', 'style', 'noscript', 'code', 'pre', 'canvas', 'svg', 'textarea']
-
-const MAX_PROTECTED_TEXTS = 800
 const REFRESH_DELAY = 220
 const PREFETCH_BATCH_SIZE = 120
 const PREFETCH_DELAY = 180
@@ -142,66 +74,6 @@ export function loadTranslateLibrary() {
     throw error
   })
   return libraryPromise
-}
-
-function addUnique(array, values) {
-  for (const value of values) {
-    if (!array.includes(value)) array.push(value)
-  }
-}
-
-function collectProtectedTexts() {
-  const protectedTexts = new Set()
-  const add = value => {
-    if (typeof value !== 'string') return
-    const text = value.trim()
-    if (text.length < 2 || text.length > 80) return
-    protectedTexts.add(text)
-  }
-
-  try {
-    const names = useNamesStore()
-    for (const list of Object.values(names.nameLists || {})) {
-      add(list?.name)
-      for (const person of list?.names || []) {
-        add(person?.cn)
-        add(person?.en)
-        add(person?.name)
-        add(person?.englishName)
-      }
-      for (const group of list?.groups || []) {
-        add(group?.name)
-        add(group?.enName)
-      }
-    }
-  } catch (error) {
-    console.warn('[i18n] could not read names for translation guard:', error)
-  }
-
-  try {
-    const prizes = usePrizesStore()
-    for (const list of Object.values(prizes.lists || {})) {
-      add(list?.name)
-      for (const prize of list?.prizes || []) {
-        add(prize?.name)
-        add(prize?.quality)
-      }
-    }
-  } catch (error) {
-    console.warn('[i18n] could not read prizes for translation guard:', error)
-  }
-
-  try {
-    const settings = useSettingsStore()
-    add(settings.settings?.floatingWindowText)
-  } catch {}
-
-  return [...protectedTexts].slice(0, MAX_PROTECTED_TEXTS)
-}
-
-function installIgnores(translate) {
-  addUnique(translate.ignore.class.data, IGNORE_CLASSES)
-  addUnique(translate.ignore.tag, IGNORE_TAGS)
 }
 
 function installCacheBridge(translate, cache) {
@@ -361,6 +233,7 @@ export function createAutoTranslateRuntime({ onError } = {}) {
   let target = ''
   let source = ''
   let refreshTimer = null
+  let attributesObserver = null
   let active = false
   let generation = 0
 
@@ -378,15 +251,7 @@ export function createAutoTranslateRuntime({ onError } = {}) {
     return { instance, ...result }
   }
 
-  async function start(nextTarget, nextSource) {
-    if (!isExtraLanguage(nextTarget)) return stop()
-    if (active && target === nextTarget && source === nextSource) {
-      refresh()
-      return
-    }
-    if (active) await stop()
-
-    const token = ++generation
+  async function start(nextTarget, nextSource, token) {
     const lib = await loadTranslateLibrary()
     const loaded = await loadCache(nextTarget)
     if (token !== generation) {
@@ -400,7 +265,7 @@ export function createAutoTranslateRuntime({ onError } = {}) {
     source = nextSource
     installCacheBridge(translate, cache)
     installHashNormalization(translate)
-    installIgnores(translate)
+    installDomTranslation(translate)
     translate.selectLanguageTag.show = false
     document.getElementById('translateSelectLanguage')?.remove()
     // Keep the only remote call the actual Edge translation request.
@@ -409,7 +274,16 @@ export function createAutoTranslateRuntime({ onError } = {}) {
     translate.service.use('client.edge')
     translate.language.setLocal(source)
     translate.to = target
-    refreshProtectedTexts()
+    registerUiAttributes(translate, document.body)
+    // Attribute support must be registered before translate.js sees a new
+    // Vue/teleported subtree. Observe only injected tags and presentation attrs.
+    attributesObserver = new MutationObserver(records => {
+      for (const record of records) {
+        if (record.type === "attributes") registerUiAttributes(lib, record.target)
+        else for (const node of record.addedNodes) registerUiAttributes(lib, node)
+      }
+    })
+    attributesObserver.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: UI_ATTRIBUTES })
     translate.listener.start()
     translate.execute()
     active = true
@@ -431,7 +305,8 @@ export function createAutoTranslateRuntime({ onError } = {}) {
   }
 
   async function stop() {
-    generation += 1
+    attributesObserver?.disconnect()
+    attributesObserver = null
     if (refreshTimer != null) {
       clearTimeout(refreshTimer)
       refreshTimer = null
@@ -445,7 +320,7 @@ export function createAutoTranslateRuntime({ onError } = {}) {
     cache = null
     try {
       if (hadTranslate) {
-        hadTranslate.reset({ selectLanguageRefreshRender: false, notTranslateTip: false })
+        resetDomTranslation(hadTranslate)
         document.getElementById('translateSelectLanguage')?.remove()
         restoreDefaultStorage(hadTranslate)
       }
@@ -455,11 +330,6 @@ export function createAutoTranslateRuntime({ onError } = {}) {
     try { await hadCache?.close?.() } catch (error) { console.warn('[i18n] cache flush failed:', error) }
   }
 
-  function refreshProtectedTexts() {
-    if (!translate) return
-    translate.ignore.text = collectProtectedTexts()
-  }
-
   function refresh(delay = REFRESH_DELAY) {
     if (!active || !translate) return
     if (refreshTimer != null) clearTimeout(refreshTimer)
@@ -467,7 +337,7 @@ export function createAutoTranslateRuntime({ onError } = {}) {
       refreshTimer = null
       if (!active || !translate) return
       try {
-        refreshProtectedTexts()
+        registerUiAttributes(translate, document.body)
         translate.to = target
         translate.execute()
       } catch (error) {
@@ -484,14 +354,21 @@ export function createAutoTranslateRuntime({ onError } = {}) {
   }
 
   async function sync(nextTarget, nextNativeLanguage) {
-    if (!isExtraLanguage(nextTarget)) {
-      await stop()
+    const nextSource = SOURCE_LANGUAGES[nextNativeLanguage] || SOURCE_LANGUAGES.zh
+    if (active && target === nextTarget && source === nextSource) {
+      refresh()
       return
     }
-    const nextSource = SOURCE_LANGUAGES[nextNativeLanguage] || SOURCE_LANGUAGES.zh
+    const token = ++generation
+    // Calling stop synchronously resets the old source before Vue paints
+    // the newly selected built-in language.
+    await stop()
+    if (token !== generation || !isExtraLanguage(nextTarget)) return
     try {
-      await start(nextTarget, nextSource)
+      await start(nextTarget, nextSource, token)
     } catch (error) {
+      if (token !== generation) return
+      await stop()
       reportError(error)
     }
   }
@@ -501,6 +378,7 @@ export function createAutoTranslateRuntime({ onError } = {}) {
   }
 
   function dispose() {
+    generation += 1
     void stop()
   }
 

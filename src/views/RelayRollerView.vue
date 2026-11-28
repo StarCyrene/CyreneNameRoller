@@ -15,7 +15,8 @@
       </svg>
       <div class="light-holder" role="status" aria-live="polite" aria-atomic="true">
         <span>{{ current ? (en ? 'Holding the light' : '此刻，灯在') : (en ? 'Before the first light' : '第一盏灯') }}</span>
-        <strong class="relay-headline" :key="current?.id">{{ current ? displayName(current) : (en ? 'Who goes first?' : '谁来点亮？') }}</strong>
+        <strong v-if="current" class="relay-headline" :key="current.id" translate="no">{{ displayName(current) }}</strong>
+        <strong v-else class="relay-headline">{{ en ? 'Who goes first?' : '谁来点亮？' }}</strong>
         <small>{{ rounds.turns.length }} / {{ rounds.relayLimit }} · {{ en ? 'turns' : '本轮人数' }}</small>
       </div>
       <div class="relay-meter" aria-hidden="true"><i :style="{ width:(rounds.turns.length / (rounds.relayLimit || 1) * 100) + '%' }" /></div>

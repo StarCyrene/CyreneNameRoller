@@ -46,7 +46,7 @@
             <p v-if="puzzle.rosterNumber">{{ en ? 'No. ' + puzzle.rosterNumber + ' on this list' : '名单中的第 ' + puzzle.rosterNumber + ' 位' }}</p>
           </template>
         </div>
-        <span class="note-foot">{{ en ? 'From' : '来信自' }} · {{ names.currentList?.name || '—' }}</span>
+        <span class="note-foot">{{ en ? 'From' : '来信自' }} · <span translate="no">{{ names.currentList?.name || '—' }}</span></span>
       </article>
     </div>
 
@@ -56,7 +56,7 @@
       </header>
       <div class="list-row">
         <span>{{ en ? 'Name list' : '当前名单' }}</span>
-        <FluentSelect :model-value="names.currentListId" :options="listOptions" :disabled="busy" :aria-label="en ? 'Name list' : '当前名单'" @update:model-value="switchList" />
+        <I18nDataSelect :model-value="names.currentListId" :options="listOptions" :disabled="busy" :aria-label="en ? 'Name list' : '当前名单'" @update:model-value="switchList" />
       </div>
       <template v-if="phase === 'playing'">
         <form class="guess-form" @submit.prevent="submitGuess">
@@ -83,6 +83,7 @@
 </template>
 
 <script setup>
+import I18nDataSelect from '../components/I18nDataSelect.vue'
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useNamesStore } from '../stores/names'
 import { useSettingsStore } from '../stores/settings'

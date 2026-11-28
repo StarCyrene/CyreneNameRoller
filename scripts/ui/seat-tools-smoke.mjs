@@ -21,7 +21,9 @@ try {
     if (localStorage.getItem('lists')) return
     const roster = (id, n) => Array.from({ length: n }, (_,i) => ({ id: id+i, cn: id+i, en: '', gender: i ? 'male' : 'female', isWhiteList: false, groupId: '' }))
     const small = roster('b', 3); small[1].cn = small[2].cn = 'Lee'
-    localStorage.setItem('lists', JSON.stringify({ default: { id:'default',name:'Large',names:roster('a', 34),groups:[] }, other:{ id:'other',name:'Small',names:small,groups:[] } }))
+    const medium = roster('m', 13)
+    medium.forEach((p,i) => { p.cn = '同学' + (i + 1) })
+    localStorage.setItem('lists', JSON.stringify({ default: { id:'default',name:'Large',names:roster('a', 34),groups:[] }, medium:{ id:'medium',name:'Medium',names:medium,groups:[] }, other:{ id:'other',name:'Small',names:small,groups:[] } }))
     localStorage.setItem('settings', JSON.stringify({ language:'en', disableSplash:true, dockCollapsed:true, uiScale:80, uiScaleVersion:2, perfAnimations:false }))
   })
   const clickText = (selector, text) => page.evaluate(({ selector,text }) => {
@@ -39,7 +41,18 @@ try {
   const navigate = async (name, selector) => { await page.click('#roller-tab-' + name); await page.waitForSelector(selector) }
   await page.goto(origin + '/#/roller/wheel', { waitUntil:'domcontentloaded', timeout:60000 })
   await page.waitForSelector('.wheel-hub:not(:disabled)')
-  assert.equal(await page.$$eval('.wheel-dial text', els => els.length), 10)
+  assert.equal(await page.$$eval('.wheel-dial line', els => els.length), 34)
+  await switchList('.wheel-field', 'Medium')
+  await page.waitForFunction(() => document.querySelectorAll('.wheel-dial line').length === 13)
+  assert.deepEqual(await page.$$eval('.wheel-dial text', els => els.map(el => el.textContent)), Array.from({ length:13 }, (_, i) => '同学' + (i + 1)))
+  await switchList('.wheel-field', 'Large')
+  await page.waitForFunction(() => document.querySelectorAll('.wheel-dial line').length === 34)
+  await page.click('.wheel-key summary')
+  await page.waitForSelector('.wheel-key li')
+  assert.equal(await page.$$eval('.wheel-key li', els => els.length), 24)
+  await clickText('.wheel-key-nav button', 'Next')
+  assert.equal(await page.$$eval('.wheel-key li', els => els.length), 10)
+  await page.click('.wheel-key summary')
   await page.evaluate(() => { document.querySelector('.wheel-hub').click(); document.querySelector('.spin-action').click() })
   await page.waitForSelector('.winner [data-authority="host-verified"]')
   const [wheelRecord] = await page.evaluate(() => JSON.parse(localStorage.getItem('records')))

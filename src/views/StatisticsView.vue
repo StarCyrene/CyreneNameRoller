@@ -6,7 +6,7 @@
     </h1>
 
     <div class="stats-header">
-      <FluentSelect
+      <I18nDataSelect
         :model-value="selectedListId"
         :options="listOptions"
         @update:model-value="selectedListId = $event"
@@ -56,6 +56,7 @@
 </template>
 
 <script setup>
+import I18nDataSelect from '../components/I18nDataSelect.vue'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useNamesStore } from '../stores/names'
 import { useSettingsStore } from '../stores/settings'

@@ -145,7 +145,8 @@ function deleteList(list) {
   const wasCurrent = list.id === namesStore.currentListId
   namesStore.deleteList(list.id)
   showBanner({
-    message: `${lang.value === 'en' ? 'List deleted' : '名单已删除'}: ${deletedList.name}`,
+    message: lang.value === 'en' ? 'List deleted' : '名单已删除',
+    privateDetail: deletedList.name,
     icon: 'delete-16-regular',
     type: 'warning',
     duration: 8000,
@@ -170,16 +171,16 @@ async function exportList() {
   const result = await saveTextFile(serializeListFile(list, format), `${safeName}.${format}`, format)
   if (result?.success) {
     showExportModal.value = false
-    showBanner({ message: `${lang.value === 'en' ? 'Exported' : '导出成功'}: ${list.name}`, icon: 'checkmark-circle-16-regular', type: 'success', duration: 5000 })
+    showBanner({ message: lang.value === 'en' ? 'Exported' : '导出成功', privateDetail: list.name, icon: 'checkmark-circle-16-regular', type: 'success', duration: 5000 })
   } else if (!result?.cancelled) {
-    showBanner({ message: `${lang.value === 'en' ? 'Export failed' : '导出失败'}: ${result?.error || 'Unknown error'}`, icon: 'warning-16-regular', type: 'warning', duration: 8000 })
+    showBanner({ message: lang.value === 'en' ? 'Export failed' : '导出失败', privateDetail: result?.error, icon: 'warning-16-regular', type: 'warning', duration: 8000 })
   }
 }
 
 async function importList() {
   const result = await openTextFile(['csv', 'json'])
   if (!result?.success) {
-    if (!result?.cancelled) showBanner({ message: `${lang.value === 'en' ? 'Import failed' : '导入失败'}: ${result?.error || 'Unknown error'}`, icon: 'warning-16-regular', type: 'warning', duration: 8000 })
+    if (!result?.cancelled) showBanner({ message: lang.value === 'en' ? 'Import failed' : '导入失败', privateDetail: result?.error, icon: 'warning-16-regular', type: 'warning', duration: 8000 })
     return
   }
   try {
@@ -187,9 +188,9 @@ async function importList() {
     const imported = namesStore.importList(data)
     if (!imported) throw new Error(lang.value === 'en' ? 'Invalid list structure' : '名单结构无效')
     if (result.filePath) emitFileNotice(`${lang.value === 'en' ? 'List imported' : '名单已导入'}：${result.filePath}`, result.filePath)
-    showBanner({ message: `${lang.value === 'en' ? 'Imported' : '导入成功'}: ${data.name}`, icon: 'checkmark-circle-16-regular', type: 'success', duration: 5000 })
+    showBanner({ message: lang.value === 'en' ? 'Imported' : '导入成功', privateDetail: data.name, icon: 'checkmark-circle-16-regular', type: 'success', duration: 5000 })
   } catch (error) {
-    showBanner({ message: `${lang.value === 'en' ? 'Import failed' : '导入失败'}: ${error.message || (lang.value === 'en' ? 'Invalid CSV / JSON' : 'CSV / JSON 格式无效')}`, icon: 'warning-16-regular', type: 'warning', duration: 8000 })
+    showBanner({ message: lang.value === 'en' ? 'Import failed' : '导入失败', privateDetail: error.message, icon: 'warning-16-regular', type: 'warning', duration: 8000 })
   }
 }
 </script>

@@ -16,9 +16,9 @@
       <div class="records-list" ref="listRef">
         <div v-for="(rec, i) in records" :key="i" class="record-item">
           <span class="ri-time">{{ formatTime(rec.time) }}</span>
-          <span class="ri-name" :title="recordIdentity(rec)">{{ resolveName(rec) }}</span>
-          <span class="ri-list">{{ resolveList(rec) }}</span>
-          <span class="ri-source">{{ sourceLabel(rec) }}</span>
+          <span class="ri-name" data-i18n-private-attrs="title" :translate="resolveName(rec) ? 'no' : null" :title="recordIdentity(rec)">{{ resolveName(rec) || (lang === 'en' ? 'Deleted person' : '已删除成员') }}</span>
+          <span class="ri-list" :translate="resolveList(rec) ? 'no' : null">{{ resolveList(rec) || (lang === 'en' ? 'Deleted list' : '已删除名单') }}</span>
+          <span class="ri-source" :translate="isPrivateSource(rec) ? 'no' : null">{{ sourceLabel(rec) }}</span>
         </div>
         <div v-if="records.length === 0" class="records-empty">
           {{ lang === 'en' ? 'No records yet' : '暂无抽取记录' }}
@@ -33,7 +33,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useSettingsStore } from '../stores/settings'
 import { useRecordsStore } from '../stores/records'
 import { useNamesStore } from '../stores/names'
-import { recordSourceLabel } from '../utils/recordSources.mjs'
+import { isCoreDrawSource, recordSourceLabel } from '../utils/recordSources.mjs'
 import PluginSlot from '../components/plugins/PluginSlot.vue'
 
 const settingsStore = useSettingsStore()
@@ -44,6 +44,7 @@ const lang = computed(() => settingsStore.settings.language)
 const records = computed(() => recordsStore.records)
 const listRef = ref(null)
 const sourceLabel = record => recordSourceLabel(record.source, lang.value, record.pluginId)
+const isPrivateSource = record => !!record.source && record.source !== 'card' && !isCoreDrawSource(record.source)
 
 function formatTime(ts) {
   if (!ts) return ''
@@ -51,14 +52,14 @@ function formatTime(ts) {
   const pad = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
-function resolveList(rec) { return namesStore.allLists.find(list => list.id === rec.listId)?.name || rec.listName || (lang.value === 'en' ? 'Deleted list' : '已删除名单') }
+function resolveList(rec) { return namesStore.allLists.find(list => list.id === rec.listId)?.name || rec.listName }
 function resolveName(rec) {
   const list = namesStore.allLists.find(item => item.id === rec.listId)
   const person = list?.names?.find(item => item.id === rec.personId)
   const group = list?.groups?.find(item => item.id === rec.groupId)
   if (group) return group.enName ? `${group.name} (${group.enName})` : group.name
   if (person) return person.en ? `${person.cn} (${person.en})` : person.cn
-  return rec.cn || (lang.value === 'en' ? 'Deleted person' : '已删除成员')
+  return rec.cn
 }
 function recordIdentity(rec) { return rec.groupId || rec.personId || '' }
 

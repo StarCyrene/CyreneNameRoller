@@ -4,7 +4,7 @@
       <div><h1>{{ title }}</h1><p>{{ description }}</p></div>
       <label class="classroom-field">{{ en ? 'Name list' : '名单' }}
         <select :value="names.currentListId" :disabled="locked" @change="names.switchList($event.target.value)">
-          <option v-for="list in names.allLists" :key="list.id" :value="list.id">{{ list.name }}</option>
+          <option v-for="list in names.allLists" :key="list.id" :value="list.id" translate="no">{{ list.name }}</option>
         </select>
       </label>
     </header>

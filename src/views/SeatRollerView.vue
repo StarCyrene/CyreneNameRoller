@@ -5,7 +5,7 @@
       <span class="seat-count">{{ en ? present + ' present · ' + absentIds.length + ' absent' : '到场 ' + present + ' 人 · 缺席 ' + absentIds.length + ' 人' }}</span>
     </header>
     <div class="seat-controls">
-      <label><span>{{ en ? 'Name list' : '当前名单' }}</span><FluentSelect :model-value="names.currentListId" :options="lists" :disabled="busy" :aria-label="en ? 'Name list' : '当前名单'" @update:model-value="changeList" /></label>
+      <label><span>{{ en ? 'Name list' : '当前名单' }}</span><I18nDataSelect :model-value="names.currentListId" :options="lists" :disabled="busy" :aria-label="en ? 'Name list' : '当前名单'" @update:model-value="changeList" /></label>
       <label><span>{{ mapped ? (en ? 'Seats per row' : '每排座位') : (en ? 'Columns' : '显示列数') }}</span><select :value="columns" :disabled="locked" @change="changeColumns($event.target.value)"><option v-for="n in MAX_COLUMNS" :key="n" :value="n">{{ n }}</option></select></label>
       <FluentButton class="seat-draw" variant="primary" :disabled="locked || !present" @click="draw"><FluentIcon icon="sparkle-24-filled" :width="16" />{{ busy ? (en ? 'Selecting…' : '点名中…') : (en ? 'Light up a seat' : '点亮一个座位') }}</FluentButton>
     </div>
@@ -29,7 +29,7 @@
         </div>
         <FluentButton variant="secondary" size="sm" :disabled="locked || !absentIds.length" @click="resetAttendance">{{ en ? 'Reset attendance' : '重置本堂出勤' }}</FluentButton>
       </div>
-      <p class="seat-instructions" role="status">{{ instructions }}</p>
+      <p class="seat-instructions" role="status">{{ instructions }} <strong v-if="pickedName" translate="no">{{ pickedName }}</strong></p>
       <div class="seat-chart-actions">
         <FluentButton size="sm" variant="secondary" :disabled="locked" @click="showPaste = !showPaste">{{ en ? 'Paste seating chart' : '粘贴座位表' }}</FluentButton>
         <FluentButton v-if="mode === 'swap' && !mapped" size="sm" variant="secondary" :disabled="locked" @click="confirmLayout">{{ en ? 'Confirm classroom layout' : '确认当前为实际座位' }}</FluentButton>
@@ -40,7 +40,7 @@
       <div ref="planViewport" class="seat-scroll">
         <div class="seat-map" :style="{ '--seat-columns': columns }" :aria-label="en ? 'Seating plan' : '座次图'" role="group">
           <template v-for="item in visibleSeats" :key="item.index">
-          <button v-if="item.person" type="button" class="desk" :data-seat-id="item.person.id"
+          <button v-if="item.person" type="button" class="desk" :data-seat-id="item.person.id" data-i18n-private-attrs="aria-label title"
             :class="{ absent: absent.has(item.person.id), picked: picked === item.person.id, lit: winner?.id === item.person.id }"
             :aria-label="displayName(item.person) + ' · ' + positionLabel(item.address, item.index) + ' · ' + attendanceLabel(item.person.id)"
             :aria-pressed="mode === 'swap' ? picked === item.person.id : absent.has(item.person.id)"
@@ -66,6 +66,7 @@
 </template>
 
 <script setup>
+import I18nDataSelect from '../components/I18nDataSelect.vue'
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useNamesStore } from '../stores/names'
 import { useSettingsStore } from '../stores/settings'
@@ -112,9 +113,9 @@ const visibleSeats = computed(() => {
 const instructions = computed(() => {
   if (mode.value === 'attendance') return en.value ? 'Select a seat to mark someone absent or present for this class.' : '点选座位可标记缺席，再点一次即可返回。出勤标记仅用于本堂课。'
   if (!picked.value) return en.value ? 'Select two seats to swap their places.' : '依次选择两个座位，即可交换位置。'
-  const first = occupied.value.find(p => p.id === picked.value)
-  return en.value ? 'Choose a seat to swap with ' + displayName(first) + '.' : '已选中' + displayName(first) + '，请选择要交换的座位。'
+  return en.value ? 'Choose a second seat to swap with this person:' : '请选择要与此人交换的座位：'
 })
+const pickedName = computed(() => displayName(occupied.value.find(p => p.id === picked.value)))
 const planViewport = ref(null)
 const error = ref('')
 let generation = 0

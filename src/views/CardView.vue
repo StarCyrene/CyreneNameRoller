@@ -52,7 +52,7 @@
           <FluentToggle v-model="englishMode" :label="lang === 'en' ? 'English names' : '显示英文名'" @update:model-value="saveCardSettings" />
           <span class="control-sep" />
           <span class="control-label">{{ t('listLabel', lang) }}:</span>
-          <FluentSelect :model-value="namesStore.currentListId" :options="listOptions" :disabled="controlsBusy" @update:model-value="onListChange" />
+          <I18nDataSelect :model-value="namesStore.currentListId" :options="listOptions" :disabled="controlsBusy" @update:model-value="onListChange" />
           <span class="control-sep" />
           <span class="control-label">{{ t('cardsLabel', lang) }}:</span>
           <div class="count-control">
@@ -88,6 +88,7 @@
 </template>
 
 <script setup>
+import I18nDataSelect from '../components/I18nDataSelect.vue'
 import { ref, computed, onMounted, onBeforeUnmount, watch, inject, nextTick } from 'vue'
 import { useNamesStore } from '../stores/names'
 import { useSettingsStore } from '../stores/settings'

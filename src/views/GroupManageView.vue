@@ -15,7 +15,7 @@
     <FluentCard class="gm-toolbar">
       <div class="field">
         <label class="field-label">{{ t('selectList', lang) }}</label>
-        <FluentSelect v-model="selectedListId" :options="listOptions" />
+        <I18nDataSelect v-model="selectedListId" :options="listOptions" />
       </div>
       <FluentButton variant="primary" size="sm" @click="openCreate">
         <FluentIcon icon="fluent:add-16-regular" :width="14" /> {{ t('createGroup', lang) }}
@@ -80,6 +80,7 @@
 </template>
 
 <script setup>
+import I18nDataSelect from '../components/I18nDataSelect.vue'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNamesStore } from '../stores/names'

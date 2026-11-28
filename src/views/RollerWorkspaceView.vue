@@ -24,6 +24,11 @@
             <span class="compact-label">{{ tool.compact[lang] }}</span>
           </RouterLink>
         </div>
+        <FluentScrollBar
+          v-if="overflow" class="tool-scrollbar" orientation="horizontal"
+          :value="stripOffset" :maximum="stripLimit" :viewport-size="stripWidth"
+          aria-hidden="true" @update:value="scrollToolsTo"
+        />
       </div>
       <div :ref="attachVersionHost" class="tool-version-host" />
     </footer>
@@ -50,8 +55,11 @@ const toolLabel = computed(() => lang.value === 'en' ? 'Roll call tools' : 'ç‚¹å
 const pivot = ref(null)
 const stripShell = ref(null)
 const overflow = ref(false)
-const canScrollBack = ref(false)
-const canScrollNext = ref(false)
+const stripOffset = ref(0)
+const stripLimit = ref(0)
+const stripWidth = ref(0)
+const canScrollBack = computed(() => overflow.value && stripOffset.value > 1)
+const canScrollNext = computed(() => overflow.value && stripOffset.value < stripLimit.value - 1)
 const panel = ref(null)
 const versionHost = inject('rollerVersionHost', null)
 function attachVersionHost(element) { if (versionHost) versionHost.value = element }
@@ -62,13 +70,17 @@ function updateScrollEdges() {
   if (!strip || !stripShell.value) return
   // Compare with the full row, even when arrow gutters are visible.
   overflow.value = strip.scrollWidth > stripShell.value.clientWidth + 1
-  canScrollBack.value = overflow.value && strip.scrollLeft > 1
-  canScrollNext.value = overflow.value && strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1
+  stripOffset.value = strip.scrollLeft
+  stripWidth.value = strip.clientWidth
+  stripLimit.value = Math.max(0, strip.scrollWidth - stripWidth.value)
+}
+function scrollToolsTo(offset) {
+  pivot.value.scrollLeft = offset
+  updateScrollEdges()
 }
 function pageTools(direction) {
   const strip = pivot.value
-  strip.scrollLeft += direction * Math.max(1, strip.clientWidth - 24)
-  updateScrollEdges()
+  scrollToolsTo(strip.scrollLeft + direction * Math.max(1, strip.clientWidth - 24))
 }
 function showSelectedTab() {
   updateScrollEdges()
@@ -78,8 +90,7 @@ function showSelectedTab() {
   const edge = strip.getBoundingClientRect()
   const item = tab.getBoundingClientRect()
   const offset = item.left < edge.left ? item.left - edge.left : Math.max(0, item.right - edge.right)
-  strip.scrollLeft += offset * strip.offsetWidth / edge.width
-  updateScrollEdges()
+  scrollToolsTo(strip.scrollLeft + offset * strip.offsetWidth / edge.width)
 }
 watch([() => route.name, lang], showSelectedTab, { flush: 'post' })
 watch(() => route.name, () => { if (panel.value) panel.value.scrollTop = 0 }, { flush: 'post' })
@@ -140,6 +151,8 @@ function onTabKey(event) {
   min-width: 0;
 }
 .tool-strip-shell.has-overflow { grid-template-columns: 25px minmax(0, 1fr) 25px; }
+.tool-strip-shell.has-overflow .tool-tab { padding-bottom: 10px; }
+.tool-strip-shell.has-overflow .tool-tab[aria-selected="true"]::after { bottom: 8px; }
 .strip-arrow {
   grid-row: 1;
   align-self: stretch;
@@ -159,10 +172,24 @@ function onTabKey(event) {
   display: flex;
   justify-content: safe center;
   overflow-x: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
   min-width: 0;
   gap: 3px;
 }
+.tool-pivot::-webkit-scrollbar { display: none; }
+.fluent-scroll-bar.tool-scrollbar {
+  grid-area: 1 / 2;
+  align-self: end;
+  z-index: 1;
+  height: 8px;
+  touch-action: none;
+}
+.tool-scrollbar :deep(.scroll-bar-track:hover) { background: var(--bg-hover); }
+.tool-scrollbar :deep(.scroll-bar-thumb) {
+  opacity: 1;
+  background: color-mix(in srgb, var(--text-secondary) 56%, transparent);
+}
+.tool-scrollbar :deep(.scroll-bar-thumb:is(:hover, :active)) { background: var(--text-secondary); }
 .tool-tab {
   position: relative;
   display: inline-flex;

@@ -10,7 +10,10 @@
       </div>
       <small v-if="preview.rows > 4 && preview.order.length">{{ en ? 'Showing the first four rows.' : '预览显示前四排。' }}</small>
       <ul v-if="preview.errors.length" class="paste-errors">
-        <li v-for="(item, i) in preview.errors.slice(0, 20)" :key="i">{{ describe(item) }}</li>
+        <li v-for="(item, i) in preview.errors.slice(0, 20)" :key="i">
+          {{ describe(item) }}<span v-if="item.value" translate="no">{{ item.value }}</span>
+          <template v-if="item.kind === 'ambiguous'"> {{ en ? '· Use ID: ' : '· 请改用 ID：' }}<span translate="no">{{ matchingIds(item.value) }}</span></template>
+        </li>
       </ul>
       <small v-if="preview.errors.length > 20">{{ en ? 'First 20 issues shown.' : '以上为前 20 处问题。' }}</small>
     </template>
@@ -35,9 +38,9 @@ function describe(e) {
   const position = e.row ? (en ? `Row ${e.row}, column ${e.col}: ` : `第 ${e.row} 行第 ${e.col} 列：`) : ''
   const labels = en ? { empty: 'Paste a chart first.', large: 'The table is too large.', wide: 'The chart can have at most 12 columns.', format: 'Check the quotation marks in the table.', unknown: 'No matching person: ', duplicate: 'Already seated: ', ambiguous: 'Several people share this name: ', missing: 'Still missing: ' }
     : { empty: '请先粘贴座位表。', large: '表格超出大小限制。', wide: '每排最多可放 12 个座位。', format: '表格中的引号不匹配。', unknown: '找不到此人：', duplicate: '重复出现：', ambiguous: '有同名人员：', missing: '还缺少：' }
-  const ids = e.kind === 'ambiguous' ? props.names.filter(p => p.cn?.trim() === e.value || p.en?.trim() === e.value).map(p => p.id).join(' / ') : ''
-  return position + labels[e.kind] + e.value + (ids ? (en ? ' · Use ID: ' : ' · 请改用 ID：') + ids : '')
+  return position + labels[e.kind]
 }
+function matchingIds(value) { return props.names.filter(p => p.cn?.trim() === value || p.en?.trim() === value).map(p => p.id).join(' / ') }
 </script>
 <style scoped>
 .paste-plan { display: grid; gap: 8px; margin-top: 12px; padding: 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--bg-card-solid); min-width: 0; }
