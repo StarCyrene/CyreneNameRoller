@@ -18,6 +18,7 @@ const DEFAULT_SETTINGS = {
   rainbowNames: true,
   englishMode: false,
   language: 'zh',
+  extraLanguage: '',
   groupMode: false,
   multiMode: false,
   peopleCount: 2,

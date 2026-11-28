@@ -12,6 +12,21 @@
         <span class="setting-label">{{ lang === 'en' ? 'Language' : '语言' }}</span>
         <FluentSelect :model-value="settings.language" :options="langOptions" width="200px" @update:model-value="update('language', $event)" />
       </div>
+      <div class="setting-row extra-language-row">
+        <div class="setting-label-group">
+          <span class="setting-label">
+            {{ lang === 'en' ? 'Additional language' : '额外语言' }}
+            <span class="setting-beta">Beta</span>
+          </span>
+          <span class="setting-desc extra-language-desc">{{ extraLanguageHint }}</span>
+        </div>
+        <div class="extra-language-control">
+          <FluentSelect :model-value="settings.extraLanguage || ''" :options="extraLanguageOptions" width="170px" @update:model-value="update('extraLanguage', $event)" />
+          <FluentButton v-if="settings.extraLanguage" variant="secondary" size="sm" @click="clearExtraLanguageCache">
+            {{ lang === 'en' ? 'Clear cache' : '清除缓存' }}
+          </FluentButton>
+        </div>
+      </div>
       <div class="setting-row">
         <div class="setting-label-group">
           <span class="setting-label">{{ t('startupSplash', lang) }}</span>
@@ -627,6 +642,7 @@ import { isTauri, tauriAPI } from '../utils/tauriAPI'
 import { updateState, checkForUpdates, downloadUpdate, getDownloadUrl } from '../utils/updater'
 import { fetchCompassReleases, formatBytes, COMPASS_GITHUB_URL } from '../utils/compass'
 import { t } from '../utils/i18n'
+import { EXTRA_LANGUAGES, clearTranslationCache } from '../utils/i18nAuto'
 import {
   DEFAULT_CYRENE_BALANCE_SETTINGS,
   normalizeCyreneBalanceSettings,
@@ -731,6 +747,30 @@ const langOptions = [
   { value: 'zh', label: '中文' },
   { value: 'en', label: 'English' }
 ]
+const extraLanguageOptions = computed(() => [
+  { value: '', label: lang.value === 'en' ? 'Native language only' : '仅原生语言' },
+  ...EXTRA_LANGUAGES
+])
+const extraLanguageHint = computed(() => lang.value === 'en'
+  ? 'Interface text is translated by Microsoft Edge. Names, lists and records are never sent. Translations are encrypted on this device and reused offline.'
+  : '界面文字由 Microsoft Edge 翻译，名单、奖品与记录不会上传。译文加密保存在本机，断网时优先使用缓存。')
+async function clearExtraLanguageCache() {
+  const target = settings.value.extraLanguage
+  if (!target) return
+  const confirmed = window.confirm(lang.value === 'en'
+    ? 'Clear the cached translations for this language? They will be fetched again when needed.'
+    : '确定清除该语言的本地翻译缓存吗？之后需要时会重新获取。')
+  if (!confirmed) return
+  const ok = await clearTranslationCache(target)
+  showBanner({
+    message: ok
+      ? (lang.value === 'en' ? 'Translation cache cleared' : '翻译缓存已清除')
+      : (lang.value === 'en' ? 'Could not clear the translation cache' : '翻译缓存清除失败'),
+    icon: ok ? 'checkmark-circle-16-regular' : 'warning-16-regular',
+    type: ok ? 'success' : 'warning',
+    duration: 4000
+  })
+}
 const scaleDraft = ref(settings.value.uiScale)
 watch(() => settings.value.uiScale, (v) => { scaleDraft.value = v })
 const scaleChanged = computed(() => {
@@ -1442,6 +1482,22 @@ function onBalanceEnabledChange(enabled) {
 .readonly-id { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .setting-label-group { display: flex; flex-direction: column; gap: 2px; }
 .setting-desc { font-size: 12px; color: var(--text-muted); }
+.extra-language-row { align-items: flex-start; }
+.extra-language-desc { max-width: 560px; line-height: 1.55; }
+.extra-language-control { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.setting-beta {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft, rgba(0, 120, 212, 0.12));
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
 .uri-setting-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .uri-help-body { display: flex; flex-direction: column; gap: 16px; color: var(--text-secondary); }
 .uri-help-intro { margin: 0; font-size: 13px; line-height: 1.65; }

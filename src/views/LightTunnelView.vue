@@ -18,7 +18,7 @@
       </div>
       <div class="tunnel-display" :class="{ arrived: arrival > 0 }" role="status" aria-live="polite" aria-atomic="true">
         <span>{{ flying ? tr('光轨穿行中','In transit') : round ? tr('已经抵达','Arrived') : tr('等待出发','Ready to launch') }}</span>
-        <strong :key="arrival">{{ flying ? '···' : round ? headline : tr('下一站，是谁？','Who arrives next?') }}</strong>
+        <strong class="tunnel-headline" :key="arrival">{{ flying ? '···' : round ? headline : tr('下一站，是谁？','Who arrives next?') }}</strong>
         <small v-if="round && !flying">{{ round.shown }} / {{ round.results.length }}</small>
       </div>
     </div>

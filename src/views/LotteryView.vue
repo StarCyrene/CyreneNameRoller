@@ -38,15 +38,15 @@
                 :busy="settling && !sealedResults" :disabled="!busy && !validRoundCount(drawCount, maxDrawCount)"
                 :english="lang === 'en'" @request="beginDraw" @reveal="revealGame" />
               <div v-if="resultPrize" ref="gameResultRef" class="game-result" data-plugin-component="lottery.result" :style="pluginsStore.componentStyleStyle('lottery.result')">
-                <strong>{{ resultPrize.name }}</strong><small>{{ stageNote }}</small>
+                <strong class="lottery-result-name">{{ resultPrize.name }}</strong><small>{{ stageNote }}</small>
               </div>
             </div>
             <div v-else-if="drawStyle === 'roller'" class="roller-experience">
               <div :key="resultNonce" ref="rollerResultRef" class="roller-result"
                 data-plugin-component="lottery.result" :style="pluginsStore.componentStyleStyle('lottery.result')">
                 <span class="stage-emblem" aria-hidden="true"><FluentIcon icon="gift-24-regular" :width="28" /></span>
-                <span class="result-quality">{{ visiblePrize?.quality || stageCaption }}</span>
-                <strong>{{ visiblePrize?.name || (busy ? tr('抽取中', 'Drawing') : tr('准备就绪', 'Ready to draw')) }}</strong>
+                <span class="result-quality lottery-meta-name">{{ visiblePrize?.quality || stageCaption }}</span>
+                <strong class="lottery-result-name">{{ visiblePrize?.name || (busy ? tr('抽取中', 'Drawing') : tr('准备就绪', 'Ready to draw')) }}</strong>
                 <span class="result-stock">{{ stageNote }}</span>
               </div>
             </div>
@@ -61,7 +61,7 @@
               <div :key="resultNonce" ref="wheelResultRef" class="wheel-result"
                 data-plugin-component="lottery.result" :style="pluginsStore.componentStyleStyle('lottery.result')">
                 <span>{{ stageCaption }}</span>
-                <strong>{{ resultPrize?.name || (busy ? tr('抽取中', 'Drawing') : tr('准备就绪', 'Ready to draw')) }}</strong>
+                <strong class="lottery-result-name">{{ resultPrize?.name || (busy ? tr('抽取中', 'Drawing') : tr('准备就绪', 'Ready to draw')) }}</strong>
                 <small>{{ stageNote }}</small>
               </div>
             </div>
@@ -82,7 +82,7 @@
         <div class="sr-only" role="status">{{ liveAnnouncement }}</div>
         <section v-if="roundResults.length > 1" class="round-results">
           <header><h2>{{ tr('本轮结果', 'Round results') }}</h2><span>{{ tr(`共 ${roundResults.length} 件`, `${roundResults.length} items`) }}</span></header>
-          <ol><li v-for="(item, index) in roundResults" :key="index"><span>{{ String(index + 1).padStart(2, '0') }}</span><strong>{{ item.name }}</strong><small>{{ item.quality }}</small></li></ol>
+          <ol><li v-for="(item, index) in roundResults" :key="index"><span>{{ String(index + 1).padStart(2, '0') }}</span><strong class="round-result-name">{{ item.name }}</strong><small>{{ item.quality }}</small></li></ol>
         </section>
       </div>
       <PrizePoolPanel :key="prizes.currentId" :segments="visibleSegments" :en="lang === 'en'" />
@@ -139,7 +139,7 @@
         </FluentCard>
 
         <section class="prize-table">
-          <div class="prize-table-title"><h2>{{ prizes.current.name }}</h2><span>{{ prizes.current.prizes.length }} {{ lang === 'en' ? 'prizes' : '项奖品' }}</span></div>
+          <div class="prize-table-title"><h2 class="prize-table-name">{{ prizes.current.name }}</h2><span>{{ prizes.current.prizes.length }} {{ lang === 'en' ? 'prizes' : '项奖品' }}</span></div>
           <div class="prize-table-header"><span>{{ lang === 'en' ? 'Prize' : '奖品' }}</span><span>{{ lang === 'en' ? 'Quality' : '品质' }}</span><span>{{ lang === 'en' ? 'Stock' : '库存' }}</span><span>{{ lang === 'en' ? 'Weight' : '权重' }}</span><span></span></div>
           <div v-for="prize in prizes.current.prizes" :key="prize.id" class="prize-row">
             <template v-if="editingPrizeId === prize.id">
@@ -150,7 +150,7 @@
               <div class="row-actions"><FluentButton variant="primary" size="sm" icon-only title="保存" @click="savePrize(prize.id)"><FluentIcon icon="checkmark-16-regular" :width="15" /></FluentButton><FluentButton variant="subtle" size="sm" icon-only title="取消" @click="editingPrizeId = ''"><FluentIcon icon="dismiss-16-regular" :width="15" /></FluentButton></div>
             </template>
             <template v-else>
-              <div><strong>{{ prize.name }}</strong><small>{{ prize.id }}</small></div>
+              <div class="prize-row-name"><strong>{{ prize.name }}</strong><small>{{ prize.id }}</small></div>
               <span class="quality-badge">{{ prize.quality }}</span>
               <span>{{ prize.quantity }}</span>
               <span>{{ prize.weight }}</span>

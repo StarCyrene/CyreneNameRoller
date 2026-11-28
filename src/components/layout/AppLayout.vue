@@ -134,6 +134,7 @@ import FullscreenToggle from '../FullscreenToggle.vue'
 import PluginVisualLayers from '../plugins/PluginVisualLayers.vue'
 import { useSettingsStore } from '../../stores/settings'
 import { useNamesStore } from '../../stores/names'
+import { createAutoTranslateRuntime, setActiveAutoTranslateRuntime } from '../../utils/i18nAuto'
 import { useStatisticsStore } from '../../stores/statistics'
 import { useRecordsStore } from '../../stores/records'
 import { usePrizesStore } from '../../stores/prizes'
@@ -173,6 +174,29 @@ const globalAnimationSurfaceRef = ref(null)
 
 const lang = computed(() => settingsStore.settings.language)
 const systemAccent = ref(DEFAULT_ACCENT)
+let autoTranslateStarted = false
+let autoTranslateErrorShown = false
+const autoTranslate = createAutoTranslateRuntime({
+  onError: () => {
+    if (autoTranslateErrorShown) return
+    autoTranslateErrorShown = true
+    showBanner({
+      message: settingsStore.settings.language === 'en'
+        ? 'Additional language could not start. The interface stays in its native language.'
+        : '额外语言未能启动，界面将保持原生语言。',
+      icon: 'warning-16-regular',
+      type: 'warning',
+      duration: 9000,
+      dismissible: true
+    })
+  }
+})
+setActiveAutoTranslateRuntime(autoTranslate)
+async function syncExtraLanguage() {
+  if (!autoTranslateStarted) return
+  await autoTranslate.sync(settingsStore.settings.extraLanguage, settingsStore.settings.language)
+}
+watch(() => `${settingsStore.settings.extraLanguage}|${settingsStore.settings.language}`, syncExtraLanguage)
 const reducedMotionQuery = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
   ? window.matchMedia('(prefers-reduced-motion: reduce)')
   : null
@@ -257,6 +281,7 @@ function onPluginMessage(event) {
 
 function onBeforeWindowUnload() {
   pluginsStore.markCleanShutdown()
+  autoTranslate.flush()
 }
 
 // Banner notification system
@@ -811,6 +836,7 @@ const removeAfterRouteHook = router.afterEach((to, from, failure) => {
       const content = document.querySelector('.app-content')
       if (content) content.scrollTop = 0
     }
+    autoTranslate.refresh(420)
   })
 })
 
@@ -837,6 +863,8 @@ onMounted(async () => {
   pluginsStore.configureSafeMode(safeModeStatus)
   await pluginsStore.initialize()
   pluginsStore.setBannerHandler(showBanner)
+  autoTranslateStarted = true
+  void syncExtraLanguage()
   if (safeModeStatus.enabled || safeModeStatus.errorCode) {
     showBanner({
       message: safeModeStatus.enabled
@@ -870,6 +898,7 @@ onBeforeUnmount(() => {
   removeRouteGhost()
   removeBeforeRouteGuard()
   removeAfterRouteHook()
+  autoTranslate.dispose()
   pluginsStore.markCleanShutdown()
   pluginsStore.unregisterAnimationSurface('global.transition', globalAnimationSurfaceRef.value)
   cancelAnimationFrame(pluginResizeFrame)

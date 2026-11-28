@@ -34,7 +34,7 @@
       </fieldset>
       <div class="wheel-result" role="status" aria-live="polite" aria-atomic="true">
         <span class="wheel-tag">{{ receipt ? (en ? 'Selected' : '抽中的是') : (en ? 'This spin' : '本轮点名') }}</span>
-        <strong v-if="receipt" class="winner">
+        <strong v-if="receipt" class="winner wheel-winner">
           <VerifiedResult :receipt="receipt" :index="0" :presentation="presentation" />
         </strong>
         <span v-else>{{ statusText }}</span>

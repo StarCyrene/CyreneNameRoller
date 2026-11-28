@@ -41,8 +41,8 @@
       </div>
       <ul class="stats-list">
         <li v-for="stat in statsWithBalance" :key="stat.id" class="stats-item">
-          <span class="col-name">{{ stat.name }}</span>
-          <span class="col-en">{{ stat.en }}</span>
+          <span class="col-name stat-name">{{ stat.name }}</span>
+          <span class="col-en stat-name">{{ stat.en }}</span>
           <span class="col-count">{{ stat.count }}</span>
           <span class="col-prob">{{ stat.probability.toFixed(2) }}%</span>
           <span class="col-balanced">{{ stat.balancedProbability.toFixed(2) }}%</span>

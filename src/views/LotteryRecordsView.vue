@@ -6,13 +6,13 @@
     </header>
 
     <FluentCard class="records-card">
-      <div class="records-toolbar"><strong>{{ selectedListName }}</strong><FluentButton v-if="filteredRecords.length" variant="subtle" size="sm" @click="showClear = true"><FluentIcon icon="delete-16-regular" :width="14" />{{ lang === 'en' ? 'Clear' : '清空记录' }}</FluentButton></div>
+      <div class="records-toolbar"><strong class="lottery-record-prize">{{ selectedListName }}</strong><FluentButton v-if="filteredRecords.length" variant="subtle" size="sm" @click="showClear = true"><FluentIcon icon="delete-16-regular" :width="14" />{{ lang === 'en' ? 'Clear' : '清空记录' }}</FluentButton></div>
       <div class="records-header"><span>{{ lang === 'en' ? 'Time' : '时间' }}</span><span>{{ lang === 'en' ? 'Prize' : '奖品' }}</span><span>{{ lang === 'en' ? 'Person' : '人员' }}</span><span>{{ lang === 'en' ? 'Mode' : '方式' }}</span></div>
       <div class="records-list">
         <div v-for="record in filteredRecords" :key="record.id" class="record-row">
           <span class="record-time">{{ formatTime(record.time) }}</span>
-          <strong>{{ resolvePrize(record) }}</strong>
-          <span :title="record.personId || ''">{{ resolvePerson(record) || '-' }}</span>
+          <strong class="lottery-record-prize">{{ resolvePrize(record) }}</strong>
+          <span class="lottery-record-person" :title="record.personId || ''">{{ resolvePerson(record) || '-' }}</span>
           <span class="record-mode">{{ record.mode === 'assign' ? (lang === 'en' ? 'Assignment' : '人员分配') : (lang === 'en' ? 'Prize draw' : '直接抽奖') }}</span>
         </div>
         <div v-if="!filteredRecords.length" class="empty-state"><FluentIcon icon="history-24-regular" :width="24" />{{ lang === 'en' ? 'No lottery records for this prize list' : '该奖品单暂无抽奖记录' }}</div>

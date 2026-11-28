@@ -12,7 +12,7 @@
     <div class="seat-result" role="status" aria-live="polite" aria-atomic="true">
       <template v-if="receipt && winnerAddress">
         <span>{{ mapped ? (en ? 'Selected seat' : '座位已点亮') : (en ? 'Selected name' : '抽中的是') }}</span>
-        <strong><VerifiedResult :receipt="receipt" :index="0" :presentation="presentation" /></strong>
+        <strong class="seat-name"><VerifiedResult :receipt="receipt" :index="0" :presentation="presentation" /></strong>
         <span class="seat-address">{{ positionLabel(winnerAddress, winnerIndex) }}</span>
       </template>
       <span v-else-if="loading">{{ en ? 'Loading the seating plan…' : '正在载入座次…' }}</span>
@@ -49,7 +49,7 @@
             <small><span>{{ mapped ? item.address.row + ' · ' + item.address.seat : '#' + (item.index + 1) }}</span>
               <b v-if="winner?.id === item.person.id">✦</b><b v-else-if="absent.has(item.person.id)">−</b><b v-else-if="picked === item.person.id">✓</b>
             </small>
-            <strong>{{ displayName(item.person) }}</strong>
+            <strong class="seat-name">{{ displayName(item.person) }}</strong>
             <em v-if="absent.has(item.person.id)">{{ en ? 'Absent' : '缺席' }}</em>
           </button>
           <button v-else type="button" class="desk empty" :disabled="busy || mode !== 'swap' || !picked" @click="moveToEmpty(item.index)">{{ en ? 'Empty' : '空座' }}</button>

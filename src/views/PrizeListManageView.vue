@@ -32,7 +32,7 @@
               <FluentButton variant="subtle" size="sm" icon-only title="取消" @click="editingListId = ''"><FluentIcon icon="dismiss-16-regular" :width="14" /></FluentButton>
             </template>
             <template v-else>
-              <div class="list-name"><strong>{{ list.name }}</strong><small>{{ list.prizes.length }} {{ lang === 'en' ? 'prizes' : '项奖品' }} · {{ stockOf(list) }} {{ lang === 'en' ? 'in stock' : '件库存' }}</small></div>
+              <div class="list-name"><strong class="prize-list-name">{{ list.name }}</strong><small>{{ list.prizes.length }} {{ lang === 'en' ? 'prizes' : '项奖品' }} · {{ stockOf(list) }} {{ lang === 'en' ? 'in stock' : '件库存' }}</small></div>
               <span v-if="list.id === prizes.currentId" class="current-badge">{{ lang === 'en' ? 'Current' : '当前' }}</span>
             </template>
           </div>

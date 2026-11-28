@@ -28,7 +28,7 @@
       <div :key="dealId" class="team-grid">
         <article v-for="(team,i) in rounds.teams" :key="i" class="classroom-panel team-card" :style="{ '--delay':Math.min(i,8)*28+'ms' }">
           <header><h2>{{ label(i) }}</h2><small>{{ en ? team.length+' people' : team.length+' 人' }}</small></header>
-          <ul><li v-for="person in team" :key="person.id">{{ name(person) }}</li></ul>
+          <ul><li v-for="person in team" :key="person.id" class="team-member">{{ name(person) }}</li></ul>
         </article>
       </div>
     </template>

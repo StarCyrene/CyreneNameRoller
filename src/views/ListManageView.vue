@@ -42,7 +42,7 @@
               </FluentButton>
             </template>
             <template v-else>
-              <span class="list-name">{{ list.name }}</span>
+              <span class="list-name person-list-name">{{ list.name }}</span>
               <span class="list-member-count">{{ list.names.length }} {{ lang === 'en' ? 'people' : '人' }}</span>
               <span v-if="list.id === namesStore.currentListId" class="current-badge">{{ lang === 'en' ? 'Current' : '当前' }}</span>
             </template>

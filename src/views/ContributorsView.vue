@@ -34,6 +34,11 @@
           ? 'This application uses game resources from Honkai: Star Rail. All related copyrights belong to miHoYo/HoYoverse. This project is non-commercial and for educational purposes only.'
           : '本应用使用了来自崩坏：星穹铁道的游戏资源，相关版权归 miHoYo/HoYoverse 所有。本项目为非商业用途，仅供学习交流。' }}
       </p>
+      <p class="attr-text attr-text-secondary">
+        {{ lang === 'en'
+          ? 'Additional languages use translate.js (MIT). The library is bundled with the application and verified by SHA-256; it is never loaded from a CDN.'
+          : '额外语言使用 translate.js（MIT 协议），随应用本地打包并以 SHA-256 校验，不从 CDN 加载。' }}
+      </p>
     </FluentCard>
   </div>
 </template>
@@ -147,4 +152,5 @@ const contributors = [
 .attribution-card { padding: 20px; }
 .attr-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 0 0 8px 0; display: flex; align-items: center; gap: 6px; }
 .attr-text { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin: 0; }
+.attr-text-secondary { margin-top: 8px; }
 </style>
