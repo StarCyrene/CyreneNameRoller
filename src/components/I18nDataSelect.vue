@@ -2,7 +2,7 @@
   <FluentSelect :model-value="modelValue" :options="options"
     :data-i18n-data-select="selectedIsData ? '' : null" @update:model-value="$emit('update:modelValue', $event)">
     <!-- FluentSelect teleports this menu to body, outside the wrapper guard. -->
-    <template #option="{ option }"><span :translate="option.uiLabel ? null : 'no'">{{ option.label }}</span></template>
+    <template #option="{ option }"><span :translate="option.uiLabel ? null : 'no'" :lang="option.lang">{{ option.label }}</span></template>
   </FluentSelect>
 </template>
 

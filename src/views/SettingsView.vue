@@ -10,19 +10,13 @@
       <h3 class="section-title"><FluentIcon icon="options-24-regular" :width="20" /> {{ lang === 'en' ? 'General' : '基本设置' }}</h3>
       <div class="setting-row language-setting">
         <div class="setting-label-group">
-          <label for="interface-language" class="setting-label">{{ lang === 'en' ? 'Interface language' : '界面语言' }}</label>
+          <span id="interface-language-label" class="setting-label">{{ lang === 'en' ? 'Interface language' : '界面语言' }}</span>
           <p id="interface-language-hint" class="setting-desc">{{ extraLanguageHint }}</p>
         </div>
         <div class="language-controls">
-          <select id="interface-language" class="locale-select" translate="no" aria-describedby="interface-language-hint"
-            :value="localeChoice" @change="changeInterfaceLanguage($event.target.value)">
-            <optgroup :label="localeGroupLabels[0]">
-              <option v-for="option in NATIVE_LANGUAGES" :key="option.value" :value="option.value" :lang="option.lang">{{ option.label }}</option>
-            </optgroup>
-            <optgroup :label="localeGroupLabels[1]">
-              <option v-for="option in EXTRA_LANGUAGES" :key="option.value" :value="option.value" :lang="option.lang">{{ option.label }}</option>
-            </optgroup>
-          </select>
+          <I18nDataSelect id="interface-language" class="language-select" :model-value="localeChoice" :options="localeOptions" width="100%"
+            role="group" aria-labelledby="interface-language-label" aria-describedby="interface-language-hint"
+            @update:model-value="changeInterfaceLanguage" />
           <FluentButton v-if="settings.extraLanguage" class="translation-cache-action" variant="subtle" size="sm" @click="clearExtraLanguageCache">
             {{ lang === 'en' ? 'Clear cache' : '清除缓存' }}
           </FluentButton>
@@ -632,6 +626,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } from 'vue'
+import I18nDataSelect from '../components/I18nDataSelect.vue'
 import { useNamesStore } from '../stores/names'
 import { useSettingsStore } from '../stores/settings'
 import { usePluginsStore } from '../plugins/store'
@@ -644,7 +639,7 @@ import { updateState, checkForUpdates, downloadUpdate, getDownloadUrl } from '..
 import { fetchCompassReleases, formatBytes, COMPASS_GITHUB_URL } from '../utils/compass'
 import { t } from '../utils/i18n'
 import { clearTranslationCache } from '../utils/i18nAuto'
-import { EXTRA_LANGUAGES, NATIVE_LANGUAGES, interfaceLanguage, languageGroupLabels } from '../utils/settingsLocale.mjs'
+import { EXTRA_LANGUAGES, NATIVE_LANGUAGES, interfaceLanguage } from '../utils/settingsLocale.mjs'
 import {
   DEFAULT_CYRENE_BALANCE_SETTINGS,
   normalizeCyreneBalanceSettings,
@@ -746,7 +741,7 @@ watch(() => settings.value.floatingWindowOpacity, value => {
 })
 
 const localeChoice = computed(() => interfaceLanguage(settings.value))
-const localeGroupLabels = computed(() => languageGroupLabels(settings.value))
+const localeOptions = [...NATIVE_LANGUAGES, ...EXTRA_LANGUAGES]
 const extraLanguageHint = computed(() => lang.value === 'en'
   ? 'Beta languages use Microsoft Edge to translate the interface. Names, lists, prizes and records are never sent. Encrypted translations can be reused offline.'
   : 'Beta 语言由 Microsoft Edge 翻译界面文字，名单、奖品与记录不会上传。译文在本机加密保存，离线时可继续使用。')
@@ -1493,8 +1488,7 @@ function onBalanceEnabledChange(enabled) {
 .language-setting { align-items: flex-start; }
 .language-setting .setting-desc { max-width: 540px; margin: 2px 0 0; line-height: 1.6; }
 .language-controls { display: grid; justify-items: end; gap: 5px; flex: 0 0 clamp(140px, 29%, 200px); }
-.locale-select { width: 100%; min-height: 34px; padding: 4px 10px; font: inherit; font-size: 13px; color: var(--text-primary); background: var(--bg-card-solid); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
-.locale-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.language-select { width: 100%; min-width: 0; }
 .uri-setting-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .uri-help-body { display: flex; flex-direction: column; gap: 16px; color: var(--text-secondary); }
 .uri-help-intro { margin: 0; font-size: 13px; line-height: 1.65; }
@@ -1580,7 +1574,7 @@ function onBalanceEnabledChange(enabled) {
 @media (max-width: 720px) {
   .language-setting { flex-direction: column; align-items: stretch; gap: 8px; }
   .language-controls { display: flex; flex: auto; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .locale-select { flex: 1; min-width: 135px; width: auto; }
+  .language-select { flex: 1 1 135px; width: auto; }
   .settings-view { padding: 20px 16px 28px; }
   .setting-row { align-items: stretch; flex-direction: column; gap: 8px; }
   .setting-row:has(> .fluent-toggle) { align-items: center; flex-direction: row; }

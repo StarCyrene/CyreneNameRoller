@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { interfaceLanguage, languageGroupLabels, normalizeSettingsLocale, selectInterfaceLanguage } from '../src/utils/settingsLocale.mjs'
+import { interfaceLanguage, normalizeSettingsLocale, selectInterfaceLanguage } from '../src/utils/settingsLocale.mjs'
 
 test('saved native and automatic language settings map to the one interface choice', () => {
   assert.equal(interfaceLanguage({ language: 'en' }), 'en')
@@ -15,10 +15,4 @@ test('switching to a built-in language always stops automatic translation', () =
   assert.deepEqual(selectInterfaceLanguage(translated, 'en'), { language: 'en', extraLanguage: '' })
   assert.deepEqual(selectInterfaceLanguage(translated, 'zh'), { language: 'zh', extraLanguage: '' })
   assert.equal(selectInterfaceLanguage(translated, 'unknown'), null)
-})
-
-test('group headings follow the chosen interface and fall back to the saved built-in language', () => {
-  assert.deepEqual(languageGroupLabels({ language: 'zh', extraLanguage: 'russian' }), ['Встроенные языки', 'Автоперевод · Beta'])
-  assert.deepEqual(languageGroupLabels({ language: 'en', extraLanguage: 'unknown' }), ['Built-in languages', 'Automatic translation · Beta'])
-  assert.deepEqual(languageGroupLabels({}), ['内置语言', '自动翻译 · Beta'])
 })

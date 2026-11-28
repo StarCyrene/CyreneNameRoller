@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import puppeteer from 'puppeteer-core'
 import { preview } from 'vite'
-import { EXTRA_LANGUAGES } from '../../src/utils/settingsLocale.mjs'
+import { EXTRA_LANGUAGES, NATIVE_LANGUAGES } from '../../src/utils/settingsLocale.mjs'
 import { exactUiTranslation } from '../../src/utils/i18nGlossary.mjs'
 
 const server = await preview({ logLevel: 'error', build: { outDir: resolve(process.argv[2] || 'dist') }, preview: { host: '127.0.0.1', port: 0 } })
@@ -72,10 +72,18 @@ async function translateMatrix(browser, base) {
       await page.waitForSelector(selector)
     }
     const select = async (target, lang) => {
-      await page.select('#interface-language', target)
+      const { label } = [...NATIVE_LANGUAGES, ...EXTRA_LANGUAGES].find(option => option.value === target)
+      await page.click('#interface-language .fluent-select')
+      await page.waitForSelector('.fluent-select-dropdown .select-option', { visible: true })
+      await page.$$eval('.fluent-select-dropdown .select-option', (options, label) => {
+        const option = options.find(item => item.textContent.trim() === label)
+        if (!option) throw new Error('Missing language: ' + label)
+        option.click()
+      }, label)
       await eq(page, 'html', lang, 'lang')
+      await eq(page, '#interface-language .select-value', label)
     }
-    const heading = (target) => eq(page, 'label[for="interface-language"]', exactUiTranslation(target, phrase('界面语言', 'Interface language')))
+    const heading = (target) => eq(page, '#interface-language-label', exactUiTranslation(target, phrase('界面语言', 'Interface language')))
     const insertProbe = () => page.evaluate(({ probe, data }) => {
       const shell = document.createElement('section')
       shell.id = 'language-matrix-probe'

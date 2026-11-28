@@ -3,7 +3,7 @@ import { exactUiTranslation } from './i18nGlossary.mjs'
 export const UI_ATTRIBUTES = ['title', 'aria-label', 'aria-description', 'aria-valuetext', 'placeholder', 'alt']
 const PRIVATE = [
   '[translate="no"]', '.notranslate', '[data-i18n-private]', '[contenteditable]:not([contenteditable="false"])',
-  '.locale-select', '[data-i18n-data-select] .select-value', '.verified-result', '.name-display', '.name-text',
+  '[data-i18n-data-select] .select-value', '.verified-result', '.name-display', '.name-text',
   '.card-front', '.history-chip', '.wheel-label', '.wheel-winner', '.seat-name', '.relay-trail',
   '.flybys', '.arrivals', '.recipient', '.team-member', '.person-cn', '.person-en', '.person-id',
   '.person-list-name', '.prize-list-name', '.export-list-name', '.group-name', '.group-en', '.stat-name',

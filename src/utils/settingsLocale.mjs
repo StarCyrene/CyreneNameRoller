@@ -18,20 +18,6 @@ export const EXTRA_LANGUAGES = [
 
 const nativeValues = new Set(NATIVE_LANGUAGES.map(({ value }) => value))
 const extraValues = new Set(EXTRA_LANGUAGES.map(({ value }) => value))
-const groupLabels = new Map([
-  ['zh', ['内置语言', '自动翻译 · Beta']],
-  ['en', ['Built-in languages', 'Automatic translation · Beta']],
-  ['japanese', ['組み込み言語', '自動翻訳 · Beta']],
-  ['korean', ['기본 제공 언어', '자동 번역 · Beta']],
-  ['chinese_traditional', ['內建語言', '自動翻譯 · Beta']],
-  ['french', ['Langues intégrées', 'Traduction automatique · Beta']],
-  ['deutsch', ['Integrierte Sprachen', 'Automatische Übersetzung · Beta']],
-  ['spanish', ['Idiomas integrados', 'Traducción automática · Beta']],
-  ['russian', ['Встроенные языки', 'Автоперевод · Beta']],
-  ['portuguese', ['Idiomas integrados', 'Tradução automática · Beta']],
-  ['italian', ['Lingue integrate', 'Traduzione automatica · Beta']],
-  ['vietnamese', ['Ngôn ngữ tích hợp', 'Dịch tự động · Beta']]
-])
 
 export function isExtraLanguage(value) {
   return extraValues.has(value)
@@ -47,10 +33,6 @@ export function normalizeSettingsLocale({ language, extraLanguage } = {}) {
 export function interfaceLanguage(settings) {
   const { language, extraLanguage } = normalizeSettingsLocale(settings)
   return extraLanguage || language
-}
-
-export function languageGroupLabels(settings) {
-  return groupLabels.get(interfaceLanguage(settings))
 }
 
 export function selectInterfaceLanguage(settings, value) {

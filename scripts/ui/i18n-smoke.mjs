@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { resolve } from 'node:path'
 import puppeteer from 'puppeteer-core'
 import { preview } from 'vite'
+import { EXTRA_LANGUAGES, NATIVE_LANGUAGES } from '../../src/utils/settingsLocale.mjs'
 
 const server = await preview({ logLevel: 'error', build: { outDir: resolve(process.argv[2] || 'dist') }, preview: { host: '127.0.0.1', port: 0 } })
 const origin = 'http://127.0.0.1:' + server.httpServer.address().port
@@ -142,10 +143,15 @@ try {
   await page.keyboard.press('Escape')
 
   await navigate('/settings/general', '#interface-language')
-  await page.waitForFunction(() => document.querySelector('label[for="interface-language"]')?.textContent === 'Язык интерфейса')
-  assert.equal(await page.$eval('#interface-language option[value="russian"]', option => option.textContent), 'Русский')
-  await page.select('#interface-language', 'en')
-  await content('label[for="interface-language"]', 'Interface language')
+  await content('#interface-language-label', 'Язык интерфейса')
+  await content('#interface-language .select-value', 'Русский')
+  await page.click('#interface-language .fluent-select')
+  await page.waitForSelector('.fluent-select-dropdown .select-option > [translate="no"]', { visible: true })
+  const optionLabels = await page.$$eval('.fluent-select-dropdown .select-option > [translate="no"]', options => options.map(option => [option.textContent.trim(), option.lang]))
+  assert.deepEqual(optionLabels, [...NATIVE_LANGUAGES, ...EXTRA_LANGUAGES].map(({ label, lang }) => [label, lang]))
+  await page.$$eval('.fluent-select-dropdown .select-option', options => options.find(option => option.textContent.trim() === 'English').click())
+  await content('#interface-language-label', 'Interface language')
+  await content('#interface-language .select-value', 'English')
   await attribute('#translation-smoke-probe button', 'aria-label', '动态按钮')
   await attribute('#translation-smoke-probe input', 'placeholder', '动态输入提示')
   await navigate('/roller/relay', '.relay-headline')
