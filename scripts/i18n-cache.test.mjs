@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createTranslationCache } from '../src/utils/i18nCache.js'
+import { encryptCyreneData } from '../src/utils/cyreneCrypto.js'
 
 function createMemoryStorage() {
   let value = null
@@ -63,4 +64,15 @@ test('a cache from another target is rejected', async () => {
   const result = await other.load()
   assert.equal(result.corrupted, true)
   assert.equal(result.restored, 0)
+})
+
+test('old per-segment cache data is retired without a corruption warning', async () => {
+  const storage = createMemoryStorage()
+  const data = await encryptCyreneData({
+    v: 1, target: 'japanese', entries: { hash_japanese_1141616: '旧訳' },
+  })
+  storage.value = { data: Buffer.from(data).toString('base64') }
+  const cache = createTranslationCache({ target: 'japanese', storage })
+  assert.deepEqual(await cache.load(), { restored: 0, corrupted: false })
+  assert.equal(storage.value, null)
 })

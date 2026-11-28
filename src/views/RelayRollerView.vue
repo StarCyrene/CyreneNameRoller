@@ -1,6 +1,7 @@
 <template>
-  <ClassroomSheet :title="en ? 'Firefly Relay' : '流萤传灯'" :locked="rounds.busy"
+  <ClassroomSheet wide :title="en ? 'Firefly Relay' : '流萤传灯'" :locked="rounds.busy"
     :description="en ? 'Pass the light to one new person at a time. Each handoff records one name.' : '每传一次灯，就从还没接过灯的人里抽一位，记一次点名。'">
+    <div class="relay-workbench">
     <div class="relay-stage classroom-panel">
       <svg class="firefly-art" viewBox="0 0 180 146" aria-hidden="true">
         <g fill="none" stroke="currentColor" stroke-linecap="round">
@@ -21,22 +22,31 @@
       </div>
       <div class="relay-meter" aria-hidden="true"><i :style="{ width:(rounds.turns.length / (rounds.relayLimit || 1) * 100) + '%' }" /></div>
     </div>
-    <div class="classroom-actions">
-      <CountStepper :label="complete ? (en ? 'Next round length' : '下轮人数') : (en ? 'Round length' : '每轮人数')"
-        :model-value="rounds.nextTarget" :min="1" :max="Math.min(100,rounds.people.length)"
-        :disabled="(!!current && !complete) || rounds.busy || !rounds.people.length" :en="en" @update:model-value="setSize" />
-      <div class="button-set">
-        <FluentButton v-if="current && !complete" variant="secondary" :disabled="rounds.busy" @click="rounds.resetRelay">{{ en ? 'End round' : '结束本轮' }}</FluentButton>
-        <FluentButton class="relay-advance" variant="primary" :disabled="!rounds.people.length || rounds.busy" @click="advance">
-          {{ rounds.busy ? (en ? 'Drawing…' : '点名中…') : complete ? (en ? 'Start another round' : '开启下一轮') : current ? (en ? 'Pass the light' : '把灯传给下一位') : (en ? 'Light the first lantern' : '点亮第一盏灯') }}
-        </FluentButton>
+    <aside class="relay-sidebar">
+      <div class="classroom-actions classroom-panel">
+        <h2>{{ en ? 'This relay' : '本轮传灯' }}</h2>
+        <CountStepper :label="complete ? (en ? 'Next round length' : '下轮人数') : (en ? 'Round length' : '每轮人数')"
+          :model-value="rounds.nextTarget" :min="1" :max="Math.min(100,rounds.people.length)"
+          :disabled="(!!current && !complete) || rounds.busy || !rounds.people.length" :en="en" @update:model-value="setSize" />
+        <div class="button-set">
+          <FluentButton class="relay-advance" variant="primary" :disabled="!rounds.people.length || rounds.busy" @click="advance">
+            {{ rounds.busy ? (en ? 'Drawing…' : '点名中…') : complete ? (en ? 'Start another round' : '开启下一轮') : current ? (en ? 'Pass the light' : '把灯传给下一位') : (en ? 'Light the first lantern' : '点亮第一盏灯') }}
+          </FluentButton>
+          <FluentButton v-if="current && !complete" variant="secondary" :disabled="rounds.busy" @click="rounds.resetRelay">{{ en ? 'End round' : '结束本轮' }}</FluentButton>
+        </div>
+        <p v-if="!rounds.people.length" class="classroom-caption">{{ en ? 'This list has no names to draw.' : '这份名单还没有可抽取的人。' }} <RouterLink class="empty-link" to="/lists">{{ en ? 'Manage names' : '管理名单' }}</RouterLink></p>
+        <p v-if="rounds.error" role="alert">{{ rounds.error }}</p>
       </div>
-    </div>
-    <p v-if="!rounds.people.length" class="classroom-caption">{{ en ? 'This list has no names to draw.' : '这份名单还没有可抽取的人。' }} <RouterLink class="empty-link" to="/lists">{{ en ? 'Manage names' : '管理名单' }}</RouterLink></p>
-    <p v-if="rounds.error" role="alert">{{ rounds.error }}</p>
-    <div v-if="current" class="classroom-panel">
-      <h2>{{ complete ? (en ? 'Round complete' : '本轮传灯完成') : (en ? 'Path of the light' : '灯走过的路') }}</h2>
-      <ol class="relay-trail"><li v-for="(person,i) in rounds.turns" :key="person.id"><span>{{ i+1 }}</span>{{ displayName(person) }}</li></ol>
+      <section class="relay-log classroom-panel" aria-labelledby="relay-log-title">
+        <h2 id="relay-log-title">{{ complete ? (en ? 'Round complete' : '本轮传灯完成') : (en ? 'Path of the light' : '灯走过的路') }}</h2>
+        <ol v-if="current" class="relay-trail" :tabindex="rounds.turns.length > 6 ? 0 : undefined" aria-labelledby="relay-log-title">
+          <li v-for="(person,i) in rounds.turns" :key="person.id" :aria-current="i === rounds.turns.length - 1 ? 'step' : undefined">
+            <span aria-hidden="true">{{ i+1 }}</span><strong translate="no">{{ displayName(person) }}</strong>
+          </li>
+        </ol>
+        <p v-else class="classroom-caption">{{ en ? 'Names will appear here in the order they receive the light.' : '第一盏灯亮起后，名字会按接到灯的顺序留在这里。' }}</p>
+      </section>
+    </aside>
     </div>
   </ClassroomSheet>
 </template>
@@ -63,15 +73,29 @@ function advance() {
 }
 </script>
 <style scoped>
-.relay-stage { position:relative; isolation:isolate; display:flex; align-items:center; justify-content:center; gap:clamp(8px,4vw,52px); min-height:clamp(190px,33vh,310px); overflow:hidden; background:radial-gradient(ellipse at 28% 38%,color-mix(in srgb,var(--accent) 15%,transparent),transparent 62%),var(--bg-card-solid) !important; }
-.firefly-art { width:clamp(72px,21%,185px); color:var(--accent-dark); flex:none; }
-.light-holder { min-width:0; display:grid; gap:6px; }
+.relay-workbench { display:grid; grid-template-columns:minmax(0,1fr) minmax(240px,.43fr); gap:clamp(12px,1.55cqi,22px); min-width:0; }
+.relay-stage { position:relative; isolation:isolate; display:grid; align-content:center; justify-items:center; gap:clamp(8px,2.25cqi,30px); min-height:clamp(220px,49cqh,550px); overflow:hidden; background:radial-gradient(ellipse at 50% 36%,color-mix(in srgb,var(--accent) 20%,transparent),transparent 72%),var(--bg-card-solid) !important; }
+.firefly-art { width:min(85%,clamp(115px,24cqi,315px)); color:var(--accent-dark); flex:none; }
+.light-holder { width:100%; min-width:0; text-align:center; display:grid; gap:8px; }
 .light-holder span,.light-holder small { color:var(--text-secondary); font-size:14px; }
-.light-holder strong { font:700 clamp(24px,4vw,58px)/1.25 var(--font-display); overflow-wrap:anywhere; animation:pass-glow .45s ease-out; }
+.light-holder strong { font:700 clamp(25px,5.2cqi,76px)/1.16 var(--font-display); overflow-wrap:anywhere; animation:pass-glow .45s ease-out; }
 .relay-meter { position:absolute; inset:auto 0 0; height:4px; background:var(--border-subtle); }.relay-meter i { display:block;height:100%;background:var(--accent);transition:width .3s; }
-.relay-trail { padding:0;margin:0;list-style:none;display:flex;gap:8px;flex-wrap:wrap; }
-.relay-trail li { display:flex;align-items:center;gap:7px;padding:5px 11px 5px 5px;border:1px solid var(--border-strong);border-radius:22px;overflow-wrap:anywhere;max-width:100%; }
+.relay-sidebar { display:grid; grid-template-rows:auto minmax(0,1fr); align-content:start; align-items:start; gap:12px; min-width:0; }
+.relay-sidebar .classroom-actions { align-items:flex-start; flex-direction:column; gap:10px; }
+.relay-sidebar .classroom-actions h2 { margin:0; }
+.relay-sidebar .button-set { flex-wrap:wrap; }
+.relay-trail { padding:2px;margin:0;list-style:none;display:grid;gap:6px;max-height:max(172px,42cqh);overflow:auto; }
+.relay-trail li { display:flex;align-items:center;gap:8px;padding:5px 10px 5px 5px;border:1px solid var(--border-default);border-radius:var(--radius-md);overflow-wrap:anywhere;min-width:0; }
+.relay-trail li[aria-current="step"] { border-color:var(--border-strong);background:var(--bg-hover); }
+.relay-trail strong { font-size:13px; min-width:0; }
 .relay-trail span { display:grid;place-items:center;min-width:24px;height:24px;border-radius:50%;background:var(--bg-hover);font-size:12px;color:var(--text-secondary); }
+@container roller-panel (max-width:720px) {
+  .relay-workbench { grid-template-columns:minmax(0,1fr); align-content:start; }
+  .relay-stage { min-height:clamp(188px,35cqh,275px); }
+  .firefly-art { width:clamp(78px,24cqi,145px); }
+  .relay-sidebar .classroom-actions { flex-direction:row; align-items:center; }
+  .relay-sidebar .classroom-actions h2 { flex-basis:100%; }
+}
 @keyframes pass-glow { from {opacity:.4;transform:translateY(5px)} to {opacity:1;transform:none} }
 @media(prefers-reduced-motion:reduce){.light-holder strong,.relay-meter i{animation:none;transition:none}}
 :global(.perf-no-anim) .light-holder strong,:global(.perf-no-anim) .relay-meter i{animation:none;transition:none}

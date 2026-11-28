@@ -1,5 +1,6 @@
-import { isExtraLanguage } from './settingsLocale.mjs'
-import { installDomTranslation, registerUiAttributes, resetDomTranslation, UI_ATTRIBUTES } from './i18nDom.mjs'
+import { EXTRA_LANGUAGES, NATIVE_LANGUAGES, isExtraLanguage } from './settingsLocale.mjs'
+import { installDomTranslation, registerUiAttributes, resetDomTranslation, UI_ATTRIBUTES, uiFragmentSource } from './i18nDom.mjs'
+import { exactUiTranslation } from './i18nGlossary.mjs'
 import { createTranslationCache } from './i18nCache'
 import { createPersistentTranslationCacheStorage } from './i18nCacheStorage'
 
@@ -7,6 +8,7 @@ const SOURCE_LANGUAGES = {
   zh: 'chinese_simplified',
   en: 'english'
 }
+const documentLanguages = new Map([...NATIVE_LANGUAGES, ...EXTRA_LANGUAGES].map(({ value, lang }) => [value, lang]))
 
 // Pinned SHA-256 of public/vendor/translate.min.js (v4.1.3.20261111).
 // Update both the file and this hash together; a mismatch refuses to execute.
@@ -172,12 +174,8 @@ async function prefetchCatalog(translate, target, source, isCurrent, flushCache)
 
   // The catalogue contains both interface languages. Only feed the one that is
   // currently rendered; the other half would be pointless network traffic.
-  const cjk = /[\u3400-\u9fff]/
-  const sourceCatalog = source === 'english'
-    ? catalog.filter(text => !cjk.test(text))
-    : catalog.filter(text => cjk.test(text))
-
-  const pending = sourceCatalog.filter(text => {
+  const pending = catalog.filter(text => {
+    if (uiFragmentSource(text) !== source || exactUiTranslation(target, text)) return false
     const key = `hash_${target}_${translate.util.hash(text)}`
     return !translate.storage.get(key)
   })
@@ -286,6 +284,7 @@ export function createAutoTranslateRuntime({ onError } = {}) {
     attributesObserver.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: UI_ATTRIBUTES })
     translate.listener.start()
     translate.execute()
+    document.documentElement.lang = documentLanguages.get(target)
     active = true
 
     const startedTranslate = translate
@@ -362,6 +361,7 @@ export function createAutoTranslateRuntime({ onError } = {}) {
     const token = ++generation
     // Calling stop synchronously resets the old source before Vue paints
     // the newly selected built-in language.
+    document.documentElement.lang = documentLanguages.get(nextNativeLanguage) || 'zh-Hans'
     await stop()
     if (token !== generation || !isExtraLanguage(nextTarget)) return
     try {

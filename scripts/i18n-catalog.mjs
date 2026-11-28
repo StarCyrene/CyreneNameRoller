@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 const VIRTUAL_ID = 'virtual:cyrene-i18n-catalog'
 const RESOLVED_ID = '\0' + VIRTUAL_ID
 const MAX_STRINGS = 5000
-const UI_ATTRIBUTES = new Set(['title', 'aria-label', 'placeholder', 'alt'])
+const UI_ATTRIBUTES = new Set(['title', 'aria-label', 'aria-description', 'aria-valuetext', 'placeholder', 'alt', 'label'])
 const CJK_PATTERN = /[\u3400-\u9fff]/
 
 function collectFiles(directory, files = []) {
@@ -13,7 +13,7 @@ function collectFiles(directory, files = []) {
     if (entry.isDirectory()) {
       if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
       collectFiles(path, files)
-    } else if (/\.(vue|js)$/.test(entry.name)) {
+    } else if (/\.(vue|m?js)$/.test(entry.name) && !['i18nGlossary.mjs', 'settingsLocale.mjs'].includes(entry.name)) {
       files.push(path)
     }
   }
@@ -72,9 +72,12 @@ function isUiContext(node, ancestors) {
     const key = parent.key?.name || parent.key?.value
     if (['zh', 'en', 'cn'].includes(key)) return true
   }
-  if (parent.type === 'ConditionalExpression') {
-    const test = ancestors.slice(-4).map(item => item.type === 'Identifier' ? item.name : '').join(' ')
-    if (/\b(lang|language|en|english)\b/i.test(test)) return true
+  if (parent.type === 'ConditionalExpression' && (parent.consequent === node || parent.alternate === node)) {
+    let languageTest = false
+    walk(parent.test, item => {
+      if (item.type === 'Identifier' && /^(lang|language|en|english)$/i.test(item.name)) languageTest = true
+    })
+    if (languageTest) return true
   }
   if (parent.type === 'CallExpression') {
     const callee = parent.callee
@@ -92,13 +95,19 @@ function addExpressionStrings(expression, add) {
   } catch {
     return
   }
-  walk(ast, node => {
+  walk(ast, (node, ancestors) => {
+    // String constants in predicates are model keys, not rendered labels.
+    if (ancestors.some((parent, i) => parent.type === 'ConditionalExpression' && parent.test === (ancestors[i + 1] || node))) return
     if (node.type === 'StringLiteral' && isCandidate(node.value)) add(node.value)
   })
 }
 
 function collectFromTemplate(templateAst, add) {
   walk(templateAst, (node, ancestors) => {
+    const privateElement = element => element.type === 1 && element.props?.some(prop =>
+      prop.type === 6 && (prop.name === 'data-i18n-private' || (prop.name === 'translate' && prop.value?.content === 'no'))
+    )
+    if (privateElement(node) || ancestors.some(privateElement)) return
     if (node.type === 2 && typeof node.content === 'string') {
       // Static attribute values also appear as TEXT nodes; they are handled by
       // the ATTRIBUTE branch below (and only for user-facing attributes).

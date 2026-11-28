@@ -1,5 +1,5 @@
 <template>
-  <section class="classroom-sheet">
+  <section class="classroom-sheet" :class="{ 'classroom-sheet-wide': wide }">
     <header class="classroom-head">
       <div><h1>{{ title }}</h1><p>{{ description }}</p></div>
       <label class="classroom-field">{{ en ? 'Name list' : '名单' }}
@@ -15,13 +15,15 @@
 import { computed } from 'vue'
 import { useNamesStore } from '../../stores/names'
 import { useSettingsStore } from '../../stores/settings'
-defineProps({ title: String, description: String, locked: Boolean })
+defineProps({ title: String, description: String, locked: Boolean, wide: Boolean })
 const names = useNamesStore()
 const settings = useSettingsStore()
 const en = computed(() => settings.settings.language === 'en')
 </script>
 <style>
 .classroom-sheet { color:var(--text-primary); width:min(100%,1050px); margin:auto; padding:clamp(16px,3vw,40px); display:grid; gap:20px; }
+.classroom-sheet-wide { width:100%; min-height:100%; margin:0; padding:clamp(12px,2.7cqi,44px); grid-template-rows:auto 1fr; gap:clamp(12px,1.65cqi,24px); }
+.classroom-sheet-wide .classroom-head > div { min-width:0; }
 .classroom-head, .classroom-actions { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px 22px; }
 .classroom-head h1 { font:700 clamp(24px,3vw,34px)/1.2 var(--font-display); margin:0 0 6px; }
 .classroom-head p, .classroom-caption { margin:0; color:var(--text-secondary); font-size:14px; line-height:1.6; }

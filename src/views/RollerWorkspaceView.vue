@@ -219,7 +219,7 @@ function onTabKey(event) {
   content: '';
   transform: translateX(-50%);
 }
-.tool-panel { grid-area: panel; min-width: 0; min-height: 0; overflow: auto; }
+.tool-panel { grid-area: panel; min-width: 0; min-height: 0; overflow: auto; container: roller-panel / size; }
 .tool-panel:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .tool-swap-enter-active, .tool-swap-leave-active { transition: opacity .17s ease, transform .17s ease; }
 .tool-swap-enter-from { opacity: 0; transform: translateY(7px) scale(.997); }

@@ -36,7 +36,7 @@
       <h1>{{ en ? 'Name wheel' : '转盘点名' }}</h1>
       <div class="wheel-field">
         <span id="wheel-roster-label">{{ en ? 'Name list' : '当前名单' }}</span>
-        <I18nDataSelect :model-value="names.currentListId" :options="listOptions" :disabled="busy" aria-labelledby="wheel-roster-label" @update:model-value="changeList" />
+        <I18nDataSelect :model-value="names.currentListId" :options="listOptions" :disabled="busy" width="100%" aria-labelledby="wheel-roster-label" @update:model-value="changeList" />
       </div>
       <fieldset class="wheel-field" :disabled="busy">
         <legend>{{ en ? 'Include' : '点名范围' }}</legend>
@@ -224,9 +224,35 @@ async function spin() {
 </script>
 
 <style scoped>
-.wheel-view { --wheel-a: color-mix(in srgb, var(--accent) 27%, var(--bg-card-solid)); --wheel-b: color-mix(in srgb, var(--accent-light) 16%, var(--bg-card-solid)); --wheel-c: color-mix(in srgb, #8895e2 27%, var(--bg-card-solid)); --wheel-d: color-mix(in srgb, #dea278 21%, var(--bg-card-solid)); --wheel-hit: color-mix(in srgb, var(--accent) 55%, var(--bg-card-solid)); width: min(100%, 1020px); margin: auto; padding: clamp(18px, 4vw, 48px); display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(220px, .85fr); gap: clamp(18px, 4vw, 52px); align-items: start; box-sizing: border-box; }
+.wheel-view {
+  --wheel-a: color-mix(in srgb, var(--accent) 27%, var(--bg-card-solid));
+  --wheel-b: color-mix(in srgb, var(--accent-light) 16%, var(--bg-card-solid));
+  --wheel-c: color-mix(in srgb, #8895e2 27%, var(--bg-card-solid));
+  --wheel-d: color-mix(in srgb, #dea278 21%, var(--bg-card-solid));
+  --wheel-hit: color-mix(in srgb, var(--accent) 55%, var(--bg-card-solid));
+  width: min(100%, 1560px);
+  min-block-size: 100cqh;
+  box-sizing: border-box;
+  margin-inline: auto;
+  padding: clamp(20px, 3cqh, 44px) clamp(20px, 4cqw, 66px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(275px, 31cqw, 425px);
+  column-gap: clamp(22px, 4cqw, 70px);
+  align-items: center;
+}
 .wheel-stage { text-align: center; min-width: 0; }
-.wheel-frame { position: relative; width: min(100%, 410px); aspect-ratio: 1; margin: 12px auto; border-radius: 50%; background: var(--bg-card-solid); border: 1px solid var(--border-strong); padding: 8px; box-shadow: var(--shadow-8); }
+.wheel-frame {
+  position: relative;
+  box-sizing: border-box;
+  width: min(100%, clamp(220px, 100cqh - 132px, 760px));
+  aspect-ratio: 1;
+  margin: 0 auto;
+  border-radius: 50%;
+  background: var(--bg-card-solid);
+  border: 1px solid var(--border-strong);
+  padding: clamp(6px, 1.1cqh, 12px);
+  box-shadow: var(--shadow-8);
+}
 .wheel-dial { width: 100%; height: 100%; overflow: hidden; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--border-default); }
 .wheel-dial svg { display: block; width: 100%; height: 100%; }
 .wheel-dial text { fill: var(--text-primary); font: 600 11px var(--font-ui); }
@@ -234,9 +260,11 @@ async function spin() {
 .wheel-pointer { position: absolute; top: -6px; left: 50%; transform: translateX(-50%); width: 21px; height: 25px; border-radius: 5px; clip-path: polygon(0 0, 100% 0, 50% 100%); background: var(--text-muted); }
 .wheel-pointer.landed { background: var(--accent-dark); }
 .wheel-hub { position: absolute; inset: 50% auto auto 50%; transform: translate(-50%, -50%); width: 19%; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; border: 3px solid var(--bg-card-solid); color: var(--text-on-accent); background: var(--accent-dark); box-shadow: var(--shadow-4); cursor: pointer; }
+.wheel-hub :deep(svg) { width: clamp(22px, 46%, 40px); height: auto; }
 .wheel-hub:disabled { cursor: default; }
 .wheel-hub:focus-visible, .wheel-manage:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
-.wheel-caption { margin: 16px 0 0; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+.wheel-caption { max-inline-size: 50ch; margin: 16px auto 0; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+.wheel-caption:empty { display: none; }
 .wheel-key { margin-top: 10px; color: var(--text-secondary); font-size: 13px; }
 .wheel-key summary, .wheel-key-nav button { cursor: pointer; }
 .wheel-key ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr)); gap: 5px 10px; list-style: none; padding: 0; margin: 10px 0 0; text-align: start; }
@@ -245,8 +273,16 @@ async function spin() {
 .wheel-key-nav { margin-top: 10px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; }
 .wheel-key-nav button { background: var(--bg-card-solid); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 3px 8px; color: var(--text-primary); font: inherit; }
 .wheel-key-nav button:disabled { opacity: .52; cursor: default; }
-.wheel-panel { display: grid; align-content: start; min-width: 0; gap: 18px; }
-.wheel-panel h1 { margin: 0 0 4px; color: var(--text-primary); font: 700 clamp(24px, 3.5vw, 34px)/1.25 var(--font-display); }
+.wheel-panel {
+  display: grid;
+  min-width: 0;
+  gap: clamp(14px, 2.4cqh, 22px);
+  padding: clamp(16px, 2.35cqw, 34px);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+}
+.wheel-panel h1 { margin: 0; color: var(--text-primary); font: 700 clamp(26px, 3.1cqw, 40px)/1.2 var(--font-display); overflow-wrap: anywhere; }
 .wheel-field { margin: 0; padding: 0; border: 0; display: grid; gap: 8px; min-width: 0; font-size: 13px; color: var(--text-secondary); }
 .wheel-field legend { padding: 0; margin: 0 0 8px; }
 .wheel-filters { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -254,11 +290,14 @@ async function spin() {
 .wheel-filters label.selected { color: var(--text-primary); border-color: var(--accent); background: var(--wheel-b); }
 .wheel-filters input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .wheel-filters label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
-.wheel-result { display: grid; gap: 7px; padding: 16px; background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); color: var(--text-secondary); font-size: 14px; overflow-wrap: anywhere; }
+.wheel-result { display: grid; gap: 7px; padding: 16px; background: var(--bg-card-solid); border: 1px solid var(--border-default); border-radius: var(--radius-md); color: var(--text-secondary); font-size: 14px; overflow-wrap: anywhere; }
 .wheel-tag, .wheel-result small { font-size: 12px; }
-.winner { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--text-primary); font: 700 clamp(22px, 3.4vw, 34px)/1.35 var(--font-display); }
-.spin-action { justify-self: start; }
+.winner { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--text-primary); font: 700 clamp(24px, 3.2cqw, 42px)/1.25 var(--font-display); }
+.spin-action { width: 100%; }
 .wheel-manage { color: var(--text-primary); text-decoration: underline; text-underline-offset: 4px; }
-@container (max-width: 620px) { .wheel-view { grid-template-columns: minmax(0, 1fr); padding: 16px; max-width: 435px; } .wheel-frame { width: min(82%, 250px); } .wheel-panel { gap: 12px; } }
-@media (max-width: 720px) { .wheel-view { grid-template-columns: minmax(0, 1fr); max-width: 435px; padding: 16px; } .wheel-frame { width: min(82%, 250px); } .wheel-panel { gap: 12px; } }
+@container roller-panel (max-width: 690px) {
+  .wheel-view { min-block-size: 0; grid-template-columns: minmax(0, 1fr); row-gap: 16px; padding: 18px 14px; max-width: 580px; }
+  .wheel-frame { width: min(100%, clamp(210px, 56cqh, 430px)); }
+  .wheel-panel { gap: 12px; }
+}
 </style>

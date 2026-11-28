@@ -8,7 +8,11 @@ import { preview } from 'vite'
 const server = await preview({ logLevel: 'error', build: { outDir: resolve(process.argv[2] || 'dist') }, preview: { host: '127.0.0.1', port: 0 } })
 const origin = 'http://127.0.0.1:' + server.httpServer.address().port
 const privateData = {
-  person: 'Hidden Student',
+  person: '龘 Hidden Student',
+  personAlias: 'Ŧest Alias',
+  nameClue: '龘',
+  aliasClue: 'Ŧ',
+  guess: 'Hidden Guess',
   personId: 'private-student-id',
   roster: 'Private Classroom',
   alternateRoster: 'Confidential Classroom',
@@ -44,7 +48,7 @@ try {
     return request.respond({ status: 200, headers, contentType: 'application/json', body: JSON.stringify(result) })
   })
   await page.evaluateOnNewDocument(data => {
-    const person = { id: data.personId, cn: data.person, en: '', gender: 'female', isWhiteList: false, groupId: '' }
+    const person = { id: data.personId, cn: data.person, en: data.personAlias, gender: 'female', isWhiteList: false, groupId: '' }
     const defaultList = { id: 'default', name: data.roster, names: [person], groups: [] }
     const alt = { id: 'alt', name: data.alternateRoster, names: [], groups: [] }
     const prize = { id: 'private-prize-id', name: data.prize, quality: data.quality, quantity: 4, weight: 1 }
@@ -76,7 +80,7 @@ try {
 
   await navigate('/records', '.record-item')
   await page.waitForFunction(() => [...document.querySelectorAll('.ri-source')].some(node => node.textContent === 'Случайный выбор из списка'), { timeout: 12000 })
-  await content('.ri-name', privateData.person)
+  await content('.ri-name', privateData.person + ' (' + privateData.personAlias + ')')
   await content('.ri-list', privateData.roster)
 
   await navigate('/statistics', '.stats-header')
@@ -111,6 +115,19 @@ try {
   await machine('#translation-smoke-probe input', 'placeholder')
   await machine('#translation-smoke-probe [type="password"]', 'placeholder')
   assert.equal(await page.$eval('#translation-smoke-probe [type="password"]', input => input.value), privateData.password)
+
+  await navigate('/roller/riddle', '.open-note:not(:disabled)')
+  await page.click('.open-note')
+  await machine('.letter-tiles', 'aria-label')
+  await machine('.letter-tiles button', 'aria-label')
+  await machine('#petal-guess', 'placeholder')
+  await content('.note-center p [translate="no"]', privateData.aliasClue)
+  await page.click('.letter-tiles button')
+  await content('.letter-tiles .lifted', privateData.nameClue)
+  await page.type('#petal-guess', privateData.guess)
+  await page.click('.hint-actions button:last-child')
+  await content('.recipient', privateData.person)
+  await content('.note-center p[translate="no"]', privateData.personAlias)
 
   await navigate('/lottery/draw', '.draw-card')
   await page.waitForFunction(name => document.querySelector('.prize-list-picker select option')?.textContent.trim() === name, {}, privateData.prizeList)

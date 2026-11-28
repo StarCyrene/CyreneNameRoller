@@ -4,21 +4,23 @@
       <div><h1>{{ en ? 'Seat spotlight' : '座次寻光' }}</h1><p>{{ mapped ? (en ? 'Using your classroom seating chart.' : '按照已确认的教室座位表点名。') : (en ? 'Draw directly from the roster. Seat numbers apply only after you set up a seating chart.' : '按名单即可直接点名；排好实际座位后，才会报告排号和座号。') }}</p></div>
       <span class="seat-count">{{ en ? present + ' present · ' + absentIds.length + ' absent' : '到场 ' + present + ' 人 · 缺席 ' + absentIds.length + ' 人' }}</span>
     </header>
-    <div class="seat-controls">
-      <label><span>{{ en ? 'Name list' : '当前名单' }}</span><I18nDataSelect :model-value="names.currentListId" :options="lists" :disabled="busy" :aria-label="en ? 'Name list' : '当前名单'" @update:model-value="changeList" /></label>
-      <label><span>{{ mapped ? (en ? 'Seats per row' : '每排座位') : (en ? 'Columns' : '显示列数') }}</span><select :value="columns" :disabled="locked" @change="changeColumns($event.target.value)"><option v-for="n in MAX_COLUMNS" :key="n" :value="n">{{ n }}</option></select></label>
-      <FluentButton class="seat-draw" variant="primary" :disabled="locked || !present" @click="draw"><FluentIcon icon="sparkle-24-filled" :width="16" />{{ busy ? (en ? 'Selecting…' : '点名中…') : (en ? 'Light up a seat' : '点亮一个座位') }}</FluentButton>
-    </div>
-    <div class="seat-result" role="status" aria-live="polite" aria-atomic="true">
-      <template v-if="receipt && winnerAddress">
-        <span>{{ mapped ? (en ? 'Selected seat' : '座位已点亮') : (en ? 'Selected name' : '抽中的是') }}</span>
-        <strong class="seat-name"><VerifiedResult :receipt="receipt" :index="0" :presentation="presentation" /></strong>
-        <span class="seat-address">{{ positionLabel(winnerAddress, winnerIndex) }}</span>
-      </template>
-      <span v-else-if="loading">{{ en ? 'Loading the seating plan…' : '正在载入座次…' }}</span>
-      <span v-else-if="!occupied.length">{{ en ? 'No names in this seating plan.' : '这份名单还没有可排座的人员。' }} <RouterLink to="/lists/manage">{{ en ? 'Manage names' : '管理人员' }} →</RouterLink></span>
-      <span v-else-if="!present">{{ en ? 'Everyone is marked absent. Select a seat or reset attendance to continue.' : '全员已标记缺席。点选座位让同学返回，或重置出勤后继续。' }}</span>
-      <span v-else>{{ en ? 'Ready to select a seat from those present.' : '准备就绪，将从本堂课到场的同学中点名。' }}</span>
+    <div class="seat-strip">
+      <div class="seat-controls">
+        <label><span>{{ en ? 'Name list' : '当前名单' }}</span><I18nDataSelect :model-value="names.currentListId" :options="lists" :disabled="busy" :aria-label="en ? 'Name list' : '当前名单'" @update:model-value="changeList" /></label>
+        <label><span>{{ mapped ? (en ? 'Seats per row' : '每排座位') : (en ? 'Columns' : '显示列数') }}</span><select :value="columns" :disabled="locked" @change="changeColumns($event.target.value)"><option v-for="n in MAX_COLUMNS" :key="n" :value="n">{{ n }}</option></select></label>
+        <FluentButton class="seat-draw" variant="primary" :disabled="locked || !present" @click="draw"><FluentIcon icon="sparkle-24-filled" :width="16" />{{ busy ? (en ? 'Selecting…' : '点名中…') : (en ? 'Light up a seat' : '点亮一个座位') }}</FluentButton>
+      </div>
+      <div class="seat-result" role="status" aria-live="polite" aria-atomic="true">
+        <template v-if="receipt && winnerAddress">
+          <span>{{ mapped ? (en ? 'Selected seat' : '座位已点亮') : (en ? 'Selected name' : '抽中的是') }}</span>
+          <strong class="seat-name"><VerifiedResult :receipt="receipt" :index="0" :presentation="presentation" /></strong>
+          <span class="seat-address">{{ positionLabel(winnerAddress, winnerIndex) }}</span>
+        </template>
+        <span v-else-if="loading">{{ en ? 'Loading the seating plan…' : '正在载入座次…' }}</span>
+        <span v-else-if="!occupied.length">{{ en ? 'No names in this seating plan.' : '这份名单还没有可排座的人员。' }} <RouterLink to="/lists/manage">{{ en ? 'Manage names' : '管理人员' }} →</RouterLink></span>
+        <span v-else-if="!present">{{ en ? 'Everyone is marked absent. Select a seat or reset attendance to continue.' : '全员已标记缺席。点选座位让同学返回，或重置出勤后继续。' }}</span>
+        <span v-else>{{ en ? 'Ready to select a seat from those present.' : '准备就绪，将从本堂课到场的同学中点名。' }}</span>
+      </div>
     </div>
     <p v-if="error" class="seat-error" role="alert">{{ error }}</p>
     <div v-if="occupied.length && !loading" class="classroom">
@@ -38,7 +40,7 @@
       <SeatPlanPaste v-if="showPaste" :en="en" :names="names.currentNames" :locked="locked" @apply="usePasted" @cancel="showPaste = false" />
       <div class="front"><span>{{ mapped ? (en ? 'Front of classroom' : '讲台方向') : (en ? 'Roster view' : '名单视图') }}</span></div>
       <div ref="planViewport" class="seat-scroll">
-        <div class="seat-map" :style="{ '--seat-columns': columns }" :aria-label="en ? 'Seating plan' : '座次图'" role="group">
+        <div class="seat-map" :style="{ '--seat-columns': columns, '--seat-rows': Math.max(1, Math.ceil(visibleSeats.length / columns)) }" :aria-label="en ? 'Seating plan' : '座次图'" role="group">
           <template v-for="item in visibleSeats" :key="item.index">
           <button v-if="item.person" type="button" class="desk" :data-seat-id="item.person.id" data-i18n-private-attrs="aria-label title"
             :class="{ absent: absent.has(item.person.id), picked: picked === item.person.id, lit: winner?.id === item.person.id }"
@@ -242,9 +244,19 @@ async function draw() {
 </script>
 
 <style scoped>
-.seat-view { width: min(100%, 1040px); margin: 0 auto; padding: clamp(16px, 3.4vw, 36px); display: grid; gap: 15px; color: var(--text-primary); box-sizing: border-box; }
+.seat-view {
+  min-height: 100%;
+  min-width: 0;
+  padding: clamp(14px, 2.6cqw, 38px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(11px, 2.5cqh, 19px);
+  color: var(--text-primary);
+}
 .seat-header,.seat-controls,.seat-toolbar,.seat-result,.seat-pages { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .seat-header { justify-content: space-between; }
+.seat-strip { display: grid; gap: clamp(11px, 2.5cqh, 19px); }
+.seat-controls { align-content: center; }
 .seat-header h1 { margin: 0; font: 700 clamp(22px, 3.5vw, 32px)/1.25 var(--font-display); }
 .seat-header p,.seat-instructions { color: var(--text-secondary); font-size: 13px; margin: 5px 0 0; line-height: 1.5; }
 .seat-count,.seat-address { padding: 5px 10px; border-radius: var(--radius-full); background: color-mix(in srgb, var(--accent) 12%, var(--bg-card-solid)); font-size: 12px; font-weight: 600; }
@@ -255,7 +267,14 @@ async function draw() {
 .seat-result strong { color: var(--text-primary); font: 700 clamp(22px, 3.2vw, 30px)/1.25 var(--font-display); overflow-wrap: anywhere; }
 .seat-result a { text-decoration: underline; color: var(--text-primary); }
 .seat-error { margin: 0; color: var(--text-primary); font-size: 13px; }
-.classroom { min-width: 0; padding: clamp(12px, 2vw, 20px); border: 1px solid var(--border-strong); border-radius: var(--radius-xl); background: var(--bg-card); }
+.classroom {
+  flex: 1 0 auto;
+  min-width: 0;
+  padding: clamp(12px, 2cqw, 24px);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xl);
+  background: var(--bg-card);
+}
 .seat-toolbar { justify-content: space-between; }
 .seat-modes { display: inline-flex; gap: 3px; background: var(--bg-hover); padding: 3px; border: 1px solid var(--border-default); border-radius: var(--radius-md); }
 .seat-modes button { font: 500 13px var(--font-ui); color: var(--text-secondary); border: 0; padding: 4px 9px; border-radius: var(--radius-sm); background: transparent; cursor: pointer; }
@@ -264,17 +283,29 @@ async function draw() {
 .seat-chart-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .desk.empty { border-style: dashed; justify-content: center; text-align: center; align-items: center; color: var(--text-secondary); background: transparent; font: 12px var(--font-ui); }
 .front { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 18px 0 12px; color: var(--text-secondary); font-size: 12px; }
-.front::before,.front::after { content: ''; height: 2px; background: var(--border-strong); width: min(18%, 80px); }
+.front::before,.front::after { content: ''; height: 2px; background: var(--border-strong); width: min(24%, 160px); }
 .seat-scroll { overflow-x: auto; padding: 4px; margin: -4px; }
-.seat-map { display: grid; grid-template-columns: repeat(var(--seat-columns), minmax(60px, 1fr)); gap: 7px; }
-.desk { display: flex; flex-direction: column; align-items: stretch; gap: 2px; min-height: 57px; min-width: 0; cursor: pointer; padding: 5px 8px 7px; border: 1px solid var(--border-strong); border-bottom-width: 3px; border-radius: 9px 9px 6px 6px; color: var(--text-primary); background: var(--bg-card-solid); text-align: start; }
+.seat-map {
+  display: grid;
+  grid-template-columns: repeat(var(--seat-columns), minmax(clamp(60px, 8cqw, 92px), 1fr));
+  grid-auto-rows: minmax(clamp(58px, calc((100cqh - 455px) / var(--seat-rows)), 110px), auto);
+  gap: clamp(6px, .9cqw, 14px);
+}
+.desk { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 2px; min-width: 0; cursor: pointer; padding: 5px 8px 7px; border: 1px solid var(--border-strong); border-bottom-width: 3px; border-radius: 9px 9px 6px 6px; color: var(--text-primary); background: var(--bg-card-solid); text-align: start; }
 .desk small { display: flex; justify-content: space-between; font: 500 10px var(--font-ui); color: var(--text-secondary); }
-.desk strong { font: 650 clamp(13px, 1.6vw, 17px)/1.3 var(--font-ui); overflow-wrap: anywhere; }
+.desk strong { font: 650 clamp(13px, 1.55cqw, 20px)/1.3 var(--font-ui); overflow-wrap: anywhere; }
 .desk em { color: var(--text-secondary); font: normal 10px var(--font-ui); }
 .desk.absent { border-style: dashed; background: transparent; }
 .desk.absent strong { color: var(--text-secondary); text-decoration: line-through; }
 .desk.picked,.desk:focus-visible,.seat-modes button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .desk.lit { background: color-mix(in srgb, var(--accent) 23%, var(--bg-card-solid)); border-color: var(--accent); box-shadow: var(--shadow-4); }
 .seat-pages { justify-content: center; margin-top: 14px; font-size: 12px; color: var(--text-secondary); }
-@container (max-width: 500px) { .seat-view { padding: 13px; gap: 12px; } .seat-draw { margin-left: 0; } .seat-map { gap: 5px; } }
+@container roller-panel (min-width: 930px) {
+  .seat-strip { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
+}
+@container roller-panel (max-width: 500px) {
+  .seat-view { padding: 13px; gap: 12px; }
+  .seat-draw { margin-left: 0; }
+  .seat-map { grid-template-columns: repeat(var(--seat-columns), minmax(60px, 1fr)); grid-auto-rows: minmax(57px, auto); gap: 5px; }
+}
 </style>

@@ -1,6 +1,8 @@
 import { encryptCyreneData, decryptCyreneData } from './cyreneCrypto.js'
 
-export const I18N_CACHE_VERSION = 1
+// Cache v1 contains language-recognition fragments. Do not reuse them as
+// translations from the whole-fragment queue introduced in v2.
+export const I18N_CACHE_VERSION = 2
 export const I18N_CACHE_KEY_PREFIX = 'cyrene:i18n-cache:'
 export const I18N_CACHE_SAVE_DELAY = 1500
 const MAX_ENTRIES = 6000
@@ -62,6 +64,10 @@ export function createTranslationCache({ target, storage }) {
     try {
       const payload = await decryptCyreneData(base64ToBytes(saved.data))
       if (payload == null || typeof payload !== 'object') throw new Error('empty cache payload')
+      if (payload.v === 1 && payload.target === target) {
+        try { await storage.remove?.() } catch {}
+        return { restored: 0, corrupted: false }
+      }
       if (payload.v !== I18N_CACHE_VERSION || payload.target !== target) throw new Error('cache belongs to another target')
       if (payload.entries == null || typeof payload.entries !== 'object' || Array.isArray(payload.entries)) {
         throw new Error('cache entries are invalid')

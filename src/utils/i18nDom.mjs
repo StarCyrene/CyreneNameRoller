@@ -5,12 +5,21 @@ const PRIVATE = [
   '[translate="no"]', '.notranslate', '[data-i18n-private]', '[contenteditable]:not([contenteditable="false"])',
   '.locale-select', '[data-i18n-data-select] .select-value', '.verified-result', '.name-display', '.name-text',
   '.card-front', '.history-chip', '.wheel-label', '.wheel-winner', '.seat-name', '.relay-trail',
-  '.flybys', '.arrivals', '.letter-tiles', '.recipient', '.team-member', '.person-cn', '.person-en', '.person-id',
+  '.flybys', '.arrivals', '.recipient', '.team-member', '.person-cn', '.person-en', '.person-id',
   '.person-list-name', '.prize-list-name', '.export-list-name', '.group-name', '.group-en', '.stat-name',
   '.allocation-row', '.prize-table-name', '.prize-row-name', '.prize-modal-name',
   '.contributor-name', '.contributor-alias', '.ball-text', '.paste-preview', '[data-plugin-visual-surface]',
   'script', 'style', 'noscript', 'code', 'pre', 'canvas', 'svg', 'iframe'
 ].join(',')
+
+// App-authored UI is written in simplified Chinese or English. Choose the
+// source from the fragment rather than the target or browser language. In
+// particular, shared Han characters do not imply an already translated label.
+export function uiFragmentSource(text) {
+  if (/\p{Script=Han}/u.test(text)) return 'chinese_simplified'
+  if (/\p{Script=Latin}/u.test(text) && !/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Cyrillic}]/u.test(text)) return 'english'
+  return null
+}
 
 function elementFor(node) {
   return node?.nodeType === 2 ? node.ownerElement : node?.nodeType === 1 ? node : node?.parentElement
@@ -47,6 +56,17 @@ export function installDomTranslation(translate) {
       return
     }
     return add.call(this, id, node, text, attribute)
+  }
+  const analyze = translate.addNodeToQueueAnalysis
+  translate.addNodeToQueueAnalysis = function (id, node, text, attribute) {
+    if (isPrivateUiNode(node, attribute)) return []
+    const source = uiFragmentSource(text)
+    if (!source) return analyze.call(this, id, node, text, attribute)
+    if (source === translate.to) return []
+    // This translates one already-checked text/attribute at a time. Vendor
+    // whole-context mode joins adjacent nodes and is deliberately left off.
+    const item = translate.addNodeQueueItem(id, node, text, attribute, source, '', '')
+    return item == null ? [] : [item]
   }
   // The bundled crawler handles title by default but needs per-tag attribute
   // registration for ARIA and parent elements with children.
