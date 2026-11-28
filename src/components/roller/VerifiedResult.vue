@@ -16,7 +16,8 @@ import { useSettingsStore } from '../../stores/settings'
 const props = defineProps({
   receipt: { type: Object, required: true },
   index: { type: Number, required: true },
-  presentation: { type: Object, default: null }
+  presentation: { type: Object, default: null },
+  englishMode: { type: Boolean, default: undefined }
 })
 
 const settingsStore = useSettingsStore()
@@ -24,7 +25,7 @@ const item = computed(() => props.receipt?.results?.[props.index] || null)
 const displayName = computed(() => {
   const result = item.value
   if (!result) return ''
-  return settingsStore.settings.englishMode && result.englishName ? result.englishName : result.name
+  return ((props.englishMode ?? settingsStore.settings.englishMode) && result.englishName) || result.name
 })
 </script>
 

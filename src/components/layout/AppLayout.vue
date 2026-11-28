@@ -1,5 +1,5 @@
 <template>
-  <div class="app-layout" data-plugin-style-surface="main" :class="[themeClass, { dark: settingsStore.darkMode, 'perf-no-blur': !settingsStore.settings.perfBlur, 'perf-no-shadow': !settingsStore.settings.perfShadows, 'perf-no-anim': !settingsStore.settings.perfAnimations }]" :style="themeStyle" @contextmenu.prevent>
+  <div ref="layoutRef" class="app-layout" data-plugin-style-surface="main" :class="[themeClass, { dark: settingsStore.darkMode, 'perf-no-blur': !settingsStore.settings.perfBlur, 'perf-no-shadow': !settingsStore.settings.perfShadows, 'perf-no-anim': !settingsStore.settings.perfAnimations }]" :style="themeStyle" @contextmenu.prevent>
     <PluginVisualLayers />
     <div ref="globalAnimationSurfaceRef" class="plugin-global-animation-surface" aria-hidden="true" />
     <TitleBar class="app-foreground-layer" :dock-collapsed="dockCollapsed" @toggle-dock="toggleDock" />
@@ -7,7 +7,7 @@
       <NavigationDock :dock-collapsed="dockCollapsed" @toggle-dock="toggleDock" @open-drawer="drawerOpen = true" @close-drawer="drawerOpen = false" />
       <button v-if="narrowDock && drawerOpen" class="dock-scrim" type="button"
         :aria-label="lang === 'en' ? 'Close navigation' : '收起导航'" @click="drawerOpen = false" @keydown.esc="drawerOpen = false" />
-      <main ref="appContentRef" class="app-content">
+      <main ref="appContentRef" class="app-content" data-swarm-pageview>
         <router-view v-slot="{ Component, route }">
           <div ref="routeStageRef" class="route-page-stage" :data-route-path="route.path">
             <component :is="Component" :key="route.matched[0]?.path || route.path" />
@@ -145,10 +145,12 @@ import { isTauri, tauriAPI } from '../../utils/tauriAPI'
 import { dataBridge } from '../../utils/dataBridge'
 import { createThemeVariables, DEFAULT_ACCENT, normalizeHex } from '../../utils/theme'
 import { getCoreClient } from '../../core/client'
+import { pointerEffectsKey, usePointerEffects } from '../../composables/usePointerEffects'
 
 const router = useRouter()
 const currentRoute = useRoute()
 const settingsStore = useSettingsStore()
+const layoutRef = ref(null)
 const rollerVersionHost = shallowRef(null)
 provide('rollerVersionHost', rollerVersionHost)
 const dockViewport = window.matchMedia('(max-width: 768px)')
@@ -224,6 +226,13 @@ const themeStyle = computed(() => {
   const settings = settingsStore.settings
   return { fontSize: (14 * (settings.uiScale || 100) / 100) + 'px', ...resolvedThemeTokens.value }
 })
+provide(pointerEffectsKey, usePointerEffects({
+  router,
+  settings: computed(() => settingsStore.settings),
+  layout: layoutRef,
+  theme: resolvedThemeTokens,
+  dark: computed(() => settingsStore.darkMode)
+}))
 const isDesktopApp = computed(() => isTauri())
 
 function pluginThemePayload() {

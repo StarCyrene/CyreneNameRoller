@@ -7,7 +7,7 @@
             <line v-for="sector in dividers" :key="sector.position" x1="150" y1="0" x2="150" y2="132"
               :transform="'rotate(' + sector.start + ' 150 150)'" />
             <text v-for="sector in labels" :key="sector.position" x="150" y="47" :data-person-position="sector.position"
-              :transform="wheelLabelTransform(sector, labelRotation)" text-anchor="middle" dominant-baseline="central">{{ sector.label }}</text>
+              :transform="wheelLabelTransform(sector)" text-anchor="middle" dominant-baseline="central">{{ sector.label }}</text>
           </svg>
         </div>
         <span class="wheel-pointer" :class="{ landed: winnerSector }" aria-hidden="true"></span>
@@ -47,13 +47,20 @@
           </label>
         </div>
       </fieldset>
-      <div class="wheel-result" role="status" aria-live="polite" aria-atomic="true">
-        <span class="wheel-tag">{{ receipt ? (en ? 'Selected' : '抽中的是') : (en ? 'This spin' : '本轮点名') }}</span>
+      <div class="wheel-result">
+        <span class="wheel-tag">{{ resultLabel }}</span>
         <strong v-if="receipt" class="winner wheel-winner" translate="no">
           <VerifiedResult :receipt="receipt" :index="0" :presentation="presentation" />
         </strong>
+        <strong v-else-if="previewSector" class="winner wheel-preview" translate="no">{{ previewName }}</strong>
         <span v-else>{{ statusText }}</span>
-        <small v-if="winnerSector">{{ en ? 'List position:' : '名单序号：' }} {{ winnerSector.position }}</small>
+        <small v-if="shownSector">{{ en ? 'List position:' : '名单序号：' }} <span translate="no">{{ shownSector.position }}</span></small>
+      </div>
+      <div class="wheel-announcement" role="status" aria-atomic="true">
+        <template v-if="receipt">
+          {{ resultLabel }} <span translate="no">{{ resultName }}</span>
+        </template>
+        <template v-else>{{ statusText }}</template>
       </div>
       <RouterLink v-if="names.isLoaded && !names.currentNames.length" to="/lists/manage" class="wheel-manage">{{ en ? 'Manage names' : '前往添加人员' }} →</RouterLink>
       <FluentButton v-else variant="primary" size="lg" class="spin-action" :disabled="!canSpin" @click="spin">
@@ -71,7 +78,7 @@ import { useStatisticsStore } from '../stores/statistics'
 import { usePluginsStore } from '../plugins/store'
 import { dataBridge } from '../utils/dataBridge'
 import { normalizeCyreneBalanceSettings } from '../utils/cyrene-balance'
-import { wheelHeading, wheelLabelTransform, wheelLanding, wheelSectors } from '../utils/nameWheel.mjs'
+import { nameWheelSectors, wheelHeading, wheelLabelTransform, wheelLanding, wheelPersonName, wheelSectorAt, wheelSectors } from '../utils/nameWheel.mjs'
 import I18nDataSelect from '../components/I18nDataSelect.vue'
 import VerifiedResult from '../components/roller/VerifiedResult.vue'
 
@@ -96,10 +103,11 @@ const eligible = computed(() => eligiblePeople(names.currentList, gender.value))
 const balance = shallowRef(normalizeCyreneBalanceSettings())
 const ready = ref(false)
 const spinSnapshot = shallowRef(null)
+const englishNames = computed(() => settings.settings.englishMode)
 function sectorsFor(pool, counts = statistics.counts) {
-  return wheelSectors(pool, { english: settings.settings.englishMode, counts, balance: balance.value })
+  return wheelSectors(pool, { english: englishNames.value, counts, balance: balance.value })
 }
-const sectors = computed(() => spinSnapshot.value ?? sectorsFor(eligible.value))
+const sectors = computed(() => spinSnapshot.value ? nameWheelSectors(spinSnapshot.value, englishNames.value) : sectorsFor(eligible.value))
 const labels = computed(() => sectors.value.filter(sector => sector.label))
 // Tiny sectors still exist in the gradient; a thick separator would cover them.
 const dividers = computed(() => sectors.value.length > 1
@@ -112,20 +120,32 @@ const keyPageSize = 24
 const keyPages = computed(() => Math.ceil(sectors.value.length / keyPageSize))
 const keySectors = computed(() => sectors.value.slice(keyPage.value * keyPageSize, (keyPage.value + 1) * keyPageSize))
 const receipt = shallowRef(null)
-const winnerSector = computed(() => sectors.value.find(sector => sector.person.id === receipt.value?.results[0]?.id))
+const winner = computed(() => receipt.value?.results[0])
+const winnerSector = computed(() => winner.value && sectors.value.find(sector => sector.person.id === winner.value.id))
+const resultName = computed(() => (englishNames.value && winner.value?.englishName) || winner.value?.name)
+const previewSector = shallowRef(null)
+const previewName = computed(() => previewSector.value && wheelPersonName(previewSector.value.person, englishNames.value))
+const shownSector = computed(() => winnerSector.value ?? previewSector.value)
+const resultLabel = computed(() => {
+  if (receipt.value) return en.value ? 'Selected' : '抽中的是'
+  if (previewSector.value) return en.value ? 'Under the pointer' : '指针当前指向'
+  return en.value ? 'This spin' : '本轮点名'
+})
 const busy = ref(false)
 const error = ref('')
 const dial = ref(null)
 const rotation = ref(0)
-const labelRotation = ref(0)
 let generation = 0
 let animation = null
+let previewFrame = 0
 const canSpin = computed(() => ready.value && eligible.value.length > 0 && !busy.value)
 const spinLabel = computed(() => busy.value ? (en.value ? 'Spinning…' : '转动中…') : (en.value ? 'Spin the wheel' : '转动转盘'))
 const caption = computed(() => {
   if (!sectors.value.length) return ''
   const sizing = balance.value.enabled
-    ? (en.value ? 'Sector size reflects the chance of being picked.' : '扇区大小反映本轮抽中概率。')
+    ? (en.value
+      ? 'Balance is on. People picked less often may get more space on the wheel. Larger sectors mean a higher chance this spin.'
+      : '平衡算法已开启。较少被点到的人可能分到更大的扇区，扇区越大，本轮就越容易抽中。')
     : (en.value ? 'Everyone has the same chance.' : '每个人抽中概率相同。')
   const key = needsKey.value ? (en.value ? ' Numbers refer to the original list.' : '数字对应原名单序号。') : ''
   return (en.value ? 'One person per sector. ' : '每个扇区对应一人。') + sizing + key
@@ -146,19 +166,24 @@ const dialFill = computed(() => {
     `${sector === winnerSector.value ? 'var(--wheel-hit)' : colors[index % colors.length]} ${sector.start}deg ${sector.end}deg`).join(',') + ')'
 })
 function changeList(id) { if (!busy.value) names.switchList(id) }
+function stopPreview() {
+  cancelAnimationFrame(previewFrame)
+  previewFrame = 0
+  previewSector.value = null
+}
 function clear() {
   generation++
   animation?.cancel()
   animation = null
+  stopPreview()
   busy.value = false
   spinSnapshot.value = null
   receipt.value = null
   error.value = ''
   rotation.value = 0
-  labelRotation.value = 0
   keyPage.value = 0
 }
-watch([() => names.currentListId, gender, () => settings.settings.englishMode], clear, { flush: 'sync' })
+watch([() => names.currentListId, gender], clear, { flush: 'sync' })
 watch(keyPages, pages => { keyPage.value = Math.min(keyPage.value, Math.max(0, pages - 1)) })
 watch(() => names.isLoaded, async loaded => {
   if (!loaded) return
@@ -206,19 +231,30 @@ async function spin() {
         animation = dial.value.animate([{ transform: `rotate(${before}deg)` }, { transform: `rotate(${after}deg)` }], {
           duration: 1850, easing: 'cubic-bezier(.16,.72,.18,1)'
         })
+        const effect = animation.effect
+        const layout = spinSnapshot.value
+        const preview = () => {
+          // Sample the dial's eased progress so the name follows the actual pointer.
+          const progress = effect.getComputedTiming().progress ?? 0
+          previewSector.value = wheelSectorAt(layout, before + (after - before) * progress)
+          previewFrame = requestAnimationFrame(preview)
+        }
+        preview()
         await animation.finished.catch(() => {})
       }
     }
     if (token !== generation) return
     animation = null
-    labelRotation.value = rotation.value
     receipt.value = result
     result.results.forEach((item, i) => plugins.dispatchEvent('roller:item-result', { ...result, index: i, result: item }))
     plugins.dispatchEvent('roller:result', result)
   } catch (reason) {
     if (token === generation) error.value = reason?.message || (en.value ? 'Could not complete the draw. Try again.' : '点名失败，请再试一次。')
   } finally {
-    if (token === generation) busy.value = false
+    if (token === generation) {
+      stopPreview()
+      busy.value = false
+    }
   }
 }
 </script>
@@ -291,8 +327,10 @@ async function spin() {
 .wheel-filters input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .wheel-filters label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 .wheel-result { display: grid; gap: 7px; padding: 16px; background: var(--bg-card-solid); border: 1px solid var(--border-default); border-radius: var(--radius-md); color: var(--text-secondary); font-size: 14px; overflow-wrap: anywhere; }
+.wheel-announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .wheel-tag, .wheel-result small { font-size: 12px; }
 .winner { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--text-primary); font: 700 clamp(24px, 3.2cqw, 42px)/1.25 var(--font-display); }
+.wheel-preview { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .spin-action { width: 100%; }
 .wheel-manage { color: var(--text-primary); text-decoration: underline; text-underline-offset: 4px; }
 @container roller-panel (max-width: 690px) {

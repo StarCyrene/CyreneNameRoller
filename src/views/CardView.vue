@@ -17,7 +17,7 @@
         role="button"
         :tabindex="card.visible && !card.flipped && !controlsBusy ? 0 : -1"
         :aria-disabled="card.flipped || !card.visible || controlsBusy"
-        :aria-label="`${lang === 'en' ? 'Card' : '牌子'} ${i + 1}${card.flipped ? ' · ' + card.displayName : ''}`"
+        :aria-label="`${lang === 'en' ? 'Card' : '牌子'} ${i + 1}${card.flipped ? ' · ' + getDisplayName(card.result) : ''}`"
         @click="flipCard(i)"
         @keydown.enter.space.prevent="flipCard(i)"
       >
@@ -25,7 +25,7 @@
           <div class="card-face card-back">
             <FluentIcon icon="question-24-regular" :width="48" class="card-q-icon" />
           </div>
-          <div class="card-face card-front" aria-hidden="true">{{ card.displayName }}</div>
+          <div class="card-face card-front" aria-hidden="true" translate="no">{{ getDisplayName(card.result) }}</div>
         </div>
       </div>
     </div>
@@ -42,15 +42,13 @@
         </div>
         <div class="tray-stack">
           <TransitionGroup name="tray-item">
-            <div v-for="item in trayHistory" :key="item.id" class="history-chip">{{ item.name }}</div>
+            <div v-for="item in trayHistory" :key="item.id" class="history-chip" translate="no">{{ getDisplayName(item) }}</div>
           </TransitionGroup>
         </div>
       </div>
 
       <div class="card-controls" data-plugin-component="card.controls" :style="pluginsStore.componentStyleStyle('card.controls')">
         <div class="ctrl-row">
-          <FluentToggle v-model="englishMode" :label="lang === 'en' ? 'English names' : '显示英文名'" @update:model-value="saveCardSettings" />
-          <span class="control-sep" />
           <span class="control-label">{{ t('listLabel', lang) }}:</span>
           <I18nDataSelect :model-value="namesStore.currentListId" :options="listOptions" :disabled="controlsBusy" @update:model-value="onListChange" />
           <span class="control-sep" />
@@ -98,7 +96,7 @@ import { dataBridge } from '../utils/dataBridge'
 import { t } from '../utils/i18n'
 import { gsap } from 'gsap'
 import { runCardDeal } from '../utils/animation.js'
-import { appendCardReceipt, cardSessionKey, readCardTray, withCardSession } from '../utils/cardSessions.mjs'
+import { appendCardReceipt, cardDisplayName, cardSessionKey, readCardTray, withCardSession } from '../utils/cardSessions.mjs'
 
 const namesStore = useNamesStore()
 const settingsStore = useSettingsStore()
@@ -109,7 +107,6 @@ const showBanner = inject('banner')
 const lang = computed(() => settingsStore.settings.language)
 const listOptions = computed(() => namesStore.allLists.map(l => ({ value: l.id, label: l.name })))
 
-const englishMode = ref(false)
 const cardCount = ref(5)
 const quickCount = ref(4)
 const cards = ref([])
@@ -144,8 +141,8 @@ function getAvailableNames() {
   return allNonWL.value.filter(person => !usedNames.value.has(person.id) && !usedNames.value.has(person.cn))
 }
 
-function getDisplayName(person) {
-  return englishMode.value && person.en ? person.en : person.cn
+function getDisplayName(result) {
+  return cardDisplayName(result, settingsStore.settings.englishMode)
 }
 
 function setCardRef(element, cardId) {
@@ -192,7 +189,7 @@ function onListChange(id) {
 }
 
 async function saveCardSettings() {
-  try { await dataBridge.save(SETTINGS_KEY, { cardCount: cardCount.value, quickCount: quickCount.value, englishMode: englishMode.value }) }
+  try { await dataBridge.save(SETTINGS_KEY, { cardCount: cardCount.value, quickCount: quickCount.value }) }
   catch (error) { if (!unmounted) showCardError(error) }
 }
 
@@ -202,7 +199,6 @@ async function loadCardSettings() {
     if (saved.cardCount) cardCount.value = saved.cardCount
     if (saved.quickCount) quickCount.value = saved.quickCount
   }
-  englishMode.value = saved?.englishMode ?? settingsStore.settings.englishMode
 }
 
 function showCardError(error) {
@@ -221,12 +217,11 @@ async function loadTrayState() {
 }
 async function commitIntoTray(listId, generation, draw) {
   const previous = { used: [...usedNames.value], history: [...trayHistory.value] }
-  const english = englishMode.value
   cardTransactionInFlight.value = true
   try {
     return await withCardSession(listId, async () => {
       const receipt = await draw()
-      const tray = appendCardReceipt(previous, receipt, english)
+      const tray = appendCardReceipt(previous, receipt)
       if (operationIsActive(generation)) applyTray(tray)
       // The authoritative draw has already been recorded. Never retry the
       // draw just because saving the auxiliary tray failed.
@@ -247,7 +242,7 @@ function makeCards(count, available) {
     copy[idx] = copy[copy.length - 1]
     copy.pop()
   }
-  cards.value = chosen.map(p => ({ id: ++cardIdCounter, personId: p.id, displayName: getDisplayName(p), visible: false, flipped: false, pluginDeal: false }))
+  cards.value = chosen.map(p => ({ id: ++cardIdCounter, personId: p.id, result: null, visible: false, flipped: false, pluginDeal: false }))
   return chosen
 }
 
@@ -290,7 +285,7 @@ async function flipCard(index, operation = null, generation = operationGeneratio
     }
   }
   const result = activeOperation.receipt.results[activeOperation.index]
-  card.displayName = (englishMode.value && result.englishName) || result.name
+  card.result = result
   card.flipped = true
   nextTick(() => {
     if (operationIsActive(generation)) pluginsStore.startAnimation('card.flip', cardRefs.get(card.id))

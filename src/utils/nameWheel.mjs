@@ -17,20 +17,33 @@ function fitName(name, maxWidth) {
 export function wheelSectors(people, { english = false, counts, balance } = {}) {
   const probabilities = computeCyreneBalanceProbability(people, people.filter(person => person.isWhiteList), counts, balance ?? { enabled: false })
   let start = 0
-  return people.map((person, index) => {
+  const sectors = people.map((person, index) => {
     const probability = probabilities[personKey(person)]
     const end = index === people.length - 1 ? 360 : start + probability * 3.6
     const span = end - start
     const angle = start + span / 2
     const position = person.position ?? index + 1
-    const name = String((english && person.en) || person.cn)
-    const maxWidth = Math.min(76, 2 * LABEL_RADIUS * Math.tan(Math.min(span, 90) * Math.PI / 360) - 5)
-    const number = String(position)
-    const label = (people.length <= 20 && maxWidth >= MIN_LABEL_WIDTH && fitName(name, maxWidth))
-      || (maxWidth >= Math.max(MIN_LABEL_WIDTH, number.length * 7) ? number : '')
-    const sector = { person, position, name, label, start, end, span, angle, probability }
+    const sector = { person, position, start, end, span, angle, probability }
     start = end
     return sector
+  })
+  return nameWheelSectors(sectors, english)
+}
+
+export function wheelPersonName(person, english) {
+  return String((english && person.en) || person.cn)
+}
+
+export function nameWheelSectors(sectors, english) {
+  return sectors.map(sector => {
+    const { person, position, span } = sector
+    const name = wheelPersonName(person, english)
+    if (name === sector.name) return sector
+    const maxWidth = Math.min(76, 2 * LABEL_RADIUS * Math.tan(Math.min(span, 90) * Math.PI / 360) - 5)
+    const number = String(position)
+    const label = (sectors.length <= 20 && maxWidth >= MIN_LABEL_WIDTH && fitName(name, maxWidth))
+      || (maxWidth >= Math.max(MIN_LABEL_WIDTH, number.length * 7) ? number : '')
+    return { ...sector, name, label }
   })
 }
 
@@ -38,11 +51,23 @@ export function wheelHeading(angle) {
   return (angle % 360 + 360) % 360
 }
 
+export function wheelSectorAt(sectors, rotation) {
+  const heading = wheelHeading(-rotation)
+  let low = 0
+  let high = sectors.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if (heading < sectors[middle].end) high = middle
+    else low = middle + 1
+  }
+  return sectors[low]
+}
+
 export function wheelLanding(current, sector) {
   return current + 360 * 3 + wheelHeading(-sector.angle - current)
 }
 
-export function wheelLabelTransform(sector, rotation) {
-  const heading = wheelHeading(sector.angle + rotation)
-  return 'rotate(' + sector.angle + ' 150 150)' + (heading > 90 && heading <= 270 ? ' rotate(180 150 47)' : '')
+export function wheelLabelTransform(sector) {
+  // A label at twelve o'clock has its feet toward the hub. Rotate it with the sector.
+  return 'rotate(' + sector.angle + ' 150 150)'
 }

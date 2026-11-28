@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { appendCardReceipt, cardSessionKey, readCardTray, withCardSession } from '../src/utils/cardSessions.mjs'
+import { appendCardReceipt, cardDisplayName, cardSessionKey, readCardTray, withCardSession } from '../src/utils/cardSessions.mjs'
 
 test('a legacy tray migrates only to the list which owns its people; reset stays reset', async () => {
   const values = new Map([['cardUsedNames', ['a1']], ['cardTrayHistory', [{ id: 4, name: 'Alex' }]]])
@@ -21,11 +21,20 @@ test('remounting a list waits for its pending receipt without blocking another l
   let committed
   const pending = withCardSession('a', async () => {
     await gate
-    committed = appendCardReceipt(history, { operationId: 'op', results: [{ id: 'a1', name: '甲', englishName: 'Alex' }] }, true)
+    committed = appendCardReceipt(history, { operationId: 'op', results: [{ id: 'a1', name: '甲', englishName: 'Alex' }] })
   })
   const reloaded = withCardSession('a', () => committed)
   assert.equal(await withCardSession('b', () => 'unblocked'), 'unblocked')
   finish()
   await pending
-  assert.deepEqual(await reloaded, { used: ['a1'], history: [{ id: 'op:0', name: 'Alex' }] })
+  assert.deepEqual(await reloaded, { used: ['a1'], history: [{ id: 'op:0', name: '甲', englishName: 'Alex' }] })
+})
+
+test('new bilingual cards and older saved entries can share one tray', () => {
+  const tray = appendCardReceipt({ used: ['legacy'], history: [{ id: 'past:0', name: 'Legacy name' }] }, {
+    operationId: 'draw', results: [{ id: 'a', name: '甲', englishName: 'Alex' }, { id: 'b', name: '乙' }]
+  })
+  assert.deepEqual(tray.history.map(item => cardDisplayName(item, false)), ['乙', '甲', 'Legacy name'])
+  assert.deepEqual(tray.history.map(item => cardDisplayName(item, true)), ['乙', 'Alex', 'Legacy name'])
+  assert.deepEqual(tray.used, ['legacy', 'a', 'b'])
 })

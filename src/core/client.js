@@ -4,7 +4,7 @@ import { useRecordsStore } from '../stores/records.js'
 import { useStatisticsStore } from '../stores/statistics.js'
 import { usePrizesStore } from '../stores/prizes.js'
 import { commitCoreStateTransaction } from '../plugins/coreDraw.js'
-import { normalizeCoreCaller, normalizeCoreCardInput, normalizeCoreCommitState, normalizeCoreDrawInput, normalizeCoreMaintenanceInput } from './protocol.js'
+import { normalizeCoreCaller, normalizeCoreCardInput, normalizeCoreCommitState, normalizeCoreDrawInput, normalizeCoreMaintenanceInput, validateSeatDraw } from './protocol.js'
 import { isTauri, tauriAPI } from '../utils/tauriAPI.js'
 import { CORE_DRAW_SOURCES } from '../utils/recordSources.mjs'
 
@@ -164,7 +164,7 @@ class CoreClient {
     return balance
   }
 
-  async executeDraw({ caller: rawCaller, input: rawInput, singleDrawPreviousIds, fixedLineup = false, source = '' }) {
+  async executeDraw({ caller: rawCaller, input: rawInput, singleDrawPreviousIds, seatAbsentIds, fixedLineup = false, source = '' }) {
     const caller = normalizeCoreCaller(rawCaller)
     const input = normalizeCoreDrawInput(rawInput)
     if (source && (caller.kind !== 'core-ui' || !CORE_DRAW_SOURCES.includes(source))) {
@@ -172,15 +172,19 @@ class CoreClient {
     }
     const hooked = this.hookCoordinator && await this.hookCoordinator.before('name-draw', input)
     const effectiveInput = hooked ? { ...input, ...hooked.filter } : input
-    if (fixedLineup && Object.keys(input).some(key => input[key] !== effectiveInput[key])) {
+    if ((fixedLineup || seatAbsentIds !== undefined) && Object.keys(input).some(key => input[key] !== effectiveInput[key])) {
       throw Object.assign(new Error('插件修改了本轮点名条件 / A plugin changed the requested draw settings'), { code: 'CORE_TRANSACTION_REJECTED' })
     }
-    // A seat, riddle or relay turn reveals exactly one person from the chosen roster.
+    // A wheel, riddle or relay turn reveals exactly one person from the chosen roster.
     if (singleDrawPreviousIds !== undefined && (caller.kind !== 'core-ui' || effectiveInput.count !== 1 ||
       effectiveInput.target !== 'people' || effectiveInput.listId !== input.listId || effectiveInput.gender !== input.gender)) {
       throw Object.assign(new Error('此玩法每次只从当前名单抽取一人 / This tool draws one person from the current list'), { code: 'CORE_TRANSACTION_REJECTED' })
     }
-    const singleDraw = singleDrawPreviousIds === undefined ? {} : { singleDrawPreviousIds }
+    validateSeatDraw({ caller, input: effectiveInput, source, seatAbsentIds, singleDrawPreviousIds })
+    const drawConstraints = {
+      ...(singleDrawPreviousIds === undefined ? {} : { singleDrawPreviousIds }),
+      ...(seatAbsentIds === undefined ? {} : { seatAbsentIds })
+    }
     const namesStore = useNamesStore()
     const recordsStore = useRecordsStore()
     const statisticsStore = useStatisticsStore()
@@ -194,7 +198,7 @@ class CoreClient {
         pluginId: caller.pluginId,
         operationId: caller.operationId,
         countStatistics: caller.countStatistics,
-        ...singleDraw,
+        ...drawConstraints,
         ...(source ? { source } : {}),
         input: effectiveInput
       })
@@ -206,7 +210,7 @@ class CoreClient {
     }
     return this.enqueueWebTransaction(async () => {
       const balance = await this.syncWebState(namesStore, recordsStore, statisticsStore)
-      const receipt = await this.request({ type: 'draw.execute', caller, input: effectiveInput, ...singleDraw, ...(source ? { source } : {}) })
+      const receipt = await this.request({ type: 'draw.execute', caller, input: effectiveInput, ...drawConstraints, ...(source ? { source } : {}) })
       this.lastStateSignature = this.webStateSignature(namesStore, recordsStore, statisticsStore, balance)
        const afterAudit = await this.runAfterHooks('name-draw', receipt, hooked?.audit, { originalFilter: input, finalFilter: effectiveInput })
       return JSON.parse(JSON.stringify(hooked ? { ...receipt, hookAudit: [...hooked.audit, ...afterAudit], originalFilter: input, finalFilter: effectiveInput } : receipt))

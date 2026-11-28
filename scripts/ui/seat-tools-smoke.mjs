@@ -13,7 +13,7 @@ try {
   const page = await browser.newPage()
   const errors = []
   page.on('pageerror', e => errors.push(e.message))
-  await page.setViewport({ width: 1170, height: 800 })
+  await page.setViewport({ width: 1170, height: 800, hasTouch: true })
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }])
   await page.setRequestInterception(true)
   page.on('request', r => { if (/^https?:/.test(r.url()) && !r.url().startsWith(origin + '/')) r.abort(); else r.continue() })
@@ -38,6 +38,10 @@ try {
   }
   const paste = value => page.$eval('#seat-table', (input,text) => { input.value = text; input.dispatchEvent(new Event('input',{bubbles:true})) }, value)
   const ids = () => page.$$eval('.seat-map button', els => els.map(el => el.dataset.seatId || null))
+  const center = selector => page.$eval(selector, el => {
+    const {left, top, width, height} = el.getBoundingClientRect()
+    return { x: left + width / 2, y: top + height / 2 }
+  })
   const navigate = async (name, selector) => { await page.click('#roller-tab-' + name); await page.waitForSelector(selector) }
   await page.goto(origin + '/#/roller/wheel', { waitUntil:'domcontentloaded', timeout:60000 })
   await page.waitForSelector('.wheel-hub:not(:disabled)')
@@ -77,6 +81,13 @@ try {
   console.log('Cards: double click, immediate unmount/remount, per-list trays and batch commit')
 
   await navigate('RollerSeats','.desk')
+  assert.ok(await page.evaluate(() => {
+    const classroom = document.querySelector('.classroom').getBoundingClientRect()
+    const controls = document.querySelector('.seat-strip').getBoundingClientRect()
+    const action = document.querySelector('.seat-action-row').getBoundingClientRect()
+    const draw = document.querySelector('.seat-draw').getBoundingClientRect()
+    return controls.top >= classroom.bottom && Math.abs(action.right - draw.right) < 1 && Math.abs(action.bottom - draw.bottom) < 1
+  }))
   await page.click('.seat-draw')
   await page.waitForSelector('.seat-address')
   assert.match(await page.$eval('.seat-address',e=>e.innerText),/^Position /)
@@ -95,9 +106,23 @@ try {
   await clickText('.seat-modes button','Swap seats')
   for (const id of ['b2','b0']) { await page.focus('[data-seat-id="'+id+'"]'); await page.keyboard.press('Space') }
   assert.deepEqual(await ids(),['b0',null,'b2',null,'b1',null])
+  await page.click('.seat-add-empty')
+  assert.deepEqual(await ids(),['b0',null,'b2',null,'b1',null,null])
+  assert.equal(await page.$eval('.desk.picked',e => e.dataset.seatIndex),'6')
+  await page.click('.seat-remove-empty')
+  assert.deepEqual(await ids(),['b0',null,'b2',null,'b1',null])
+  const source = await center('[data-seat-id="b2"] [data-seat-grip]')
+  const target = await center('[data-seat-index="1"]')
+  const touch = await page.touchscreen.touchStart(source.x,source.y)
+  await page.waitForSelector('[data-seat-id="b2"].drag-source')
+  await touch.move(target.x,target.y)
+  await page.waitForSelector('[data-seat-index="1"].drag-target')
+  await touch.end()
+  await page.waitForSelector('[data-seat-index="1"][data-seat-id="b2"]')
+  assert.deepEqual(await ids(),['b0','b2',null,null,'b1',null])
   await navigate('RollerWheel','.wheel-hub')
   await navigate('RollerSeats','.desk.empty')
-  assert.deepEqual(await ids(),['b0',null,'b2',null,'b1',null])
+  assert.deepEqual(await ids(),['b0','b2',null,null,'b1',null])
   await page.click('[data-seat-id="b1"]'); await page.click('[data-seat-id="b2"]')
   await page.click('.seat-draw'); await page.waitForSelector('.desk.lit[data-seat-id="b0"]')
   assert.equal(await page.$eval('.seat-address',e=>e.innerText),'Row 1, seat 1')
@@ -107,10 +132,26 @@ try {
   await clickText('.seat-chart-actions button','Use roster order')
   assert.deepEqual(await ids(),['b0','b1','b2'])
   assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('lists')).other.names.map(p=>p.id)),['b0','b1','b2'])
-  await page.setViewport({width:520,height:780})
+  await page.setViewport({width:390,height:780,hasTouch:true})
   assert.ok(await page.$eval('.classroom',e=>e.getBoundingClientRect().right<=innerWidth+1))
+  await switchList('.seat-controls','Large')
+  await page.waitForSelector('[data-seat-id="a0"]')
+  await page.select('.seat-controls select','12')
+  await clickText('.seat-modes button','Swap seats')
+  await page.$eval('.seat-scroll',e => e.scrollIntoView({ block:'center' }))
+  assert.ok(await page.$eval('.seat-scroll',e=>e.scrollWidth>e.clientWidth))
+  const beforeScroll = await ids()
+  const scrollStart = await center('[data-seat-index="1"] small')
+  const swipe = await page.touchscreen.touchStart(scrollStart.x,scrollStart.y)
+  for (const dx of [25, 50, 75, 100]) {
+    await swipe.move(scrollStart.x-dx,scrollStart.y)
+    await new Promise(resolve=>setTimeout(resolve,30))
+  }
+  await swipe.end()
+  await page.waitForFunction(() => document.querySelector('.seat-scroll').scrollLeft > 10, {timeout:3000})
+  assert.deepEqual(await ids(),beforeScroll)
   assert.deepEqual(errors,[])
-  console.log('Seats: roster-only draw, invalid import blocked, confirmed Excel gaps, keyboard swap, persistence, absence exclusions, reset, narrow screen')
+  console.log('Seats: bottom controls, Excel gaps, add and remove slots, keyboard and touch swap, persistence, attendance, native touch scrolling')
 } finally {
   await browser?.close()
   await new Promise(resolve => server.httpServer.close(resolve))

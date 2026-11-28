@@ -221,9 +221,9 @@ export const usePluginsStore = defineStore('plugins', () => {
   }
 
   function executeRollerDraw(rawArgs = {}) {
-    const { operationId, countStatistics, singleDrawPreviousIds, fixedLineup, source, ...drawArgs } = rawArgs || {}
+    const { operationId, countStatistics, singleDrawPreviousIds, seatAbsentIds, fixedLineup, source, ...drawArgs } = rawArgs || {}
     validateCoreDrawArgs(drawArgs)
-    return coreClient.executeDraw({ caller: { kind: 'core-ui', pluginId: 'core', operationId, countStatistics }, input: drawArgs, singleDrawPreviousIds, fixedLineup, source })
+    return coreClient.executeDraw({ caller: { kind: 'core-ui', pluginId: 'core', operationId, countStatistics }, input: drawArgs, singleDrawPreviousIds, seatAbsentIds, fixedLineup, source })
   }
   function markActivationPending() {
     localStorage.setItem(SESSION_MARKER_KEY, SESSION_MARKER_VALUE)

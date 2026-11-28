@@ -13,13 +13,31 @@
       <div v-if="flying" class="warp-streaks" aria-hidden="true">
         <i v-for="n in 16" :key="n" :style="{ '--angle': ((n * 22.5) % 360) + 'deg', '--delay': (n % 8) * 22 + 'ms' }" />
       </div>
-      <div v-if="flying" class="flybys" aria-hidden="true">
-        <span v-for="(name,i) in passengers" :key="i" :class="'lane-'+i">{{ name }}</span>
+      <div class="tunnel-announcement" role="status" aria-atomic="true">
+        <template v-if="visible.length && !flying">
+          <span v-if="pending || visible.length === 1" translate="no">{{ display(visible.at(-1)) }}</span>
+          {{ round.shown }} / {{ round.results.length }} · {{ pending ? tr('已揭晓','revealed') : tr('揭晓完成','draw complete') }}
+        </template>
+        <template v-else>{{ stageTitle }}</template>
       </div>
-      <div class="tunnel-display" :class="{ arrived: arrival > 0 }" role="status" aria-live="polite" aria-atomic="true">
-        <span>{{ flying ? tr('光轨穿行中','In transit') : round ? tr('已经抵达','Arrived') : tr('等待出发','Ready to launch') }}</span>
-        <strong class="tunnel-headline" :key="arrival" :translate="round && !flying ? 'no' : null">{{ flying ? '···' : round ? headline : tr('下一站，是谁？','Who arrives next?') }}</strong>
-        <small v-if="round && !flying">{{ round.shown }} / {{ round.results.length }}</small>
+      <div class="tunnel-display" :class="{ 'has-results': !flying && visible.length, 'focused-results': !grouped }">
+        <span class="tunnel-stage-title">{{ stageTitle }}</span>
+        <ol v-if="!flying && visible.length" ref="arrivals" class="arrivals"
+          :class="{ 'arrivals-group': grouped }"
+          :aria-label="tr('已抵达的名字','Arrived names')" tabindex="0" role="list">
+          <li v-for="(person,i) in visible" :key="person.id"
+            :class="{ featured: i === featuredIndex, 'new-arrival': i === featuredIndex && arrival === i + 1 }">
+            <span v-if="visible.length > 1" class="arrival-index" aria-hidden="true">{{ String(i+1).padStart(2,'0') }}</span>
+            <strong translate="no">{{ display(person) }}</strong>
+          </li>
+        </ol>
+        <strong v-else class="tunnel-headline">{{ flying ? '···' : tr('下一站，是谁？','Who arrives next?') }}</strong>
+        <div v-if="!flying && visible.length" class="tunnel-result-footer">
+          <small>{{ round.shown }} / {{ round.results.length }} {{ tr('位已揭晓','revealed') }}</small>
+          <FluentButton class="tunnel-copy-action" variant="secondary" :disabled="locked" @click="copy">
+            {{ copied ? tr('已复制','Copied') : tr('复制名单','Copy names') }}
+          </FluentButton>
+        </div>
       </div>
     </div>
     <div class="tunnel-controls classroom-panel">
@@ -43,13 +61,8 @@
       </div>
       <p v-if="!maxCount" class="classroom-caption">{{ tr('这份名单还没有人。','This list has no names.') }} <RouterLink class="empty-link" to="/lists">{{ tr('管理名单','Manage names') }}</RouterLink></p>
       <p v-else-if="style==='steps'" class="classroom-caption">{{ tr('出发时一次抽齐并记入记录，之后每按一下只揭晓下一位。','Launching records the whole draw. Each subsequent press reveals the next name.') }}</p>
-      <p v-if="tunnel.error" role="alert">{{ tunnel.error }}</p>
-    </div>
-    <div v-if="round && !flying" class="classroom-panel">
-      <header class="classroom-actions"><h2>{{ tr('本轮点名','This draw') }}</h2>
-        <FluentButton variant="secondary" :disabled="pending" @click="copy">{{ copied ? tr('已复制','Copied') : tr('复制名单','Copy names') }}</FluentButton></header>
       <textarea v-if="manualCopy" ref="copyBox" class="tunnel-copy" readonly :value="summary" :aria-label="tr('选中并复制姓名','Select and copy names')" />
-      <ol class="arrivals"><li v-for="(person,i) in visible" :key="person.id"><span>{{ String(i+1).padStart(2,'0') }}</span>{{ display(person) }}</li></ol>
+      <p v-if="tunnel.error" role="alert">{{ tunnel.error }}</p>
     </div>
   </ClassroomSheet>
 </template>
@@ -64,43 +77,68 @@ import { useSettingsStore } from '../stores/settings'
 import { boundCount } from '../utils/classroomRounds'
 const tunnel=useLightTunnel(), classroom=useClassroomRounds(), names=useNamesStore(), settings=useSettingsStore()
 const tr=(zh,en)=>settings.settings.language==='en'?en:zh
-const style=ref('all'), requested=ref(1), flying=ref(false), passengers=ref([]), copied=ref(false), manualCopy=ref(false), copyBox=ref(null)
+const style=ref('all'), requested=ref(1), flying=ref(false), copied=ref(false), manualCopy=ref(false), copyBox=ref(null), arrivals=ref(null)
 const arrival=ref(0)
 const FLIGHT_MS=1500, REVEAL_MS=720
 const listId=computed(()=>names.currentList.id), maxCount=computed(()=>Math.min(100,classroom.people.length))
 const count=computed(()=>boundCount(requested.value,maxCount.value,1))
 const round=computed(()=>tunnel.rounds[listId.value]), pending=computed(()=>round.value && round.value.shown<round.value.results.length)
 const visible=computed(()=>round.value?.results.slice(0,round.value.shown) || [])
+const grouped=computed(()=>!pending.value && visible.value.length>1)
+const featuredIndex=computed(()=>grouped.value ? -1 : visible.value.length-1)
 const display=p=>settings.settings.englishMode && p.englishName || p.name
 const summary=computed(()=>visible.value.map(display).join('\n'))
-const headline=computed(()=>round.value?.inSteps ? display(visible.value.at(-1)) : visible.value.length<=4 ? visible.value.map(display).join(' · ') : tr('共 '+visible.value.length+' 位',visible.value.length+' names'))
+const stageTitle=computed(()=>flying.value ? tr('光轨穿行中','In transit')
+  : pending.value ? tr('名字陆续抵达','Names are arriving')
+  : visible.value.length ? tr('本轮已经抵达','Arrivals from this draw')
+  : tr('等待出发','Ready to launch'))
 const locked=computed(()=>tunnel.busy || flying.value)
-let timer, version=0
+let timer, version=0, copyRequest=0
 function setCount(value){requested.value=boundCount(value,maxCount.value,1)}
 function stopFlight(){version++;clearTimeout(timer);flying.value=false}
+function endFlight(){flying.value=false;arrival.value=round.value?.shown ?? 0}
+function clearCopy(){copyRequest++;copied.value=false;manualCopy.value=false}
 function canFly(){return settings.settings.perfAnimations!==false && !window.matchMedia('(prefers-reduced-motion: reduce)').matches && !document.hidden}
 async function launch(){
   if (locked.value || !count.value) return
   const stamp=++version, start=performance.now()
-  copied.value=false;manualCopy.value=false;flying.value=canFly()
-  if(flying.value){
-    const pool=classroom.people, offset=Math.floor(Math.random()*pool.length)
-    passengers.value=Array.from({length:Math.min(4,pool.length)},(_,i)=>{
-      const person=pool[(offset+i)%pool.length]
-      return settings.settings.englishMode && person.en || person.cn
-    })
-  }
+  clearCopy();arrival.value=0;flying.value=canFly()
   const ok=await tunnel.draw(listId.value,count.value,style.value==='steps')
   if (stamp!==version) return
-  if (ok && flying.value) timer=setTimeout(()=>{flying.value=false;arrival.value++},Math.max(0,FLIGHT_MS-(performance.now()-start)))
-  else { flying.value=false; if (ok) arrival.value++ }
+  if (ok && flying.value) timer=setTimeout(endFlight,Math.max(0,FLIGHT_MS-(performance.now()-start)))
+  else flying.value=false
 }
-function uncover(all){ if(locked.value)return; tunnel.reveal(listId.value,all); if(canFly()&&!all){flying.value=true;timer=setTimeout(()=>{flying.value=false;arrival.value++},REVEAL_MS)} }
+function uncover(all){
+  if(locked.value) return
+  clearCopy()
+  tunnel.reveal(listId.value,all)
+  if(canFly()&&!all){flying.value=true;timer=setTimeout(endFlight,REVEAL_MS)}
+}
 function onVisibility(){if(document.hidden)stopFlight()}
-watch(listId,()=>{stopFlight();copied.value=false;manualCopy.value=false})
+watch(listId,()=>{stopFlight();clearCopy();arrival.value=0})
+// Scroll the list, not the whole workbench, to spotlight the latest arrival.
+watch([arrivals,visible],()=>{
+  const list=arrivals.value
+  if(list) list.scrollTop=pending.value ? list.scrollHeight : 0
+},{flush:'post'})
 onMounted(()=>document.addEventListener('visibilitychange',onVisibility))
-onBeforeUnmount(()=>{stopFlight();document.removeEventListener('visibilitychange',onVisibility)})
-async function copy(){try{await navigator.clipboard.writeText(summary.value);copied.value=true}catch{manualCopy.value=true;await nextTick();copyBox.value?.select()}}
+onBeforeUnmount(()=>{stopFlight();clearCopy();document.removeEventListener('visibilitychange',onVisibility)})
+async function copy(){
+  if(locked.value || !visible.value.length) return
+  const stamp=++copyRequest
+  try {
+    await navigator.clipboard.writeText(summary.value)
+    if(stamp===copyRequest){copied.value=true;manualCopy.value=false}
+  } catch {
+    if(stamp!==copyRequest) return
+    copied.value=false;manualCopy.value=true
+    await nextTick()
+    if(stamp===copyRequest){
+      copyBox.value?.focus()
+      copyBox.value?.select()
+    }
+  }
+}
 </script>
 <style scoped>
 .tunnel-sheet.classroom-sheet {
@@ -122,6 +160,8 @@ async function copy(){try{await navigator.clipboard.writeText(summary.value);cop
   text-align: center;
   flex: 1 0 auto;
   min-height: clamp(180px, 47cqh, 430px);
+  padding: clamp(16px, 2.1cqi, 32px);
+  padding-block-end: max(26px, 2.1cqi);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-xl);
   background: radial-gradient(ellipse at 50% 55%, var(--bg-card-solid) 13%, transparent 66%), linear-gradient(120deg, color-mix(in srgb, var(--accent) 13%, var(--bg-card-solid)), color-mix(in srgb, var(--track) 18%, var(--bg-card-solid)));
@@ -133,15 +173,25 @@ async function copy(){try{await navigator.clipboard.writeText(summary.value);cop
 .transit .gate{animation:jump-gate 1.5s cubic-bezier(.18,.62,.2,1) both}
 .warp-streaks{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:-1}
 .warp-streaks i{position:absolute;left:50%;top:50%;width:clamp(70px,18vw,230px);height:2px;border-radius:2px;opacity:0;transform-origin:0 50%;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--track) 52%,#fff),transparent);animation:warp-streak 1.15s cubic-bezier(.16,.7,.24,1) both;animation-delay:var(--delay)}
-.flybys{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:-1}.flybys span{position:absolute;left:48%;top:46%;font-weight:650;max-width:35%;overflow:hidden;white-space:nowrap;color:var(--text-secondary);animation:fly-by 1.15s cubic-bezier(.16,.65,.3,1) both}.lane-0{--x:-36cqw;--y:-86px}.lane-1{--x:36cqw;--y:76px;animation-delay:110ms!important}.lane-2{--x:-31cqw;--y:94px;animation-delay:55ms!important}.lane-3{--x:31cqw;--y:-98px;animation-delay:170ms!important}
-@keyframes fly-by{0%{opacity:0;transform:scale(.26)}20%{opacity:1}100%{opacity:0;transform:translate(var(--x),var(--y)) scale(2.15)}}
 @keyframes rail-flow{to{stroke-dashoffset:-138}}
 @keyframes warp-streak{0%{opacity:0;transform:rotate(var(--angle)) translateX(0) scaleX(.18)}24%{opacity:.95}100%{opacity:0;transform:rotate(var(--angle)) translateX(46vw) scaleX(2.8)}}
-.tunnel-display{background:var(--bg-card-solid);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:13px clamp(12px,2.5vw,32px);max-width:82%;display:grid;gap:4px;box-shadow:var(--shadow-2);transition:box-shadow .3s,border-color .3s}
+.tunnel-announcement{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.tunnel-display{min-width:0;max-width:100%;display:grid;justify-items:center;gap:6px;padding:13px clamp(12px,2.5cqi,32px);background:var(--bg-card-solid);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-2);transition:box-shadow .3s,border-color .3s}
+.tunnel-display.has-results{width:min(100%,64rem);padding:clamp(8px,1.35cqi,19px);gap:clamp(6px,1cqi,14px)}
+.tunnel-display.has-results.focused-results{width:min(100%,42rem)}
 .transit .tunnel-display{border-color:color-mix(in srgb,var(--track) 42%,var(--border-default));box-shadow:0 0 0 1px color-mix(in srgb,var(--track) 24%,transparent),0 0 48px color-mix(in srgb,var(--track) 30%,transparent)}
-.tunnel-display span,.tunnel-display small{color:var(--text-secondary);font-size:12px;font-weight:500}.tunnel-display strong{font:700 clamp(23px,4cqw,56px)/1.2 var(--font-display);overflow-wrap:anywhere}
-.tunnel-display.arrived strong{animation:arrival-pop .62s cubic-bezier(.2,1.35,.4,1) both}
-.tunnel-controls{display:grid;gap:12px}.tunnel-copy{max-width:100%;width:100%}.arrivals{list-style:none;padding:0;margin:12px 0 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(155px,100%),1fr));gap:8px}.arrivals li{display:flex;align-items:center;gap:10px;background:var(--bg-card-solid);border:1px solid var(--border-default);border-radius:var(--radius-md);color:inherit;padding:9px 12px;font-weight:600;overflow-wrap:anywhere}.arrivals span{color:var(--text-secondary);font-variant-numeric:tabular-nums;font-size:12px}.classroom-actions h2{margin:0}
+.tunnel-stage-title,.tunnel-result-footer small{color:var(--text-secondary);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.tunnel-headline,.arrivals strong{min-width:0;font:700 clamp(22px,2.4cqi,36px)/1.2 var(--font-display);overflow-wrap:anywhere}
+.tunnel-headline,.arrivals .featured strong{font-size:clamp(31px,5.2cqi,74px)}
+.arrivals{list-style:none;display:grid;grid-template-columns:minmax(0,1fr);gap:clamp(5px,.65cqi,10px);width:100%;min-width:0;max-height:clamp(104px,37cqh,400px);overflow:auto;scrollbar-gutter:stable both-edges;margin:0;padding:2px}
+.arrivals-group{grid-template-columns:repeat(auto-fit,minmax(min(100%,clamp(128px,16cqi,206px)),1fr))}
+.arrivals li{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:5px 8px;padding:clamp(6px,1cqi,14px);background:color-mix(in srgb,var(--track) 8%,var(--bg-card-solid));border:1px solid var(--border-default);border-radius:var(--radius-md)}
+.arrivals .arrival-index{justify-self:start;color:var(--text-secondary);font:650 clamp(11px,1.1cqi,15px)/1 var(--font-ui);font-variant-numeric:tabular-nums}
+.arrivals .featured{background:color-mix(in srgb,var(--track) 14%,var(--bg-card-solid));border-color:color-mix(in srgb,var(--track) 45%,var(--border-default))}
+.arrivals .featured:only-child{grid-template-columns:minmax(0,1fr)}
+.arrivals .new-arrival strong{animation:arrival-pop .55s cubic-bezier(.2,1.25,.4,1) both}
+.tunnel-result-footer{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 8px;width:100%;padding-inline:2px}
+.tunnel-controls{display:grid;gap:12px}.tunnel-copy{max-width:100%;width:100%}
 @keyframes jump-gate{0%{transform:scale(.62);opacity:0}38%{opacity:.78}74%{opacity:.34}100%{transform:scale(1.72);opacity:0}}
 @keyframes arrival-pop{0%{opacity:0;transform:translateY(12px) scale(.84);filter:blur(7px)}55%{opacity:1;transform:translateY(0) scale(1.06);filter:blur(0)}100%{transform:none;filter:none}}
 @container roller-panel (max-width: 560px) {
@@ -151,5 +201,7 @@ async function copy(){try{await navigator.clipboard.writeText(summary.value);cop
   .tunnel-sheet.classroom-sheet { padding-block: 12px; gap: 12px; }
   .tunnel { min-height: clamp(132px, 36cqh, 176px); }
 }
-@media(prefers-reduced-motion:reduce){.transit .gate,.flybys span,.transit .rails path,.transit .warp-streaks i,.tunnel-display.arrived strong,.tunnel-display{animation:none;transition:none}.flybys,.warp-streaks{display:none}}:global(.perf-no-anim) .transit .gate,:global(.perf-no-anim) .transit .rails path,:global(.perf-no-anim) .transit .warp-streaks i,:global(.perf-no-anim) .tunnel-display.arrived strong{animation:none}:global(.perf-no-anim) .flybys,:global(.perf-no-anim) .warp-streaks{display:none}
+@media(prefers-reduced-motion:reduce){.transit .gate,.transit .rails path,.transit .warp-streaks i,.arrivals .new-arrival strong,.tunnel-display{animation:none;transition:none}.warp-streaks{display:none}}
+:global(.perf-no-anim) .transit .gate,:global(.perf-no-anim) .transit .rails path,:global(.perf-no-anim) .transit .warp-streaks i,:global(.perf-no-anim) .arrivals .new-arrival strong{animation:none}
+:global(.perf-no-anim) .warp-streaks{display:none}
 </style>

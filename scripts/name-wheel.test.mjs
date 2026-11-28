@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { wheelHeading, wheelLabelTransform, wheelLanding, wheelSectors } from '../src/utils/nameWheel.mjs'
+import { nameWheelSectors, wheelHeading, wheelLabelTransform, wheelLanding, wheelSectorAt, wheelSectors } from '../src/utils/nameWheel.mjs'
 
 function roster(size) {
   return Array.from({ length: size }, (_, i) => ({ id: String(i), cn: '同学' + (i + 1), en: i ? '' : 'Alex' }))
@@ -40,17 +40,41 @@ test('large rosters keep every wedge distinct without drawing unreadably crowded
   assert.deepEqual(wheelSectors([], { english: true }), [])
 })
 
-test('unequal and tiny wedges still land at the pointer; bottom labels are flipped upright', () => {
+test('unequal and tiny wedges land at the pointer without flipping their labels', () => {
   const sectors = wheelSectors(roster(13), { counts: { 0: 15, 1: 2 }, balance: { enabled: true } })
   let rotation = 0
   for (const pos of [0, 12, 6, 6, 2]) {
     const sector = sectors[pos]
     const landing = wheelLanding(rotation, sector)
     assert.ok(landing - rotation >= 1080)
+    assert.equal(wheelSectorAt(sectors, landing), sector)
     closeTo(Math.sin(wheelHeading(sector.angle + landing) * Math.PI / 180), 0)
     assert.ok(Math.cos(wheelHeading(sector.angle + landing) * Math.PI / 180) > .999999)
-    assert.doesNotMatch(wheelLabelTransform(sector, landing), /rotate\(180 150 47\)/)
-    assert.match(wheelLabelTransform(sector, landing + 180), /rotate\(180 150 47\)/)
+    assert.equal(wheelLabelTransform(sector), `rotate(${sector.angle} 150 150)`)
     rotation = wheelHeading(landing)
   }
+})
+
+test('changing the displayed names retains the drawn layout and pointer position', () => {
+  const sectors = wheelSectors(roster(7), { counts: { 0: 2 }, balance: { enabled: true } })
+  const named = nameWheelSectors(sectors, true)
+  const landing = wheelLanding(0, sectors[0])
+  assert.equal(named[0].name, 'Alex')
+  assert.equal(wheelSectorAt(named, landing).person, sectors[0].person)
+  assert.equal(wheelLabelTransform(named[0]), wheelLabelTransform(sectors[0]))
+  assert.equal(named[1], sectors[1])
+})
+
+test('the pointer changes names at uneven wedge boundaries, including after full turns', () => {
+  const sectors = [
+    { start: 0, end: 165 },
+    { start: 165, end: 168 },
+    { start: 168, end: 360 }
+  ]
+  assert.equal(wheelSectorAt(sectors, 0), sectors[0])
+  assert.equal(wheelSectorAt(sectors, 190), sectors[2])
+  assert.equal(wheelSectorAt(sectors, 192), sectors[2])
+  assert.equal(wheelSectorAt(sectors, 193), sectors[1])
+  assert.equal(wheelSectorAt(sectors, 915), sectors[1])
+  assert.equal(wheelSectorAt(sectors, 196), sectors[0])
 })

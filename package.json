@@ -29,6 +29,7 @@
     "gsap": "^3.15.0",
     "jszip": "^3.10.1",
     "pinia": "^3.0.3",
+    "swarm-cursors-vue": "file:packages/swarm-cursors-vue",
     "vue": "^3.5.17",
     "vue-fluent-widgets": "^1.0.0",
     "vue-router": "^4.5.1",

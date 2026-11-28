@@ -49,6 +49,8 @@ const DEFAULT_SETTINGS = {
   perfBlur: true,
   perfShadows: true,
   perfAnimations: true,
+  pointerEffects: false,
+  pointerDrawingSound: false,
   dockCollapsed: false,
   disableSplash: false,
   floatingWindowEnabled: false,

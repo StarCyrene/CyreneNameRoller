@@ -1,5 +1,5 @@
 <template>
-  <nav ref="dockRef" class="dock" data-plugin-component="navigation.dock" :class="{ collapsed: dockCollapsed, 'secondary-open': Boolean(activeSecondaryMenu) }" :style="pluginsStore.componentStyleStyle('navigation.dock')" @keydown.esc="$emit('close-drawer')" @click="onDockClick">
+  <nav ref="dockRef" class="dock" data-swarm-persist data-plugin-component="navigation.dock" :class="{ collapsed: dockCollapsed, 'secondary-open': Boolean(activeSecondaryMenu) }" :style="pluginsStore.componentStyleStyle('navigation.dock')" @keydown.esc="$emit('close-drawer')" @click="onDockClick">
     <div
       v-show="indicatorVisible"
       ref="indicatorRef"

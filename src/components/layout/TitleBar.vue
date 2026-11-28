@@ -1,5 +1,5 @@
 <template>
-  <div v-if="isDesktopApp" class="titlebar" data-plugin-component="app.title-bar" :style="pluginsStore.componentStyleStyle('app.title-bar')">
+  <div v-if="isDesktopApp" class="titlebar" data-swarm-persist data-plugin-component="app.title-bar" :style="pluginsStore.componentStyleStyle('app.title-bar')">
     <button class="titlebar-hamburger" @click="$emit('toggle-dock')" :aria-expanded="!dockCollapsed" :title="dockCollapsed ? '展开' : '收起'">
       <Icon icon="fluent:line-horizontal-3-20-regular" :width="18" />
     </button>

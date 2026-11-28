@@ -75,7 +75,8 @@ test('阶段 0 freezes API, component targets and slot namespaces', async () => 
     ['src/components/layout/TitleBar.vue', ['class="titlebar"', 'isDesktopApp']],
     ['src/components/layout/AppLayout.vue', ['class="version-badge"']],
     ['src/components/layout/NavigationDock.vue', ['class="dock"', "'设置'"]],
-    ['src/views/RollerView.vue', ['class="list-selector-bar"', 'class="switches"', 'class="english-mode-toggle"', 'data-plugin-component="roller.filter.draw-target"', 'class="start-btn"', 'class="display-container"', 'class="name-display"']],
+    ['src/views/RollerView.vue', ['class="list-selector-bar"', 'class="switches"', 'data-plugin-component="roller.filter.draw-target"', 'class="start-btn"', 'class="display-container"', 'class="name-display"']],
+    ['src/views/RollerWorkspaceView.vue', ['class="english-mode-toggle"', 'data-plugin-component="roller.filter.english-mode"']],
     ['src/views/CardView.vue', ['class="card-controls"', 'class="cards-grid"', 'class="card-face ', 'class="card"']],
     ['src/views/LotteryView.vue', ['class="roller-result"', 'class="wheel-result"']],
     ['src/views/StatisticsView.vue', ['class="stats-summary"']]
