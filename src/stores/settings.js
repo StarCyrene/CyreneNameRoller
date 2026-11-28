@@ -12,6 +12,7 @@ import {
   normalizeFloatingWindowTextColor
 } from '../utils/floatingWindowText'
 import { normalizeAutoStopDuration } from '../utils/autoStop.mjs'
+import { normalizePointerDrawingSpeed } from '../utils/pointerDrawingPreferences.mjs'
 import { normalizeSettingsLocale, selectInterfaceLanguage } from '../utils/settingsLocale.mjs'
 
 const DEFAULT_SETTINGS = {
@@ -51,6 +52,8 @@ const DEFAULT_SETTINGS = {
   perfAnimations: true,
   pointerEffects: false,
   pointerDrawingSound: false,
+  pointerDrawingSpeed: 1,
+  pointerHideWorkerPointers: false,
   dockCollapsed: false,
   disableSplash: false,
   floatingWindowEnabled: false,
@@ -90,6 +93,8 @@ export const useSettingsStore = defineStore('settings', () => {
         settings.value.floatingWindowTextColor = normalizeFloatingWindowTextColor(settings.value.floatingWindowTextColor)
         settings.value.floatingWindowTextSize = normalizeFloatingWindowTextSize(settings.value.floatingWindowTextSize)
         settings.value.autoStopDuration = normalizeAutoStopDuration(settings.value.autoStopDuration)
+        settings.value.pointerDrawingSpeed = normalizePointerDrawingSpeed(settings.value.pointerDrawingSpeed)
+        settings.value.pointerHideWorkerPointers = settings.value.pointerHideWorkerPointers === true
         darkMode.value = !!saved.darkMode
 
         if (!saved.uiScaleVersion || saved.uiScaleVersion < 2) {

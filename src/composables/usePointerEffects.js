@@ -1,10 +1,12 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { normalizePointerDrawingSpeed } from '../utils/pointerDrawingPreferences.mjs'
 
 export const pointerEffectsKey = Symbol('pointer-effects')
 const EDITABLE = 'input:not([type="button"]):not([type="submit"]):not([type="reset"]), textarea, select, [role="textbox"]'
 const isEditing = element => !!(element?.isContentEditable || element?.closest?.(EDITABLE))
 const canDrawPage = route => !!route?.name && route.meta.swarmCursors !== false
 const changesPage = (to, from) => to.path !== from.path
+const HIDE_WORKER_POINTERS = 'data-cnr-hide-worker-pointers'
 const PALETTE = {
   '--cnr-pointer-accent': '--accent',
   '--cnr-pointer-accent-dark': '--accent-dark',
@@ -61,6 +63,8 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
   const available = computed(() => ready.value && enabled.value && canDrawPage(router.currentRoute.value))
   const drawingPath = ref(null)
   const drawingCurrentRoute = computed(() => enabled.value && drawingPath.value === router.currentRoute.value.path)
+  const drawingSpeed = computed(() => normalizePointerDrawingSpeed(settings.value.pointerDrawingSpeed))
+  const hideWorkerPointers = computed(() => enabled.value && settings.value.pointerHideWorkerPointers === true)
   let replacement = null
   let core = null
   let getEngine
@@ -112,6 +116,14 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
     }
   }
 
+  function syncDrawingSpeed() {
+    if (!core?.getState().running) return
+    // The vendored runtime creates the run before the core emits its running
+    // state. Its speed is the same multiplier used by the built-in HUD.
+    const run = window.__divPointers?.app
+    if (!run?.dead && run?.engine) run.engine.speed = drawingSpeed.value
+  }
+
   async function refresh(initial = false) {
     const request = ++token
     if (!enabled.value || !layout.value) {
@@ -159,7 +171,10 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
         companion: false,
         sound: settings.value.pointerDrawingSound === true
       })
-      removeState = core.on('state', state => { playing.value = state.running || state.loading })
+      removeState = core.on('state', state => {
+        playing.value = state.running || state.loading
+        if (state.running) syncDrawingSpeed()
+      })
       ready.value = true
     } catch (error) {
       // A missing optional chunk must not block a launch or interfere with navigation.
@@ -216,8 +231,11 @@ export function usePointerEffects({ router, settings, layout, theme, dark }) {
     window.removeEventListener('focusin', protectEdit, true)
     window.removeEventListener('keydown', allowAppKey, true)
     destroy()
+    document.documentElement.removeAttribute(HIDE_WORKER_POINTERS)
     for (const key of Object.keys(PALETTE)) document.documentElement.style.removeProperty(key)
   })
+  watch(drawingSpeed, syncDrawingSpeed, { flush: 'sync' })
+  watch(hideWorkerPointers, hidden => document.documentElement.toggleAttribute(HIDE_WORKER_POINTERS, hidden), { immediate: true, flush: 'sync' })
   watch([theme, dark], syncTheme, { flush: 'post' })
 
   return { available, playing, replay, prepareRoute, drawingCurrentRoute }

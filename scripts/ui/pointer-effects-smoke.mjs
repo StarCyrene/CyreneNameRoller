@@ -11,6 +11,8 @@ const server = await preview({
 const origin = 'http://127.0.0.1:' + server.httpServer.address().port
 const effectsToggle = '.pointer-effects-toggle'
 const soundToggle = '.pointer-sound-toggle'
+const hideWorkerToggle = '.pointer-hide-worker-toggle'
+const drawingSpeedSelect = '.pointer-drawing-speed-select button'
 const viewForPath = {
   '/roller': '.roller-view',
   '/roller/card': '.card-view',
@@ -420,6 +422,38 @@ try {
     assert.equal(await test.page.$('.pointer-replay'), null)
     await test.context.close()
   }
+
+  const preferences = await makePage()
+  const prefsPage = preferences.page
+  await prefsPage.goto(origin + '/#/settings/appearance')
+  await prefsPage.waitForSelector(drawingSpeedSelect)
+  assert.equal(await prefsPage.$eval(drawingSpeedSelect, button => button.textContent.trim()), '1×')
+  assert.equal(await prefsPage.$eval(hideWorkerToggle + ' input', input => input.checked), false)
+  await prefsPage.$eval(drawingSpeedSelect, button => { button.scrollIntoView({ block: 'center' }); button.focus() })
+  await prefsPage.keyboard.press('Enter')
+  const option = '.fluent-select-dropdown .select-option'
+  await prefsPage.waitForSelector(option, { visible: true })
+  const choices = await prefsPage.$$(option)
+  assert.deepEqual(await prefsPage.$$eval(option, options => options.map(item => item.textContent.trim())),
+    ['1×', '1.25×', '1.5×', '1.75×', '2×'])
+  await choices[3].click()
+  await waitSetting(prefsPage, 'pointerDrawingSpeed', 1.75)
+  await toggleWithKeyboard(prefsPage, hideWorkerToggle)
+  await waitSetting(prefsPage, 'pointerHideWorkerPointers', true)
+  await assertQuiet(prefsPage, { chunks: preferences.chunks })
+  await toggleWithKeyboard(prefsPage, effectsToggle)
+  await waitSetting(prefsPage, 'pointerEffects', true)
+  await prefsPage.goto(origin + '/?drawing-preferences#/roller/wheel')
+  await waitRoute(prefsPage, '/roller/wheel')
+  await prefsPage.waitForFunction(() => {
+    const app = window.__divPointers?.app
+    const outlines = app?.view.root.querySelectorAll('svg.ov rect')
+    return app?.engine?.started && app.engine.speed === 1.75 && outlines?.length > 0 &&
+      getComputedStyle(app.view.cursorsEl).display === 'none' &&
+      !!document.querySelector('swarm-companion')
+  })
+  await reveal(prefsPage)
+  await preferences.context.close()
   assert.deepEqual(errors, [])
   console.log('Pointer effects: real page painting on startup and tool/Dock navigation, unobscured splash, service worker, independent sound, stationary theme changes, teardown, and accessibility fallbacks.')
 } finally {

@@ -6,11 +6,11 @@ candidate from Cyrene2008/swarm-cursors-vue, commit
 `Demiurge/nameroller-reveal-alignment`. This snapshot includes CyTime's replay
 and live glyph work plus NameRoller's scrolling, text alignment, and handoff fixes.
 
-The package manifest, `src/`, distribution (including every chunk and the
-TypeScript declarations), and upstream documentation and license files are
-exact Git blobs from that commit. Replace them together on upgrade. This app
-consumes the committed `dist/`; use the pinned upstream checkout for package
-builds and tests.
+The app snapshot is based on that commit. It carries a downstream patch to
+`src/engine-runtime.js` that keeps native button layout, honors form text
+alignment, and counts thin strokes before revealing the real page. The
+committed `dist/` was rebuilt from this patched source with the base commit's
+build script and lockfile. Preserve or reconcile the patch on upgrade.
 
 The MIT terms apply to the respective Nitin Thakur and Cyrene2008 contributions.
 They do not grant rights to inherited Swarm code. See [LICENSE](LICENSE) and

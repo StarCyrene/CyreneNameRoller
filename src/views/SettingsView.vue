@@ -353,6 +353,23 @@
         <FluentToggle class="pointer-sound-toggle" :model-value="settings.pointerDrawingSound === true"
           :aria-label="lang === 'en' ? 'Drawing sounds' : '绘制音效'" @update:model-value="update('pointerDrawingSound', $event)" />
       </div>
+      <div class="setting-row" role="group" aria-labelledby="pointer-drawing-speed-label" aria-describedby="pointer-drawing-speed-hint">
+        <div class="setting-label-group">
+          <span id="pointer-drawing-speed-label" class="setting-label">{{ lang === 'en' ? 'Drawing speed' : '绘制速度' }}</span>
+          <span id="pointer-drawing-speed-hint" class="setting-desc">{{ lang === 'en' ? '1× is the standard speed.' : '1× 为默认速度。' }}</span>
+        </div>
+        <FluentSelect class="pointer-drawing-speed-select" :model-value="settings.pointerDrawingSpeed ?? 1"
+          :options="pointerDrawingSpeedOptions" width="160px" @update:model-value="update('pointerDrawingSpeed', $event)" />
+      </div>
+      <div class="setting-row">
+        <div class="setting-label-group">
+          <span class="setting-label">{{ lang === 'en' ? 'Hide drawing pointers' : '隐藏绘制指针' }}</span>
+          <span id="pointer-hide-worker-hint" class="setting-desc">{{ lang === 'en' ? 'Keep the drawing outlines and the theme mouse cursor visible.' : '描边动画和主题鼠标光标仍然可见。' }}</span>
+        </div>
+        <FluentToggle class="pointer-hide-worker-toggle" :model-value="settings.pointerHideWorkerPointers === true"
+          :aria-label="lang === 'en' ? 'Hide drawing pointers' : '隐藏绘制指针'" aria-describedby="pointer-hide-worker-hint"
+          @update:model-value="update('pointerHideWorkerPointers', $event)" />
+      </div>
       <div class="performance-note">
         <FluentIcon icon="info-16-regular" :width="14" />
         <span>{{ lang === 'en' ? 'Disable options to improve performance on integrated GPUs.' : '关闭选项可提升核显设备性能。' }}</span>
@@ -656,6 +673,7 @@ import { fetchCompassReleases, formatBytes, COMPASS_GITHUB_URL } from '../utils/
 import { t } from '../utils/i18n'
 import { clearTranslationCache } from '../utils/i18nAuto'
 import { EXTRA_LANGUAGES, NATIVE_LANGUAGES, interfaceLanguage } from '../utils/settingsLocale.mjs'
+import { POINTER_DRAWING_SPEEDS } from '../utils/pointerDrawingPreferences.mjs'
 import {
   DEFAULT_CYRENE_BALANCE_SETTINGS,
   normalizeCyreneBalanceSettings,
@@ -808,6 +826,7 @@ const fontSizeOptions = [
   { value: 0.75, label: '0.75x' }, { value: 1.0, label: '1.0x' }, { value: 1.25, label: '1.25x' },
   { value: 1.5, label: '1.5x' }, { value: 1.75, label: '1.75x' }, { value: 2.0, label: '2.0x' }
 ]
+const pointerDrawingSpeedOptions = POINTER_DRAWING_SPEEDS.map(value => ({ value, label: `${value}×` }))
 
 const colorModeOptions = [
   { value: 'gradient', label: lang.value === 'en' ? 'Gradient' : '渐变' },
